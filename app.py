@@ -226,13 +226,15 @@ def evaluate_rules(symbol, quote, history, params):
             avg_vol   = round(statistics.mean(changes), 2)
             threshold = round(avg_vol * params["volatility_multiplier"], 2)
             triggered = daily_pct > threshold
+            direction = "UP" if close > prev else "DOWN"
+            signal = ("BUY" if direction == "UP" else "SELL") if triggered else "NEUTRAL"
             r1.update({
                 "description": f"Fires when today's move exceeds {params['volatility_multiplier']}× the {params['volatility_lookback']}-day average daily move.",
                 "rationale": "Large single-day moves relative to a stock's own history often precede or follow major catalysts — earnings, institutional repositioning, or macro events. When a stock moves far beyond its typical daily range, the cause warrants investigation before acting.",
                 "param_summary": f"Multiplier: {params['volatility_multiplier']}×  |  Lookback: {params['volatility_lookback']} days",
                 "actual_value": round(daily_pct,2), "threshold": threshold,
                 "avg_daily_vol": avg_vol, "triggered": triggered,
-                "direction": "UP" if close > prev else "DOWN",
+                "direction": direction, "signal": signal,
                 "message": f"{'▲' if close>prev else '▼'} {daily_pct:.2f}% vs threshold {threshold:.2f}% — {'ALERT' if triggered else 'OK'}",
             })
         else:
@@ -252,13 +254,14 @@ def evaluate_rules(symbol, quote, history, params):
         below = close < support
         above = close > resistance
         triggered = below or above
+        signal2 = ("SELL" if below else "BUY" if above else "NEUTRAL") if triggered else "NEUTRAL"
         r2.update({
             "description": f"Fires when price breaks {params['support_resist_pct']}% beyond the {params['support_resist_lookback']}-day high or low.",
             "rationale": "Price levels where a stock has repeatedly found buying (support) or selling (resistance) act as psychological anchors. A decisive break through these zones signals a potential regime shift — either a breakdown or a breakout — and often leads to accelerated price movement in the breakout direction.",
             "param_summary": f"Buffer: {params['support_resist_pct']}%  |  Lookback: {params['support_resist_lookback']} days",
             "support": support, "resistance": resistance,
             "period_low": round(lo,2), "period_high": round(hi,2),
-            "actual_value": close, "triggered": triggered,
+            "actual_value": close, "triggered": triggered, "signal": signal2,
             "message": (f"${close} BELOW support ${support}" if below else
                         f"${close} ABOVE resistance ${resistance}" if above else
                         f"${close} within range ${support}–${resistance}"),
@@ -293,6 +296,7 @@ def evaluate_rules(symbol, quote, history, params):
             else:
                 rationale = "Sustained multi-day selling pressure signals trend momentum and potential exhaustion. After a run of consecutive down days, the stock approaches a decision point: either a technical bounce from oversold conditions, or continuation of the downtrend."
                 description = f"Fires after {threshold}+ consecutive closing days in the red."
+            signal3 = ("SELL" if streak_active else "BUY" if streak_resolved else "NEUTRAL") if triggered else "NEUTRAL"
             r3.update({
                 "description": description,
                 "rationale": rationale,
@@ -300,7 +304,7 @@ def evaluate_rules(symbol, quote, history, params):
                 "actual_value": cur_run if streak_active else max_downs,
                 "current_run": cur_run, "max_run": max_downs,
                 "streak_active": streak_active, "streak_resolved": streak_resolved,
-                "threshold": threshold, "triggered": triggered,
+                "threshold": threshold, "triggered": triggered, "signal": signal3,
                 "message": (
                     f"Active streak: {cur_run} consecutive down days — ALERT" if streak_active else
                     f"Streak of {max_downs} down days detected; stock has since bounced — ALERT" if streak_resolved else
@@ -340,6 +344,7 @@ def run_check(symbols=None):
                         "actual_value": rule.get("actual_value"),
                         "threshold":    rule.get("threshold"),
                         "direction":    rule.get("direction"),
+                        "signal":       rule.get("signal"),
                         "support":      rule.get("support"),
                         "resistance":   rule.get("resistance"),
                         "avg_daily_vol":rule.get("avg_daily_vol"),
@@ -506,7 +511,8 @@ DASHBOARD = r"""<!DOCTYPE html>
 <title>Tripwire</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#0A0C12;color:#E4E0D8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh}
+html{font-size:200%}
+body{background:#0A0C12;color:#E4E0D8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;font-size:1rem}
 button{cursor:pointer;border:none;outline:none}
 input,select{outline:none}
 
@@ -644,6 +650,19 @@ input,select{outline:none}
 
 .err-banner{background:#EF444415;border:1px solid #EF4444;color:#EF4444;padding:10px 16px;font-size:13px;margin-bottom:12px;border-radius:8px}
 .no-alerts{color:#6B7280;font-size:14px;padding:30px;text-align:center}
+
+/* Signal badges */
+.sig-badge{display:inline-block;border-radius:6px;padding:3px 12px;font-size:11px;font-weight:800;letter-spacing:.6px;text-transform:uppercase}
+.sig-strong-buy{background:#10B98125;color:#10B981;border:2px solid #10B98166}
+.sig-strong-sell{background:#EF444425;color:#EF4444;border:2px solid #EF444466}
+.sig-trending-buy{background:#10B98112;color:#10B981;border:1px solid #10B98144}
+.sig-trending-sell{background:#EF444412;color:#EF4444;border:1px solid #EF444444}
+.sig-pending{background:#6B728012;color:#6B7280;border:1px solid #6B728044}
+.sig-buy{background:#10B98112;color:#10B981;border:1px solid #10B98133}
+.sig-sell{background:#EF444412;color:#EF4444;border:1px solid #EF444433}
+.sig-neutral{background:#37415112;color:#6B7280;border:1px solid #37415144}
+.card-signal{margin:8px 0 4px 0}
+.group-signal{margin-left:auto;margin-right:8px}
 </style>
 </head>
 <body>
@@ -856,6 +875,32 @@ async function removeStock(sym,e){
   await loadAll();
 }
 
+// ── Signal logic ─────────────────────────────────────────────────────────────
+function computeSignal(rules){
+  const triggered=(rules||[]).filter(r=>r.triggered&&!r.disabled);
+  if(!triggered.length) return null;
+  const buys=triggered.filter(r=>r.signal==='BUY').length;
+  const sells=triggered.filter(r=>r.signal==='SELL').length;
+  const total=triggered.length;
+  if(total>=2&&buys/total>=2/3) return{label:'STRONG BUY',cls:'sig-strong-buy'};
+  if(total>=2&&sells/total>=2/3) return{label:'STRONG SELL',cls:'sig-strong-sell'};
+  if(buys>sells) return{label:'TRENDING BUY',cls:'sig-trending-buy'};
+  if(sells>buys) return{label:'TRENDING SELL',cls:'sig-trending-sell'};
+  return{label:'PENDING',cls:'sig-pending'};
+}
+
+function signalBadge(sig){
+  if(!sig) return '';
+  return `<span class="sig-badge ${sig.cls}">${sig.label}</span>`;
+}
+
+function ruleSigBadge(signal){
+  if(!signal||signal==='NEUTRAL') return '<span class="sig-badge sig-neutral">NEUTRAL</span>';
+  if(signal==='BUY') return '<span class="sig-badge sig-buy">▲ BUY</span>';
+  if(signal==='SELL') return '<span class="sig-badge sig-sell">▼ SELL</span>';
+  return '';
+}
+
 // ── Stock grid ────────────────────────────────────────────────────────────────
 function renderGrid(){
   const grid=document.getElementById('stock-grid');
@@ -869,14 +914,16 @@ function renderGrid(){
     const alertCls=s.alert?' alert':'';
     const triggered=(s.rules||[]).filter(r=>r.triggered&&!r.disabled);
 
+    const sig=computeSignal(s.rules);
     const triggeredHTML=triggered.length>0?`
       <div class="card-triggered">
         <div class="card-triggered-hdr">⚠ ${triggered.length} rule${triggered.length>1?'s':''} triggered</div>
         ${triggered.map(r=>`<div class="card-triggered-item">
           <span class="ti-dot">▸</span>
-          <span><span class="ti-label">${shortRuleLabel(r.rule_type)}:</span> ${cardRuleDetail(r)}</span>
+          <span><span class="ti-label">${shortRuleLabel(r.rule_type)}:</span> ${cardRuleDetail(r)} ${ruleSigBadge(r.signal)}</span>
         </div>`).join('')}
-      </div>`:'';
+      </div>
+      <div class="card-signal">${signalBadge(sig)}</div>`:'';
 
     return `<div class="stock-card${selCls}${alertCls}" onclick="selectStock('${s.symbol}')">
       <button class="remove-btn" onclick="removeStock('${s.symbol}',event)">✕</button>
@@ -948,6 +995,7 @@ function renderDetail(s){
       <div>
         <div id="detail-title">${s.symbol} <span style="font-size:13px;color:#6B7280;font-weight:400">${(s.category||'').replace('_vol',' vol')}</span></div>
         <div id="detail-meta">Updated ${s.date} ${s.time}${s.alert?' · <span style="color:#F59E0B">⚠ Alert active</span>':''}</div>
+        ${signalBadge(computeSignal(s.rules))}
       </div>
       <button id="btn-close" onclick="selectStock('${s.symbol}')">✕ Close</button>
     </div>
@@ -985,6 +1033,7 @@ function ruleHTML(sym,r,idx,historyClosed){
   const badge=r.disabled?'<span class="badge badge-disabled">DISABLED</span>':
                r.triggered?'<span class="badge badge-alert">⚠ ALERT</span>':
                '<span class="badge badge-ok">✓ OK</span>';
+  const rSig=r.triggered&&!r.disabled?ruleSigBadge(r.signal):'';
   const alertCls=r.triggered&&!r.disabled?' alert-rule':'';
   const msgCls=r.triggered&&!r.disabled?' alert-msg':'';
 
@@ -1025,6 +1074,7 @@ function ruleHTML(sym,r,idx,historyClosed){
       <div class="rule-title">${r.label}</div>
       <div class="rule-header-right">
         ${badge}
+        ${rSig}
         ${editFields.length>0?`<button class="edit-toggle" onclick="toggleEdit('${sym}','${r.rule_type}')">Edit</button>`:''}
       </div>
     </div>
@@ -1112,11 +1162,13 @@ function renderAlerts(){
       if(detail.direction)           detailVals.push(`<div class="alert-detail-val"><span>Direction</span><span>${detail.direction}</span></div>`);
 
       const ruleLabel={volatility:'Unusual Move',support_resistance:'S/R Breach',consecutive_down:'Consec. Down'}[a.rule_type]||a.rule_type.replace(/_/g,' ');
+      const alertSig=detail.signal?ruleSigBadge(detail.signal):'';
 
       return `<div class="alert-entry">
         <div class="alert-entry-header">
           <span class="alert-entry-time">${a.time}</span>
           <span class="alert-entry-rule">${ruleLabel}</span>
+          ${alertSig}
           <span class="alert-entry-price">Price: $${a.price}</span>
         </div>
         <div class="alert-entry-msg">${a.message}</div>
@@ -1126,11 +1178,24 @@ function renderAlerts(){
       </div>`;
     }).join('');
 
+    // Compute group signal from all alerts in this group
+    const groupSigs=entries.map(a=>{let d={};try{if(a.detail)d=JSON.parse(a.detail);}catch(e){}return d.signal;}).filter(Boolean);
+    const gBuys=groupSigs.filter(s=>s==='BUY').length;
+    const gSells=groupSigs.filter(s=>s==='SELL').length;
+    const gTotal=groupSigs.length;
+    let groupSig=null;
+    if(gTotal>=2&&gBuys/gTotal>=2/3) groupSig={label:'STRONG BUY',cls:'sig-strong-buy'};
+    else if(gTotal>=2&&gSells/gTotal>=2/3) groupSig={label:'STRONG SELL',cls:'sig-strong-sell'};
+    else if(gBuys>gSells) groupSig={label:'TRENDING BUY',cls:'sig-trending-buy'};
+    else if(gSells>gBuys) groupSig={label:'TRENDING SELL',cls:'sig-trending-sell'};
+    else if(gTotal>0) groupSig={label:'PENDING',cls:'sig-pending'};
+
     return `<div class="alert-group">
       <div class="alert-group-hdr" onclick="toggleAlertGroup('${sym}')">
         <span class="alert-group-sym">${sym}</span>
         <span class="alert-group-cnt">${entries.length} alert${entries.length>1?'s':''}</span>
         <span class="alert-group-cat" id="ag-cat-${sym}"></span>
+        ${groupSig?`<span class="sig-badge ${groupSig.cls} group-signal">${groupSig.label}</span>`:''}
         <span class="alert-group-chevron ${isOpen?'open':''}" id="ag-chev-${sym}">▼</span>
       </div>
       <div class="alert-entries ${isOpen?'open':''}" id="ag-entries-${sym}">
