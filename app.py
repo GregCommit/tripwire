@@ -516,8 +516,7 @@ DASHBOARD = r"""<!DOCTYPE html>
 <title>Tripwire</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-html{font-size:200%}
-body{background:#0A0C12;color:#E4E0D8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;font-size:1rem}
+body{background:#0A0C12;color:#E4E0D8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh}
 button{cursor:pointer;border:none;outline:none}
 input,select{outline:none}
 
