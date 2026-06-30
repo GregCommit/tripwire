@@ -191,7 +191,12 @@ def get_history(symbol, days=90):
             "SELECT timestamp,close,high,low FROM prices WHERE symbol=? AND timestamp>? ORDER BY timestamp ASC",
             (symbol, cutoff)
         ).fetchall()
-        return [dict(r) for r in rows]
+    # One row per calendar date — keep the latest intraday update for each day
+    seen = {}
+    for r in rows:
+        date_key = datetime.fromtimestamp(r["timestamp"]).strftime("%Y-%m-%d")
+        seen[date_key] = dict(r)
+    return list(seen.values())
 
 def log_alert(symbol, rule_type, message, price, detail=None):
     with get_db() as conn:
