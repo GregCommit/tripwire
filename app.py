@@ -272,21 +272,40 @@ def evaluate_rules(symbol, quote, history, params):
     if params.get("use_consecutive"):
         closes = [h["close"] for h in history[-12:]]
         if len(closes) >= 4:
-            downs = max_downs = cur_run = 0
+            cur_run = max_downs = 0
             for i in range(1, len(closes)):
                 if closes[i] < closes[i-1]:
                     cur_run += 1
                     max_downs = max(max_downs, cur_run)
                 else:
                     cur_run = 0
+            # cur_run > 0 means the streak is still active today
+            streak_active = cur_run >= params["consecutive_down_days"]
+            streak_resolved = (max_downs >= params["consecutive_down_days"]) and cur_run == 0
             threshold = params["consecutive_down_days"]
-            triggered = max_downs >= threshold
+            triggered = streak_active or streak_resolved
+            if streak_active:
+                rationale = f"The stock has closed lower for {cur_run} consecutive days — selling pressure is ongoing. Watch for either a bounce from oversold conditions or continuation of the downtrend. Both outcomes are actionable."
+                description = f"Active streak: {cur_run} consecutive down days (threshold {threshold})."
+            elif streak_resolved:
+                rationale = f"The stock had a streak of {max_downs} consecutive down days but has since reversed upward. The rule fired on the streak; today's move up may be the technical bounce that streak often precedes. Monitor whether the recovery holds."
+                description = f"Streak of {max_downs} consecutive down days detected recently; stock has since bounced."
+            else:
+                rationale = "Sustained multi-day selling pressure signals trend momentum and potential exhaustion. After a run of consecutive down days, the stock approaches a decision point: either a technical bounce from oversold conditions, or continuation of the downtrend."
+                description = f"Fires after {threshold}+ consecutive closing days in the red."
             r3.update({
-                "description": f"Fires after {threshold}+ consecutive closing days in the red.",
-                "rationale": "Sustained multi-day selling pressure signals trend momentum and potential exhaustion. After a run of consecutive down days, the stock approaches a decision point: either a technical bounce from oversold conditions, or continuation indicating a genuine trend shift. Either outcome is actionable.",
+                "description": description,
+                "rationale": rationale,
                 "param_summary": f"Min consecutive days: {threshold}",
-                "actual_value": max_downs, "threshold": threshold, "triggered": triggered,
-                "message": f"{max_downs} consecutive down days ({'ALERT' if triggered else f'OK, threshold {threshold}'})",
+                "actual_value": cur_run if streak_active else max_downs,
+                "current_run": cur_run, "max_run": max_downs,
+                "streak_active": streak_active, "streak_resolved": streak_resolved,
+                "threshold": threshold, "triggered": triggered,
+                "message": (
+                    f"Active streak: {cur_run} consecutive down days — ALERT" if streak_active else
+                    f"Streak of {max_downs} down days detected; stock has since bounced — ALERT" if streak_resolved else
+                    f"Max streak {max_downs} days — OK (threshold {threshold})"
+                ),
             })
         else:
             r3.update({"triggered":False,"message":"Insufficient history","actual_value":None,"threshold":params["consecutive_down_days"]})
