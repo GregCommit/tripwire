@@ -811,14 +811,18 @@ function rangeBarHTML(lo, hi, current, label, loLabel, hiLabel, color) {
   </div>`;
 }
 
-// ── Data loop ─────────────────────────────────────────────────────────────────
+// ── Data loop (synced to Yahoo check completion) ──────────────────────────────
 async function fetchJSON(url){ const r=await fetch(url); return r.json(); }
 async function postJSON(url,body){ const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); return r.json(); }
+
+let lastKnownCheck=null, wasChecking=false;
 
 async function loadAll(){
   try{
     const [s,a,st]=await Promise.all([fetchJSON('/api/stocks'),fetchJSON('/api/alerts'),fetchJSON('/api/status')]);
     stocks=s; alerts=a.alerts||[];
+    lastKnownCheck=st.last_check;
+    wasChecking=st.status==='checking';
     renderStatus(st);
     renderGrid();
     renderAlerts();
@@ -828,7 +832,24 @@ async function loadAll(){
     document.getElementById('err-banner').style.display='block';
   }
 }
-setInterval(loadAll,5000);
+
+async function pollStatus(){
+  try{
+    const st=await fetchJSON('/api/status');
+    const nowChecking=st.status==='checking';
+    // Reload full data when a check just finished (was checking, now done)
+    // or when last_check timestamp changed (new data arrived)
+    if((wasChecking&&!nowChecking)||(st.last_check&&st.last_check!==lastKnownCheck)){
+      await loadAll();
+    } else {
+      // Just update the status bar without a full reload
+      renderStatus(st);
+    }
+  }catch(e){}
+}
+
+// Poll status every 2s — lightweight; full reload only fires when Yahoo sync completes
+setInterval(pollStatus, 2000);
 loadAll();
 
 // ── Status ────────────────────────────────────────────────────────────────────
