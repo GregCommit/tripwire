@@ -943,15 +943,33 @@ function renderGrid(){
     const triggered=(s.rules||[]).filter(r=>r.triggered&&!r.disabled);
 
     const sig=computeSignal(s.rules);
-    const triggeredHTML=triggered.length>0?`
-      <div class="card-triggered">
-        <div class="card-triggered-hdr">⚠ ${triggered.length} rule${triggered.length>1?'s':''} triggered</div>
-        ${triggered.map(r=>`<div class="card-triggered-item">
-          <span class="ti-dot">▸</span>
-          <span><span class="ti-label">${shortRuleLabel(r.rule_type)}:</span> ${cardRuleDetail(r)} ${ruleSigBadge(r.signal)}</span>
-        </div>`).join('')}
-      </div>
-      <div class="card-signal">${signalBadge(sig)}</div>`:'';
+    const allRules=(s.rules||[]).filter(r=>!r.disabled);
+    const hasRuleData=allRules.length>0&&allRules.some(r=>r.message&&!r.message.includes('Insufficient')&&!r.message.includes('Waiting'));
+
+    let rulesHTML='';
+    if(hasRuleData){
+      if(triggered.length>0){
+        rulesHTML=`
+          <div class="card-triggered">
+            <div class="card-triggered-hdr">⚠ ${triggered.length} rule${triggered.length>1?'s':''} triggered</div>
+            ${triggered.map(r=>`<div class="card-triggered-item">
+              <span class="ti-dot">▸</span>
+              <span><span class="ti-label">${shortRuleLabel(r.rule_type)}:</span> ${cardRuleDetail(r)} ${ruleSigBadge(r.signal)}</span>
+            </div>`).join('')}
+          </div>
+          <div class="card-signal">${signalBadge(sig)}</div>`;
+      } else {
+        // All rules evaluated and all OK — show compact per-rule status
+        rulesHTML=`
+          <div class="card-triggered">
+            <div class="card-triggered-hdr" style="color:#10B981">✓ All rules OK</div>
+            ${allRules.map(r=>`<div class="card-triggered-item">
+              <span class="ti-dot" style="color:#10B981">✓</span>
+              <span><span class="ti-label" style="color:#9CA3AF">${shortRuleLabel(r.rule_type)}:</span> ${cardRuleDetail(r)}</span>
+            </div>`).join('')}
+          </div>`;
+      }
+    }
 
     return `<div class="stock-card${selCls}${alertCls}" onclick="selectStock('${s.symbol}')">
       <button class="remove-btn" onclick="removeStock('${s.symbol}',event)">✕</button>
@@ -966,7 +984,7 @@ function renderGrid(){
           ${s.post_market?`<span class="post-clr">Post $${s.post_market}</span>`:''}
         </div>
         <div class="stock-time">${s.date} ${s.time}</div>
-        ${triggeredHTML}
+        ${rulesHTML}
       `:`<div class="stock-err">${s.error||'Loading...'}</div>`}
     </div>`;
   }).join('');
@@ -982,12 +1000,21 @@ function shortRuleLabel(rt){
 }
 
 function cardRuleDetail(r){
-  if(r.rule_type==='volatility') return `${r.direction==='UP'?'▲':'▼'} ${r.actual_value}% (thresh ${r.threshold}%)`;
-  if(r.rule_type==='support_resistance'){
-    if(r.actual_value<r.support) return `$${r.actual_value} below support $${r.support}`;
-    return `$${r.actual_value} above resistance $${r.resistance}`;
+  if(r.rule_type==='volatility'){
+    if(r.actual_value==null) return r.message||'';
+    const dir=r.direction==='UP'?'▲':'▼';
+    return `${dir} ${r.actual_value}% (thresh ${r.threshold}%)`;
   }
-  if(r.rule_type==='consecutive_down') return `${r.actual_value} days down`;
+  if(r.rule_type==='support_resistance'){
+    if(r.actual_value==null) return r.message||'';
+    if(r.triggered&&r.actual_value<r.support) return `$${r.actual_value} below support $${r.support}`;
+    if(r.triggered&&r.actual_value>r.resistance) return `$${r.actual_value} above resistance $${r.resistance}`;
+    return `$${r.actual_value} in range $${r.support}–$${r.resistance}`;
+  }
+  if(r.rule_type==='consecutive_down'){
+    if(r.actual_value==null) return r.message||'';
+    return r.triggered?`${r.actual_value} days down`:`max ${r.actual_value} days (OK)`;
+  }
   return r.message||'';
 }
 
