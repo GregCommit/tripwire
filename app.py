@@ -156,10 +156,33 @@ def fetch_extended_data(symbol):
             }
     except: pass
 
+def populate_history(symbol):
+    """Seed prices DB with 90 days of daily closes from Yahoo (runs once per stock at startup)."""
+    try:
+        hist = yf.Ticker(symbol).history(period="90d")
+        if hist.empty:
+            return
+        rows = list(hist.iterrows())
+        with get_db() as conn:
+            for i, (ts, row) in enumerate(rows):
+                day_ts = int(ts.timestamp())
+                prev_close = round(float(rows[i-1][1]["Close"]), 2) if i > 0 else round(float(row["Close"]), 2)
+                conn.execute("""
+                    INSERT OR IGNORE INTO prices
+                    (symbol,timestamp,open,high,low,close,prev_close,pre_market,post_market)
+                    VALUES (?,?,?,?,?,?,?,?,?)""",
+                    (symbol, day_ts,
+                     round(float(row["Open"]),2), round(float(row["High"]),2),
+                     round(float(row["Low"]),2),  round(float(row["Close"]),2),
+                     prev_close, None, None))
+            conn.commit()
+    except: pass
+
 def refresh_extended_loop():
     stocks = get_stocks()
     for s in stocks:
         fetch_extended_data(s["symbol"])
+        populate_history(s["symbol"])
     while True:
         time.sleep(86400)
         for s in get_stocks():
@@ -466,6 +489,7 @@ def api_add_stock():
         conn.commit()
     threading.Thread(target=run_check, args=([symbol],), daemon=True).start()
     threading.Thread(target=fetch_extended_data, args=(symbol,), daemon=True).start()
+    threading.Thread(target=populate_history, args=(symbol,), daemon=True).start()
     return jsonify({"success": True, "symbol": symbol, "price": quote["close"]})
 
 @app.route("/api/stocks/remove", methods=["POST"])
