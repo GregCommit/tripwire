@@ -635,7 +635,11 @@ def select(years):
                 if best["n"] >= MIN_N and pd.notna(oos) and oos > 0:
                     adopt_level = "ticker"; chosen = json.loads(best["params_json"])
                     note = f"ticker: exc5={best['mean_exc5']*100:.2f}% n={int(best['n'])} oos={oos*100:.2f}%"
-            if chosen is None:
+            # ma_cross showed ~no edge at this horizon even pooled (see BACKTESTING.md); only
+            # adopt it where a ticker itself validated out-of-sample, never via category fallback.
+            if chosen is None and rule == "ma_cross":
+                note = f"disabled by policy (ma_cross requires ticker-level OOS validation): {reason}"
+            elif chosen is None:
                 # fall back to category-pooled best
                 psub = pooled[(pooled["category"] == cat) & (pooled["rule"] == rule)] if not pooled.empty else pd.DataFrame()
                 pbest, preason = pick_best(psub) if not psub.empty else (None, "no pooled events")

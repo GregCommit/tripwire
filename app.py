@@ -236,6 +236,9 @@ def yf_cached(key, ttl, fn):
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Params shared by every category (rule toggles + new-rule thresholds).
+# Thresholds below reflect backtest.py findings (5yr event-study, see BACKTESTING.md):
+# MA crossover showed ~no edge at the app's alert horizon, so it's off by default —
+# individual tickers can still have it enabled via a per-symbol override (see rule_params).
 _COMMON_RULE_DEFAULTS = {
     "enable_volatility": True,
     "enable_support_resistance": True,
@@ -245,8 +248,8 @@ _COMMON_RULE_DEFAULTS = {
     "enable_gap": True, "gap_pct": 3.0,
     # RSI(14)
     "enable_rsi": True, "rsi_period": 14, "rsi_overbought": 70, "rsi_oversold": 30,
-    # Moving-average crossover
-    "enable_ma": True, "ma_short": 20, "ma_long": 50, "ma_cross_lookback": 3,
+    # Moving-average crossover — disabled by default; see comment above.
+    "enable_ma": False, "ma_short": 20, "ma_long": 50, "ma_cross_lookback": 3,
 }
 
 def _mk_rules(base):
@@ -255,9 +258,9 @@ def _mk_rules(base):
     return d
 
 DEFAULT_RULES = {
-    "high_vol": _mk_rules({"volatility_multiplier":2.5,"volatility_lookback":20,"support_resist_pct":7.0,"support_resist_lookback":90,"consecutive_down_days":3,"use_consecutive":True}),
-    "mod_vol":  _mk_rules({"volatility_multiplier":1.5,"volatility_lookback":20,"support_resist_pct":5.0,"support_resist_lookback":30,"consecutive_down_days":3,"use_consecutive":False,"volume_multiplier":2.5,"gap_pct":2.0}),
-    "low_vol":  _mk_rules({"volatility_multiplier":1.2,"volatility_lookback":20,"support_resist_pct":4.0,"support_resist_lookback":60,"consecutive_down_days":3,"use_consecutive":False,"volume_multiplier":2.0,"gap_pct":1.5}),
+    "high_vol": _mk_rules({"volatility_multiplier":3.75,"volatility_lookback":10,"support_resist_pct":8.0,"support_resist_lookback":120,"consecutive_down_days":3,"use_consecutive":True,"volume_multiplier":3.0,"volume_lookback":20,"gap_pct":5.0,"rsi_period":21,"rsi_overbought":80,"rsi_oversold":35}),
+    "mod_vol":  _mk_rules({"volatility_multiplier":3.75,"volatility_lookback":30,"support_resist_pct":5.0,"support_resist_lookback":30,"consecutive_down_days":3,"use_consecutive":False,"volume_multiplier":2.0,"volume_lookback":20,"gap_pct":2.0,"rsi_period":14,"rsi_overbought":80,"rsi_oversold":30}),
+    "low_vol":  _mk_rules({"volatility_multiplier":4.0,"volatility_lookback":30,"support_resist_pct":3.0,"support_resist_lookback":30,"consecutive_down_days":3,"use_consecutive":False,"volume_multiplier":2.5,"volume_lookback":10,"gap_pct":3.0,"rsi_period":21,"rsi_overbought":80,"rsi_oversold":35}),
 }
 
 def get_stocks():
@@ -710,17 +713,21 @@ def evaluate_rules(symbol, quote, history, params):
             streak_active = cur_run >= params["consecutive_down_days"]
             streak_resolved = (max_downs >= params["consecutive_down_days"]) and cur_run == 0
             threshold = params["consecutive_down_days"]
-            triggered = streak_active or streak_resolved
+            # Only the resolved (bounce) case is an actionable alert. A 5-year backtest found
+            # no reliable short-term edge in treating an active losing streak as a sell signal
+            # on this watchlist (mean 5-day signal-direction excess return was negative) — an
+            # active streak is shown for context only, never alerted.
+            triggered = streak_resolved
             if streak_active:
-                rationale = f"The stock has closed lower for {cur_run} consecutive days — selling pressure is ongoing. Watch for either a bounce from oversold conditions or continuation of the downtrend. Both outcomes are actionable."
-                description = f"Active streak: {cur_run} consecutive down days (threshold {threshold})."
+                rationale = f"The stock has closed lower for {cur_run} consecutive days. Backtesting found no reliable short-term edge in treating an active losing streak as a sell signal on this watchlist — shown for context only, not alerted. Watch for either a bounce or continuation."
+                description = f"Active streak: {cur_run} consecutive down days (context only — not an actionable alert)."
             elif streak_resolved:
                 rationale = f"The stock had a streak of {max_downs} consecutive down days but has since reversed upward. The rule fired on the streak; today's move up may be the technical bounce that streak often precedes. Monitor whether the recovery holds."
                 description = f"Streak of {max_downs} consecutive down days detected recently; stock has since bounced."
             else:
-                rationale = "Sustained multi-day selling pressure signals trend momentum and potential exhaustion. After a run of consecutive down days, the stock approaches a decision point: either a technical bounce from oversold conditions, or continuation of the downtrend."
-                description = f"Fires after {threshold}+ consecutive closing days in the red."
-            signal3 = ("SELL" if streak_active else "BUY" if streak_resolved else "NEUTRAL") if triggered else "NEUTRAL"
+                rationale = "A losing streak can precede a technical bounce. This rule only alerts once the streak resolves upward — backtesting found an active streak alone has no reliable predictive edge at this horizon."
+                description = f"Fires after a {threshold}+ day losing streak resolves with an up day."
+            signal3 = "BUY" if streak_resolved else "NEUTRAL"
             r3.update({
                 "description": description,
                 "rationale": rationale,
@@ -730,8 +737,8 @@ def evaluate_rules(symbol, quote, history, params):
                 "streak_active": streak_active, "streak_resolved": streak_resolved,
                 "threshold": threshold, "triggered": triggered, "signal": signal3,
                 "message": (
-                    f"Active streak: {cur_run} consecutive down days — ALERT" if streak_active else
                     f"Streak of {max_downs} down days detected; stock has since bounced — ALERT" if streak_resolved else
+                    f"Active streak: {cur_run} consecutive down days — context only, no alert" if streak_active else
                     f"Max streak {max_downs} days — OK (threshold {threshold})"
                 ),
             })
@@ -1569,6 +1576,11 @@ input,select{outline:none}
 #btn-check{background:#F59E0B;color:#000;border-radius:6px;padding:7px 16px;font-weight:700;font-size:13px}
 #btn-check:disabled{opacity:0.5;cursor:not-allowed}
 
+/* Action-window banner */
+#window-banner{background:#F59E0B15;border-bottom:1px solid #F59E0B44;color:#F59E0B;
+  padding:9px 20px;font-size:13px;font-weight:600;text-align:center;line-height:1.5}
+#window-banner strong{font-weight:800}
+
 /* Tabs */
 #tabs{display:flex;border-bottom:1px solid #1E2235;background:#12151F;padding:0 20px}
 .tab{padding:12px 18px;font-size:14px;color:#6B7280;border-bottom:2px solid transparent;cursor:pointer;background:none;border-left:none;border-right:none;border-top:none}
@@ -1594,21 +1606,21 @@ input,select{outline:none}
 .stock-card.alert{border-color:#F59E0B55}
 .alert-dot{position:absolute;top:10px;right:10px;width:7px;height:7px;border-radius:50%;background:#F59E0B;box-shadow:0 0 6px #F59E0B}
 .stock-symbol{font-weight:800;font-size:15px;margin-bottom:2px;letter-spacing:-.3px}
-.stock-cat{font-size:10px;color:#6B7280;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px}
+.stock-cat{font-size:15px;color:#6B7280;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px}
 .stock-price{font-size:22px;font-weight:800;margin-bottom:2px;letter-spacing:-1px}
 .stock-pct{font-size:13px;font-weight:600;margin-bottom:6px}
-.stock-ext{font-size:10px;margin-top:4px;display:flex;gap:8px}
-.stock-time{font-size:10px;color:#4B5563;margin-top:4px}
-.stock-err{font-size:11px;color:#EF4444;margin-top:8px}
+.stock-ext{font-size:15px;margin-top:4px;display:flex;gap:8px}
+.stock-time{font-size:15px;color:#4B5563;margin-top:4px}
+.stock-err{font-size:17px;color:#EF4444;margin-top:8px}
 .up{color:#10B981}.dn{color:#EF4444}.muted{color:#6B7280}
 .pre-clr{color:#A78BFA}.post-clr{color:#60A5FA}
-.remove-btn{position:absolute;top:8px;left:8px;background:#1A1D27;border:1px solid #2A2D3E;color:#6B7280;border-radius:4px;font-size:10px;padding:1px 5px;display:none;z-index:2}
+.remove-btn{position:absolute;top:8px;left:8px;background:#1A1D27;border:1px solid #2A2D3E;color:#6B7280;border-radius:4px;font-size:15px;padding:1px 5px;display:none;z-index:2}
 .stock-card:hover .remove-btn{display:block}
 
 /* Alert summary on card */
 .card-triggered{margin-top:10px;border-top:1px solid #1E2235;padding-top:8px}
-.card-triggered-hdr{font-size:10px;color:#F59E0B;font-weight:700;letter-spacing:.5px;margin-bottom:5px;text-transform:uppercase}
-.card-triggered-item{font-size:11px;color:#D1D5DB;padding:3px 0;display:flex;align-items:flex-start;gap:5px;line-height:1.4}
+.card-triggered-hdr{font-size:15px;color:#F59E0B;font-weight:700;letter-spacing:.5px;margin-bottom:5px;text-transform:uppercase}
+.card-triggered-item{font-size:17px;color:#D1D5DB;padding:3px 0;display:flex;align-items:flex-start;gap:5px;line-height:1.4}
 .card-triggered-item .ti-dot{color:#F59E0B;flex-shrink:0;margin-top:1px}
 .card-triggered-item .ti-label{color:#F59E0B;font-weight:700;flex-shrink:0}
 
@@ -1622,42 +1634,42 @@ input,select{outline:none}
 /* Price grid */
 #price-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;margin-bottom:10px}
 .price-cell{background:#0A0C12;border:1px solid #1E2235;border-radius:8px;padding:10px 12px}
-.price-cell-label{font-size:9px;color:#6B7280;margin-bottom:4px;letter-spacing:.7px;text-transform:uppercase}
+.price-cell-label{font-size:14px;color:#6B7280;margin-bottom:4px;letter-spacing:.7px;text-transform:uppercase}
 .price-cell-val{font-size:16px;font-weight:800;letter-spacing:-.5px}
-.price-cell-sub{font-size:11px;color:#6B7280;margin-top:2px}
+.price-cell-sub{font-size:17px;color:#6B7280;margin-top:2px}
 
 /* Range grid */
 .ranges-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:18px}
 .range-cell{background:#0A0C12;border:1px solid #1E2235;border-radius:8px;padding:10px 12px}
-.range-cell-label{font-size:9px;color:#6B7280;letter-spacing:.7px;text-transform:uppercase;margin-bottom:6px}
+.range-cell-label{font-size:14px;color:#6B7280;letter-spacing:.7px;text-transform:uppercase;margin-bottom:6px}
 .range-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:3px}
-.range-row span:first-child{font-size:10px;color:#6B7280}
+.range-row span:first-child{font-size:15px;color:#6B7280}
 .range-row span:last-child{font-size:13px;font-weight:700}
 .range-bar-wrap{height:4px;background:#1E2235;border-radius:2px;margin-top:6px;position:relative}
 .range-bar-fill{height:100%;border-radius:2px}
 .range-bar-dot{position:absolute;top:-3px;width:10px;height:10px;border-radius:50%;border:2px solid #0A0C12;transform:translateX(-50%)}
 
 /* Rules */
-.section-label{font-size:10px;color:#6B7280;letter-spacing:1px;margin-bottom:10px;font-weight:700;text-transform:uppercase}
+.section-label{font-size:15px;color:#6B7280;letter-spacing:1px;margin-bottom:10px;font-weight:700;text-transform:uppercase}
 .rule-card{background:#0A0C12;border:1px solid #1E2235;border-radius:10px;padding:16px;margin-bottom:10px;transition:border-color .15s}
 .rule-card.alert-rule{border-color:#F59E0B55;background:#0D0F14}
 .rule-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
 .rule-title{font-weight:700;font-size:14px}
 .rule-header-right{display:flex;gap:8px;align-items:center}
-.badge{border-radius:4px;padding:2px 9px;font-size:10px;font-weight:700;letter-spacing:.5px}
+.badge{border-radius:4px;padding:2px 9px;font-size:15px;font-weight:700;letter-spacing:.5px}
 .badge-ok{background:#10B98115;color:#10B981;border:1px solid #10B98133}
 .badge-alert{background:#F59E0B15;color:#F59E0B;border:1px solid #F59E0B33}
 .badge-disabled{background:#6B728015;color:#6B7280;border:1px solid #6B728033}
 .rule-desc{font-size:12px;color:#9CA3AF;margin-bottom:6px;line-height:1.5}
-.rule-rationale{font-size:11px;color:#6B7280;background:#12151F;border-left:2px solid #374151;padding:7px 10px;border-radius:0 6px 6px 0;margin-bottom:10px;line-height:1.5;font-style:italic}
-.rule-params-line{font-size:11px;color:#3B82F6;margin-bottom:10px}
+.rule-rationale{font-size:17px;color:#6B7280;background:#12151F;border-left:2px solid #374151;padding:7px 10px;border-radius:0 6px 6px 0;margin-bottom:10px;line-height:1.5;font-style:italic}
+.rule-params-line{font-size:17px;color:#3B82F6;margin-bottom:10px}
 .rule-vals{display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:6px;margin-bottom:10px}
 .val-cell{background:#12151F;border:1px solid #1E2235;border-radius:6px;padding:7px 10px}
-.val-cell-label{font-size:9px;color:#6B7280;margin-bottom:3px;letter-spacing:.5px;text-transform:uppercase}
+.val-cell-label{font-size:14px;color:#6B7280;margin-bottom:3px;letter-spacing:.5px;text-transform:uppercase}
 .val-cell-val{font-size:14px;font-weight:700}
 .rule-msg{font-size:12px;background:#12151F;border-radius:6px;padding:8px 11px;color:#9CA3AF;margin-top:6px}
 .rule-msg.alert-msg{color:#F59E0B;background:#F59E0B0A;border:1px solid #F59E0B22}
-.edit-toggle{background:#1E2235;color:#E4E0D8;border-radius:4px;padding:3px 10px;font-size:11px}
+.edit-toggle{background:#1E2235;color:#E4E0D8;border-radius:4px;padding:3px 10px;font-size:17px}
 .edit-panel{background:#12151F;border:1px solid #1E2235;border-radius:8px;padding:14px;margin-top:10px}
 .edit-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
 .edit-row label{font-size:12px;color:#9CA3AF}
@@ -1673,7 +1685,7 @@ input,select{outline:none}
 .alert-group-hdr:hover{background:#1A1D27}
 .alert-group-sym{font-size:16px;font-weight:800;letter-spacing:-.5px}
 .alert-group-cnt{font-size:12px;color:#F59E0B;background:#F59E0B15;border:1px solid #F59E0B33;border-radius:10px;padding:1px 9px;font-weight:700}
-.alert-group-cat{font-size:11px;color:#6B7280}
+.alert-group-cat{font-size:17px;color:#6B7280}
 .alert-group-chevron{margin-left:auto;color:#6B7280;font-size:12px;transition:transform .2s}
 .alert-group-chevron.open{transform:rotate(180deg)}
 .alert-entries{display:none;border-top:1px solid #1E2235}
@@ -1681,47 +1693,49 @@ input,select{outline:none}
 .alert-entry{padding:14px 18px;border-bottom:1px solid #0F1117}
 .alert-entry:last-child{border-bottom:none}
 .alert-entry-header{display:flex;align-items:center;gap:10px;margin-bottom:6px}
-.alert-entry-time{font-size:11px;color:#4B5563;font-family:monospace}
-.alert-entry-rule{font-size:11px;color:#F59E0B;background:#F59E0B0F;border-radius:4px;padding:1px 8px;font-weight:700;text-transform:uppercase;letter-spacing:.4px}
-.alert-entry-price{font-size:11px;color:#9CA3AF;margin-left:auto}
+.alert-entry-time{font-size:17px;color:#4B5563;font-family:monospace}
+.alert-entry-rule{font-size:17px;color:#F59E0B;background:#F59E0B0F;border-radius:4px;padding:1px 8px;font-weight:700;text-transform:uppercase;letter-spacing:.4px}
+.alert-entry-price{font-size:17px;color:#9CA3AF;margin-left:auto}
 .alert-entry-msg{font-size:13px;color:#E4E0D8;margin-bottom:6px;font-weight:500}
-.alert-entry-detail{font-size:11px;color:#6B7280;line-height:1.6}
+.alert-entry-detail{font-size:17px;color:#6B7280;line-height:1.6}
 .alert-detail-vals{display:flex;gap:12px;flex-wrap:wrap;margin-top:6px}
-.alert-detail-val{background:#0A0C12;border-radius:4px;padding:3px 8px;font-size:11px}
+.alert-detail-val{background:#0A0C12;border-radius:4px;padding:3px 8px;font-size:17px}
 .alert-detail-val span:first-child{color:#6B7280}
 .alert-detail-val span:last-child{color:#E4E0D8;font-weight:600;margin-left:4px}
-.alert-rationale{font-size:11px;color:#6B7280;background:#0A0C12;border-left:2px solid #374151;padding:6px 10px;border-radius:0 4px 4px 0;margin-top:6px;line-height:1.5;font-style:italic}
+.alert-rationale{font-size:17px;color:#6B7280;background:#0A0C12;border-left:2px solid #374151;padding:6px 10px;border-radius:0 4px 4px 0;margin-top:6px;line-height:1.5;font-style:italic}
 .news-synthesis{background:#130F1F;border-left:2px solid #7C3AED;padding:8px 12px;border-radius:0 6px 6px 0;margin-top:8px;line-height:1.6}
-.news-synthesis-label{font-size:10px;font-weight:700;color:#7C3AED;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:4px}
+.news-synthesis-label{font-size:15px;font-weight:700;color:#7C3AED;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:4px}
 .news-synthesis-text{font-size:12px;color:#C4B5FD;font-style:italic}
 .rule-news-synthesis{background:#130F1F;border-left:2px solid #7C3AED;padding:8px 12px;border-radius:0 6px 6px 0;margin-bottom:10px;line-height:1.6}
-.rule-news-label{font-size:10px;font-weight:700;color:#7C3AED;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:4px}
+.rule-news-label{font-size:15px;font-weight:700;color:#7C3AED;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:4px}
 .rule-news-text{font-size:12px;color:#C4B5FD;font-style:italic}
 
 .err-banner{background:#EF444415;border:1px solid #EF4444;color:#EF4444;padding:10px 16px;font-size:13px;margin-bottom:12px;border-radius:8px}
 .no-alerts{color:#6B7280;font-size:14px;padding:30px;text-align:center}
 
 /* Signal badges */
-.sig-badge{display:inline-block;border-radius:6px;padding:3px 12px;font-size:11px;font-weight:800;letter-spacing:.6px;text-transform:uppercase}
+.sig-badge{display:inline-block;border-radius:6px;padding:3px 12px;font-size:17px;font-weight:800;letter-spacing:.6px;text-transform:uppercase}
 .sig-strong-buy{background:#10B98125;color:#10B981;border:2px solid #10B98166}
-.sig-strong-sell{background:#EF444425;color:#EF4444;border:2px solid #EF444466}
+/* "Bounce watch" (formerly SELL) is amber, not red — backtesting found downside triggers on
+   this watchlist historically bounce within days rather than continue lower; see BACKTESTING.md */
+.sig-strong-sell{background:#F59E0B25;color:#F59E0B;border:2px solid #F59E0B66}
 .sig-trending-buy{background:#10B98112;color:#10B981;border:1px solid #10B98144}
-.sig-trending-sell{background:#EF444412;color:#EF4444;border:1px solid #EF444444}
+.sig-trending-sell{background:#F59E0B12;color:#F59E0B;border:1px solid #F59E0B44}
 .sig-pending{background:#6B728012;color:#6B7280;border:1px solid #6B728044}
 .sig-buy{background:#10B98112;color:#10B981;border:1px solid #10B98133}
-.sig-sell{background:#EF444412;color:#EF4444;border:1px solid #EF444433}
+.sig-sell{background:#F59E0B12;color:#F59E0B;border:1px solid #F59E0B33}
 .sig-neutral{background:#37415112;color:#6B7280;border:1px solid #37415144}
 .card-signal{margin:8px 0 4px 0}
 .group-signal{margin-left:auto;margin-right:8px}
 
 /* Market phase pill */
-#market-phase{font-size:11px;font-weight:700;border-radius:10px;padding:2px 9px;letter-spacing:.3px}
+#market-phase{font-size:17px;font-weight:700;border-radius:10px;padding:2px 9px;letter-spacing:.3px}
 .mp-regular{background:#10B98118;color:#10B981;border:1px solid #10B98140}
 .mp-pre,.mp-post{background:#F59E0B15;color:#F59E0B;border:1px solid #F59E0B40}
 .mp-closed{background:#6B728015;color:#9CA3AF;border:1px solid #6B728040}
 
 /* Earnings chip on cards */
-.earnings-chip{display:inline-block;font-size:10px;font-weight:700;border-radius:4px;padding:1px 7px;margin-top:5px;background:#3B82F615;color:#60A5FA;border:1px solid #3B82F633}
+.earnings-chip{display:inline-block;font-size:15px;font-weight:700;border-radius:4px;padding:1px 7px;margin-top:5px;background:#3B82F615;color:#60A5FA;border:1px solid #3B82F633}
 .earnings-chip.soon{background:#F59E0B15;color:#F59E0B;border-color:#F59E0B44}
 
 /* Rule enable toggle in edit panel */
@@ -1741,7 +1755,7 @@ input,select{outline:none}
 .set-row{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}
 .set-row label{font-size:13px;color:#9CA3AF;flex:1}
 .set-row input[type=text],.set-row input[type=number],.set-row input[type=password],.set-row select{background:#0A0C12;border:1px solid #1E2235;color:#E4E0D8;border-radius:6px;padding:7px 10px;font-size:13px;width:200px;max-width:55%}
-.set-hint{font-size:11px;color:#6B7280;margin:-6px 0 12px 0;line-height:1.5}
+.set-hint{font-size:17px;color:#6B7280;margin:-6px 0 12px 0;line-height:1.5}
 .settings-actions{display:flex;gap:10px;align-items:center;margin-top:8px}
 #btn-save-settings{background:#F59E0B;color:#000;border-radius:7px;padding:9px 20px;font-weight:700;font-size:13px}
 #btn-test-notify{background:#1E2235;color:#E4E0D8;border-radius:7px;padding:9px 16px;font-size:13px}
@@ -1754,7 +1768,7 @@ input,select{outline:none}
 .analytics-summary{display:flex;gap:20px;flex-wrap:wrap;margin-bottom:16px}
 .an-stat{background:#12151F;border:1px solid #1E2235;border-radius:10px;padding:12px 18px}
 .an-stat-num{font-size:22px;font-weight:800}
-.an-stat-lbl{font-size:11px;color:#6B7280;text-transform:uppercase;letter-spacing:.5px}
+.an-stat-lbl{font-size:17px;color:#6B7280;text-transform:uppercase;letter-spacing:.5px}
 .abar-row{display:flex;align-items:center;gap:10px;margin-bottom:7px}
 .abar-label{font-size:12px;color:#9CA3AF;width:110px;text-align:right;flex-shrink:0}
 .abar-track{flex:1;background:#0A0C12;border-radius:4px;height:18px;overflow:hidden}
@@ -1828,6 +1842,8 @@ input,select{outline:none}
   <button class="tab" onclick="switchTab('analytics',this)">Analytics</button>
   <button class="tab" onclick="switchTab('settings',this)">Settings</button>
 </div>
+
+<div id="window-banner">⏱ <strong>Act within ~4 trading days.</strong> Rule thresholds are calibrated from a backtested 1–5 day edge — signals lose their statistical validity beyond that window.</div>
 
 <div id="content">
   <div id="err-banner" class="err-banner" style="display:none"></div>
@@ -2079,16 +2095,23 @@ async function removeStock(sym,e){
 }
 
 // ── Signal logic ─────────────────────────────────────────────────────────────
+// Rule weights reflect backtest.py findings (5yr event-study, see BACKTESTING.md): breakout
+// (support/resistance) and extreme-volatility triggers showed the strongest short-term edge
+// and count double; MA crossover showed ~no edge at this horizon and doesn't count at all.
+const RULE_SIGNAL_WEIGHT={support_resistance:2,volatility:2,ma_cross:0};
+function ruleWeight(r){ return RULE_SIGNAL_WEIGHT[r.rule_type]??1; }
+
 function computeSignal(rules){
-  const triggered=(rules||[]).filter(r=>r.triggered&&!r.disabled);
+  const triggered=(rules||[]).filter(r=>r.triggered&&!r.disabled&&ruleWeight(r)>0);
   if(!triggered.length) return null;
-  const buys=triggered.filter(r=>r.signal==='BUY').length;
-  const sells=triggered.filter(r=>r.signal==='SELL').length;
-  const total=triggered.length;
+  const buys=triggered.filter(r=>r.signal==='BUY').reduce((s,r)=>s+ruleWeight(r),0);
+  const sells=triggered.filter(r=>r.signal==='SELL').reduce((s,r)=>s+ruleWeight(r),0);
+  const total=buys+sells;
+  if(!total) return{label:'PENDING',cls:'sig-pending'};
   if(total>=2&&buys/total>=2/3) return{label:'STRONG BUY',cls:'sig-strong-buy'};
-  if(total>=2&&sells/total>=2/3) return{label:'STRONG SELL',cls:'sig-strong-sell'};
+  if(total>=2&&sells/total>=2/3) return{label:'STRONG BOUNCE WATCH',cls:'sig-strong-sell'};
   if(buys>sells) return{label:'TRENDING BUY',cls:'sig-trending-buy'};
-  if(sells>buys) return{label:'TRENDING SELL',cls:'sig-trending-sell'};
+  if(sells>buys) return{label:'BOUNCE WATCH',cls:'sig-trending-sell'};
   return{label:'PENDING',cls:'sig-pending'};
 }
 
@@ -2100,7 +2123,7 @@ function signalBadge(sig){
 function ruleSigBadge(signal){
   if(!signal||signal==='NEUTRAL') return '<span class="sig-badge sig-neutral">NEUTRAL</span>';
   if(signal==='BUY') return '<span class="sig-badge sig-buy">▲ BUY</span>';
-  if(signal==='SELL') return '<span class="sig-badge sig-sell">▼ SELL</span>';
+  if(signal==='SELL') return '<span class="sig-badge sig-sell">⚠ BOUNCE WATCH</span>';
   return '';
 }
 
@@ -2426,7 +2449,7 @@ function renderAlerts(){
           <span class="alert-entry-time">${a.time}</span>
           <span class="alert-entry-rule">${ruleLabel}</span>
           ${alertSig}
-          ${a.ack?'<span style="font-size:10px;color:#10B981">✓ ack</span>':''}
+          ${a.ack?'<span style="font-size:15px;color:#10B981">✓ ack</span>':''}
           <span class="alert-entry-price">Price: $${a.price}</span>
         </div>
         <div class="alert-entry-msg">${a.message}</div>
@@ -2437,16 +2460,16 @@ function renderAlerts(){
       </div>`;
     }).join('');
 
-    // Compute group signal from all alerts in this group
-    const groupSigs=entries.map(a=>{let d={};try{if(a.detail)d=JSON.parse(a.detail);}catch(e){}return d.signal;}).filter(Boolean);
-    const gBuys=groupSigs.filter(s=>s==='BUY').length;
-    const gSells=groupSigs.filter(s=>s==='SELL').length;
-    const gTotal=groupSigs.length;
+    // Compute group signal from all alerts in this group (same evidence-based weights as computeSignal)
+    const groupSigs=entries.map(a=>{let d={};try{if(a.detail)d=JSON.parse(a.detail);}catch(e){}return d.signal?{signal:d.signal,rule_type:a.rule_type}:null;}).filter(Boolean).filter(g=>(RULE_SIGNAL_WEIGHT[g.rule_type]??1)>0);
+    const gBuys=groupSigs.filter(g=>g.signal==='BUY').reduce((s,g)=>s+(RULE_SIGNAL_WEIGHT[g.rule_type]??1),0);
+    const gSells=groupSigs.filter(g=>g.signal==='SELL').reduce((s,g)=>s+(RULE_SIGNAL_WEIGHT[g.rule_type]??1),0);
+    const gTotal=gBuys+gSells;
     let groupSig=null;
     if(gTotal>=2&&gBuys/gTotal>=2/3) groupSig={label:'STRONG BUY',cls:'sig-strong-buy'};
-    else if(gTotal>=2&&gSells/gTotal>=2/3) groupSig={label:'STRONG SELL',cls:'sig-strong-sell'};
+    else if(gTotal>=2&&gSells/gTotal>=2/3) groupSig={label:'STRONG BOUNCE WATCH',cls:'sig-strong-sell'};
     else if(gBuys>gSells) groupSig={label:'TRENDING BUY',cls:'sig-trending-buy'};
-    else if(gSells>gBuys) groupSig={label:'TRENDING SELL',cls:'sig-trending-sell'};
+    else if(gSells>gBuys) groupSig={label:'BOUNCE WATCH',cls:'sig-trending-sell'};
     else if(gTotal>0) groupSig={label:'PENDING',cls:'sig-pending'};
 
     const unacked=entries.filter(a=>!a.ack).length;
@@ -2456,7 +2479,7 @@ function renderAlerts(){
         <span class="alert-group-cnt">${entries.length} alert${entries.length>1?'s':''}</span>
         <span class="alert-group-cat" id="ag-cat-${sym}"></span>
         ${groupSig?`<span class="sig-badge ${groupSig.cls} group-signal">${groupSig.label}</span>`:''}
-        ${unacked>0?`<button class="btn-reset" style="padding:3px 10px;font-size:11px;margin-right:6px" onclick="ackSymbol(event,'${sym}')">✓ Ack</button>`:''}
+        ${unacked>0?`<button class="btn-reset" style="padding:3px 10px;font-size:17px;margin-right:6px" onclick="ackSymbol(event,'${sym}')">✓ Ack</button>`:''}
         <span class="alert-group-chevron ${isOpen?'open':''}" id="ag-chev-${sym}">▼</span>
       </div>
       <div class="alert-entries ${isOpen?'open':''}" id="ag-entries-${sym}">
@@ -2589,7 +2612,7 @@ async function loadAnalytics(){
     <div class="analytics-summary">
       <div class="an-stat"><div class="an-stat-num">${d.total}</div><div class="an-stat-lbl">Total alerts</div></div>
       <div class="an-stat"><div class="an-stat-num up">${d.signal_split.buy}</div><div class="an-stat-lbl">Buy signals (30d)</div></div>
-      <div class="an-stat"><div class="an-stat-num dn">${d.signal_split.sell}</div><div class="an-stat-lbl">Sell signals (30d)</div></div>
+      <div class="an-stat"><div class="an-stat-num" style="color:#F59E0B">${d.signal_split.sell}</div><div class="an-stat-lbl">Bounce-watch signals (30d)</div></div>
     </div>
     <div class="analytics-card"><h3>Alerts per stock</h3>${bars(d.by_symbol,'symbol',symMax)||'<div class="set-hint">No data</div>'}</div>
     <div class="analytics-card"><h3>Alerts by rule type</h3>${bars(byRule,'rule_type',ruleMax)||'<div class="set-hint">No data</div>'}</div>
