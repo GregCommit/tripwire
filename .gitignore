@@ -1,0 +1,14 @@
+# Backtester artifacts
+backtest_data/
+backtest_results/
+
+# Python
+__pycache__/
+*.pyc
+
+# Runtime logs
+*.log
+
+# Local tooling
+.claude/
+cloudflared.exe
