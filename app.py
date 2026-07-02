@@ -2095,10 +2095,13 @@ async function removeStock(sym,e){
 }
 
 // ── Signal logic ─────────────────────────────────────────────────────────────
-// Rule weights reflect backtest.py findings (5yr event-study, see BACKTESTING.md): breakout
-// (support/resistance) and extreme-volatility triggers showed the strongest short-term edge
-// and count double; MA crossover showed ~no edge at this horizon and doesn't count at all.
-const RULE_SIGNAL_WEIGHT={support_resistance:2,volatility:2,ma_cross:0};
+// Rule weights reflect backtest.py's `weight-check` comparison (see BACKTESTING.md): doubling
+// the vote of the individually-strongest rules (support/resistance, volatility) was tested and
+// measurably *hurt* the combined signal (pooled mean 5d excess -0.066pp vs equal-vote) — an
+// ensemble's value comes from independent confirmation, which a dominant rule undermines. Only
+// the ma_cross exclusion held up (roughly neutral, consistent with its ~zero solo edge), so it's
+// the only non-1 weight kept here.
+const RULE_SIGNAL_WEIGHT={ma_cross:0};
 function ruleWeight(r){ return RULE_SIGNAL_WEIGHT[r.rule_type]??1; }
 
 function computeSignal(rules){

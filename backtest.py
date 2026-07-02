@@ -679,7 +679,69 @@ def _disable_flag(rule):
 # PHASE C: COMBINATIONS (agreement + ablation) over selected per-ticker rules
 # ─────────────────────────────────────────────────────────────────────────────
 
-def run_combo(years):
+# Mirrors the live app's RULE_SIGNAL_WEIGHT (app.py, computeSignal): support_resistance and
+# volatility count double (strongest solo backtested edge), ma_cross counts zero (no edge at
+# this horizon), everything else counts once.
+LIVE_RULE_WEIGHT = {"support_resistance": 2, "volatility": 2, "ma_cross": 0}
+
+def _ticker_winners_and_signals(sym, df, cache, grid):
+    """Rules with a positive-edge best param for this ticker, and each rule's daily active
+    signal (persisted for CONFIRM_H days after an episode start, matching the app's alert
+    window). Shared by both the equal-weight and weighted ensemble backtests so the only
+    difference between them is the vote-tallying math, not the underlying rule selection."""
+    winners = {}
+    for rule in RULE_TYPES:
+        sub = grid[(grid["symbol"] == sym) & (grid["rule"] == rule)]
+        best, _ = pick_best(sub)
+        if best is not None:
+            winners[rule] = json.loads(best["params_json"])
+    sig_active = {}
+    for rule, p in winners.items():
+        trig, sig = run_rule(rule, df, p, cache)
+        act = pd.Series(["NEUTRAL"]*len(df), index=df.index, dtype=object)
+        s = sig.to_numpy(); starts = episode_starts(trig)
+        for t in np.where(starts)[0]:
+            if s[t] in ("BUY", "SELL"):
+                for k in range(CONFIRM_H):
+                    if t+k < len(df):
+                        act.iloc[t+k] = s[t]
+        sig_active[rule] = act
+    return winners, sig_active
+
+def _make_ensemble_events_fn(df, esi, fwd, spy_fwd, weight_map=None):
+    """Returns an ensemble_events(active_map) closure. weight_map=None reproduces the app's
+    pre-weighting behavior (1 vote per rule); a dict applies per-rule vote weights, matching
+    the live app's computeSignal formula exactly (total>=2 & share>=2/3 -> STRONG, else
+    majority -> TREND)."""
+    close = df["close"].to_numpy(dtype=float); n = len(df)
+    def w(rule):
+        return 1 if weight_map is None else weight_map.get(rule, 1)
+    def ensemble_events(active_map):
+        recs = []
+        prev_label = None
+        for t in range(esi, n):
+            buys = sum(w(r) for r in active_map if active_map[r].iloc[t] == "BUY")
+            sells = sum(w(r) for r in active_map if active_map[r].iloc[t] == "SELL")
+            tot = buys + sells
+            label = None
+            if tot >= 2 and buys/tot >= 2/3: label = "STRONG_BUY"
+            elif tot >= 2 and sells/tot >= 2/3: label = "STRONG_SELL"
+            elif buys > sells and tot >= 1: label = "TREND_BUY"
+            elif sells > buys and tot >= 1: label = "TREND_SELL"
+            if label and label != prev_label and np.isfinite(fwd[HEADLINE_H][t]):
+                d = 1.0 if "BUY" in label else -1.0
+                rec = {"date": df.index[t], "pos": t, "signal": "BUY" if "BUY" in label else "SELL", "label": label}
+                for h in FWD_HORIZONS:
+                    braw = spy_fwd[h][t]
+                    rec[f"exc{h}"] = d*(fwd[h][t]-(braw if np.isfinite(braw) else 0))
+                path = [d*(close[t+k]/close[t]-1) for k in range(1, HEADLINE_H+1) if t+k < n]
+                rec["mae"] = min(path) if path else np.nan
+                recs.append(rec)
+            prev_label = label
+        return pd.DataFrame(recs)
+    return ensemble_events
+
+def _run_combo_generic(years, weight_map, mode_prefix, out_name):
     data = load_frames(years)
     wl = get_watchlist()
     grid = pd.read_csv(RESULTS_DIR / "grid_summary.csv")
@@ -690,69 +752,65 @@ def run_combo(years):
         df = trim_history(data[sym], years); cache = ticker_cache(df)
         esi = eval_start_index(df, years)
         fwd, spy_fwd = build_forward(df, data[BENCHMARK]["close"])
-        # winners = rules with a positive-edge best param for this ticker
-        winners = {}
-        for rule in RULE_TYPES:
-            sub = grid[(grid["symbol"] == sym) & (grid["rule"] == rule)]
-            best, _ = pick_best(sub)
-            if best is not None:
-                winners[rule] = json.loads(best["params_json"])
+        winners, sig_active = _ticker_winners_and_signals(sym, df, cache, grid)
         if len(winners) < 2:
-            rows.append({"symbol": sym, "mode": "ensemble", "n": 0, "note": f"only {len(winners)} winning rule(s)"})
+            rows.append({"symbol": sym, "mode": mode_prefix, "n": 0, "note": f"only {len(winners)} winning rule(s)"})
             continue
-        # per-rule daily signal, persisted for 3 trading days ("active window")
-        sig_active = {}
-        for rule, p in winners.items():
-            trig, sig = run_rule(rule, df, p, cache)
-            act = pd.Series(["NEUTRAL"]*len(df), index=df.index, dtype=object)
-            s = sig.to_numpy(); starts = episode_starts(trig)
-            for t in np.where(starts)[0]:
-                if s[t] in ("BUY", "SELL"):
-                    for k in range(CONFIRM_H):
-                        if t+k < len(df):
-                            act.iloc[t+k] = s[t]
-            sig_active[rule] = act
-        def ensemble_events(active_map):
-            recs = []
-            close = df["close"].to_numpy(dtype=float); n = len(df)
-            prev_label = None
-            for t in range(esi, n):
-                buys = sum(1 for r in active_map if active_map[r].iloc[t] == "BUY")
-                sells = sum(1 for r in active_map if active_map[r].iloc[t] == "SELL")
-                tot = buys + sells
-                label = None
-                if tot >= 2 and buys/tot >= 2/3: label = "STRONG_BUY"
-                elif tot >= 2 and sells/tot >= 2/3: label = "STRONG_SELL"
-                elif buys > sells and tot >= 1: label = "TREND_BUY"
-                elif sells > buys and tot >= 1: label = "TREND_SELL"
-                if label and label != prev_label and np.isfinite(fwd[HEADLINE_H][t]):
-                    d = 1.0 if "BUY" in label else -1.0
-                    rec = {"date": df.index[t], "pos": t, "signal": "BUY" if "BUY" in label else "SELL", "label": label}
-                    for h in FWD_HORIZONS:
-                        braw = spy_fwd[h][t]
-                        rec[f"exc{h}"] = d*(fwd[h][t]-(braw if np.isfinite(braw) else 0))
-                    path = [d*(close[t+k]/close[t]-1) for k in range(1, HEADLINE_H+1) if t+k < n]
-                    rec["mae"] = min(path) if path else np.nan
-                    recs.append(rec)
-                prev_label = label
-            return pd.DataFrame(recs)
+        ensemble_events = _make_ensemble_events_fn(df, esi, fwd, spy_fwd, weight_map)
         full = ensemble_events(sig_active)
-        base = summarize(full, {"symbol": sym, "mode": "ensemble", "rules": "+".join(winners)})
+        base = summarize(full, {"symbol": sym, "mode": mode_prefix, "rules": "+".join(winners)})
         base["note"] = f"{len(winners)} rules"
         rows.append(base)
-        # ablation: drop each rule, measure delta in mean_exc5
         for rule in winners:
             reduced = {r: sig_active[r] for r in sig_active if r != rule}
             if len(reduced) >= 2:
                 ab = ensemble_events(reduced)
-                abrow = summarize(ab, {"symbol": sym, "mode": f"ablate:-{rule}", "rules": "+".join(reduced)})
+                abrow = summarize(ab, {"symbol": sym, "mode": f"{mode_prefix.replace('ensemble','ablate')}:-{rule}", "rules": "+".join(reduced)})
                 abrow["note"] = f"drop {rule}; full_exc5={base['mean_exc5']}"
                 rows.append(abrow)
     combo = pd.DataFrame(rows)
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    combo.to_csv(RESULTS_DIR / "combo_summary.csv", index=False)
-    log(f"Combo: {len(combo)} rows -> {RESULTS_DIR/'combo_summary.csv'}")
+    combo.to_csv(RESULTS_DIR / out_name, index=False)
+    log(f"Combo ({mode_prefix}): {len(combo)} rows -> {RESULTS_DIR/out_name}")
     return combo
+
+def run_combo(years):
+    """Equal-weight ensemble (1 vote per rule) — the original, already-verified baseline."""
+    return _run_combo_generic(years, weight_map=None, mode_prefix="ensemble", out_name="combo_summary.csv")
+
+def run_combo_weighted(years):
+    """Weighted ensemble using the exact weights the live app applies in computeSignal
+    (LIVE_RULE_WEIGHT). Same ticker/rule selection as run_combo — only the vote-tallying
+    math differs — so any difference in results is attributable to the weighting itself."""
+    return _run_combo_generic(years, weight_map=LIVE_RULE_WEIGHT, mode_prefix="weighted_ensemble", out_name="combo_weighted_summary.csv")
+
+def compare_combo_weighting():
+    """Pooled comparison: does the live app's weighting scheme outperform equal-weight voting?"""
+    unw = pd.read_csv(RESULTS_DIR / "combo_summary.csv")
+    wtd = pd.read_csv(RESULTS_DIR / "combo_weighted_summary.csv")
+    unw_ens = unw[unw["mode"] == "ensemble"]
+    wtd_ens = wtd[wtd["mode"] == "weighted_ensemble"]
+    def pooled(d):
+        d = d[d["n"] > 0]
+        if d.empty:
+            return None
+        n = d["n"].sum()
+        wexc5 = (d["mean_exc5"] * d["n"]).sum() / n if n else np.nan
+        whit5 = (d["hit5"] * d["n"]).sum() / n if n else np.nan
+        return {"n_total": int(n), "tickers": len(d), "pooled_mean_exc5": wexc5, "pooled_hit5": whit5}
+    u, w = pooled(unw_ens), pooled(wtd_ens)
+    log("\n===== Ensemble weighting comparison (pooled across tickers, N-weighted) =====")
+    log(f"Equal-weight  (current combo_summary.csv):    {u}")
+    log(f"App-weighted  (support_resistance/volatility x2, ma_cross x0): {w}")
+    if u and w:
+        delta = (w["pooled_mean_exc5"] - u["pooled_mean_exc5"]) * 100
+        log(f"Delta (weighted - equal) on pooled mean 5d excess: {delta:+.3f} percentage points")
+    merged = unw_ens.merge(wtd_ens, on="symbol", suffixes=("_equal", "_weighted"), how="outer")
+    cols = ["symbol", "n_equal", "mean_exc5_equal", "hit5_equal", "n_weighted", "mean_exc5_weighted", "hit5_weighted"]
+    merged = merged.reindex(columns=[c for c in cols if c in merged.columns])
+    merged.to_csv(RESULTS_DIR / "combo_weighting_comparison.csv", index=False)
+    log(f"Per-ticker comparison -> {RESULTS_DIR/'combo_weighting_comparison.csv'}")
+    return merged
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PARITY HARNESS  (extract app.py's evaluate_rules WITHOUT importing/booting it)
@@ -988,7 +1046,7 @@ def main():
     global MIN_N
     ap = argparse.ArgumentParser(description="Tripwire rule backtester")
     ap.add_argument("cmd", nargs="?", default="all",
-                    choices=["all","fetch","parity","grid","combo","select","report","apply","undo"])
+                    choices=["all","fetch","parity","grid","combo","combo-weighted","weight-check","select","report","apply","undo"])
     ap.add_argument("--refresh", action="store_true", help="re-download price data")
     ap.add_argument("--years", type=int, default=DEFAULT_YEARS)
     ap.add_argument("--min-n", type=int, default=MIN_N)
@@ -1007,6 +1065,10 @@ def main():
     if args.cmd in ("all", "combo"):
         run_combo(args.years)
         if args.cmd == "combo": return
+    if args.cmd == "combo-weighted":
+        run_combo_weighted(args.years); return
+    if args.cmd == "weight-check":
+        run_combo(args.years); run_combo_weighted(args.years); compare_combo_weighting(); return
     if args.cmd in ("all", "select"):
         select(args.years)
         if args.cmd == "select": return
