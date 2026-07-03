@@ -5,7 +5,7 @@ Run:  python app.py
 Open: http://localhost:5000
 """
 
-import sqlite3, threading, time, json, os, logging, csv, io, smtplib, urllib.parse, urllib.request
+import sqlite3, threading, time, json, os, logging, csv, io, smtplib, urllib.parse, urllib.request, subprocess, sys
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from pathlib import Path
@@ -92,6 +92,11 @@ def init_db():
             ("alerts", "detail", "TEXT"),
             ("alerts", "ack", "INTEGER DEFAULT 0"),
             ("prices", "volume", "REAL"),
+            # Outcome tracking: filled in ~5 trading days after each alert (see resolve_outcomes)
+            ("alerts", "outcome_ret", "REAL"),        # stock return since alert price, %
+            ("alerts", "outcome_excess", "REAL"),     # signal-direction excess vs SPY, %
+            ("alerts", "outcome_correct", "INTEGER"), # 1 if signal-direction excess > 0
+            ("alerts", "outcome_ts", "INTEGER"),      # when it was resolved
         ]:
             try:
                 conn.execute(f"ALTER TABLE {tbl} ADD COLUMN {col} {coldef}")
@@ -124,6 +129,7 @@ SETTINGS_DEFAULTS = {
     "check_interval_closed_seconds": "900",
     "market_hours_only":             "0",
     "alert_cooldown_hours":          "24",
+    "show_info_tier":                "1",
     "notify_email_enabled":          "0",
     "smtp_host":                     "",
     "smtp_port":                     "587",
@@ -135,6 +141,13 @@ SETTINGS_DEFAULTS = {
     "callmebot_apikey":              "",
     "browser_notifications_enabled": "1",
     "alert_sound_enabled":           "0",
+    # Deliberate behavior change (see BACKTESTING.md): default ON so push/email/WhatsApp only
+    # fire for STRONG (multi-rule-confirmed) signals — every alert still logs to the DB/UI.
+    "notify_strong_only":            "1",
+    # Daily digest: when on, instant push/email/WhatsApp is suppressed and a single
+    # once-a-day summary is sent at digest_hour (local time) instead.
+    "daily_digest_enabled":          "0",
+    "digest_hour":                   "8",
     "ai_synthesis_model":            "claude-sonnet-4-6",
     "ai_assistant_model":            "claude-opus-4-8",
     "anthropic_api_key":             "",
@@ -175,6 +188,18 @@ def set_setting(key, value):
         conn.commit()
     with _settings_lock:
         _settings_cache[key] = str(value)
+
+def _get_calibrated_at_fresh():
+    """Read 'calibrated_at' straight from the DB rather than the boot-time settings cache.
+    backtest.py's `apply` writes this key directly into the same settings table while the
+    app may already be running, so a cached read could show a stale (or missing) date."""
+    try:
+        with get_db() as conn:
+            row = conn.execute("SELECT value FROM settings WHERE key='calibrated_at'").fetchone()
+        return row["value"] if row else None
+    except Exception as e:
+        log.warning("_get_calibrated_at_fresh failed: %s", e)
+        return None
 
 _load_settings()
 
@@ -231,6 +256,26 @@ def yf_cached(key, ttl, fn):
         _yf_cache[key] = (now + ttl, val)
     return val
 
+def _fetch_spy_regime_raw():
+    hist = yf.Ticker("SPY").history(period="300d")
+    if hist is None or hist.empty or len(hist) < 200:
+        return None
+    closes = hist["Close"]
+    sma200 = float(closes.tail(200).mean())
+    last = float(closes.iloc[-1])
+    return "bear" if last < sma200 else "bull"
+
+def get_market_regime():
+    """'bull' | 'bear' based on SPY close vs its 200-day SMA. On any failure (including
+    insufficient history) defaults to 'bull' — the calibration window itself was bull-heavy,
+    so silently assuming bull is the conservative default (no unwarranted bear caveat)."""
+    try:
+        regime = yf_cached("spy_regime", 6 * 3600, _fetch_spy_regime_raw)
+        return regime or "bull"
+    except Exception as e:
+        log.warning("get_market_regime failed: %s", e)
+        return "bull"
+
 # ─────────────────────────────────────────────────────────────────────────────
 # RULE CONFIG
 # ─────────────────────────────────────────────────────────────────────────────
@@ -263,17 +308,90 @@ DEFAULT_RULES = {
     "low_vol":  _mk_rules({"volatility_multiplier":4.0,"volatility_lookback":30,"support_resist_pct":3.0,"support_resist_lookback":30,"consecutive_down_days":3,"use_consecutive":False,"volume_multiplier":2.5,"volume_lookback":10,"gap_pct":3.0,"rsi_period":21,"rsi_overbought":80,"rsi_oversold":35}),
 }
 
+# Pre-retune (v3-era) category thresholds, kept only for the informational "activity" tier
+# (see INFO_RULES usage in run_check / evaluate_rules). These are deliberately looser than
+# DEFAULT_RULES above — the backtest found DEFAULT_RULES' tighter thresholds are the ones
+# worth alerting on, but the old looser thresholds still give day-to-day awareness without
+# claiming any predictive edge. Mirrors backtest.py's CATEGORY_DEFAULTS exactly.
+INFO_RULES = {
+    "high_vol": _mk_rules({"volatility_multiplier":2.5,"volatility_lookback":20,"support_resist_pct":7.0,"support_resist_lookback":90,"consecutive_down_days":3,"use_consecutive":True,"volume_multiplier":3.0,"volume_lookback":20,"gap_pct":3.0,"rsi_period":14,"rsi_overbought":70,"rsi_oversold":30}),
+    "mod_vol":  _mk_rules({"volatility_multiplier":1.5,"volatility_lookback":20,"support_resist_pct":5.0,"support_resist_lookback":30,"consecutive_down_days":3,"use_consecutive":False,"volume_multiplier":2.5,"volume_lookback":20,"gap_pct":2.0,"rsi_period":14,"rsi_overbought":70,"rsi_oversold":30}),
+    "low_vol":  _mk_rules({"volatility_multiplier":1.2,"volatility_lookback":20,"support_resist_pct":4.0,"support_resist_lookback":60,"consecutive_down_days":3,"use_consecutive":False,"volume_multiplier":2.0,"volume_lookback":20,"gap_pct":1.5,"rsi_period":14,"rsi_overbought":70,"rsi_oversold":30}),
+}
+
+# ── Backtest evidence (optional; absent file = feature silently off) ──────────────
+RULE_STATS_PATH = Path(__file__).parent / "backtest_results" / "rule_stats.json"
+
+def _load_rule_stats():
+    try:
+        if RULE_STATS_PATH.exists():
+            return json.loads(RULE_STATS_PATH.read_text(encoding="utf-8"))
+    except Exception as e:
+        log.warning("Failed to load rule_stats.json: %s", e)
+    return {}
+
+RULE_STATS = _load_rule_stats()
+
+def _rule_stats_for(symbol, rule_type):
+    """Backtested evidence dict for one symbol/rule, or None if unavailable."""
+    return RULE_STATS.get(symbol, {}).get(rule_type)
+
+def _rule_stats_line(symbol, rule_type):
+    """Compact human-readable evidence string for AI prompts, e.g.
+    'Backtested: +3.2% avg vs SPY over 5d, 62% hit rate, n=41, worst case -2.8% (low confidence)'.
+    Returns '' if no backtest evidence is available for this symbol/rule."""
+    st = _rule_stats_for(symbol, rule_type)
+    if not st:
+        return ""
+    parts = [f"{st['exc5']:+.1f}% avg vs SPY over 5d"]
+    if st.get("hit5") is not None:
+        parts.append(f"{st['hit5']:.0f}% hit rate")
+    parts.append(f"n={st['n']}")
+    if st.get("mae") is not None:
+        parts.append(f"worst case {st['mae']:+.1f}%")
+    conf = " (low confidence — short trading history)" if st.get("short_history") else (" (low confidence — n<30)" if st["n"] < 30 else "")
+    return f"Backtested: {', '.join(parts)}{conf}"
+
 def get_stocks():
     with get_db() as conn:
         return [dict(r) for r in conn.execute("SELECT * FROM stocks WHERE active=1 ORDER BY symbol")]
 
+SENSITIVITY_LEVELS = ("conservative", "calibrated", "sensitive")
+
+def _apply_sensitivity(params, category, level):
+    """Shift a category's calibrated thresholds toward fewer (conservative) or more (sensitive)
+    alerts. 'calibrated' is the backtest-tuned baseline and is returned unchanged. 'sensitive'
+    adopts the looser pre-tuning (info-tier) thresholds; 'conservative' tightens them ~30%."""
+    p = dict(params)
+    if level == "sensitive":
+        info = INFO_RULES.get(category, {})
+        for k in ("volatility_multiplier", "support_resist_pct", "gap_pct",
+                  "volume_multiplier", "rsi_overbought", "rsi_oversold"):
+            if k in info:
+                p[k] = info[k]
+    elif level == "conservative":
+        if "volatility_multiplier" in p: p["volatility_multiplier"] = round(p["volatility_multiplier"] * 1.3, 2)
+        if "volume_multiplier" in p:     p["volume_multiplier"] = round(p["volume_multiplier"] * 1.3, 2)
+        if "support_resist_pct" in p:    p["support_resist_pct"] = round(p["support_resist_pct"] + 2, 1)
+        if "gap_pct" in p:               p["gap_pct"] = round(p["gap_pct"] * 1.5, 2)
+        if "rsi_overbought" in p:        p["rsi_overbought"] = min(90, p["rsi_overbought"] + 5)
+        if "rsi_oversold" in p:          p["rsi_oversold"] = max(10, p["rsi_oversold"] - 5)
+    return p
+
 def get_params(symbol, category):
     base = DEFAULT_RULES.get(category, DEFAULT_RULES["high_vol"]).copy()
+    saved = {}
     with get_db() as conn:
         row = conn.execute("SELECT params FROM rule_params WHERE symbol=?", (symbol,)).fetchone()
     if row:
         saved = json.loads(row["params"])
-        base.update(saved)  # saved overrides defaults; new keys fall back to defaults
+    level = saved.get("_sensitivity", "calibrated")
+    base = _apply_sensitivity(base, category, level)   # preset first…
+    for k, v in saved.items():                          # …then any explicit (advanced) overrides win
+        if k == "_sensitivity":
+            continue
+        base[k] = v
+    base["_sensitivity"] = level
     return base
 
 def save_params(symbol, params):
@@ -396,6 +514,7 @@ def populate_history(symbol):
                 day_ts = int(ts.timestamp())
                 prev_close = round(float(rows[i-1][1]["Close"]), 2) if i > 0 else round(float(row["Close"]), 2)
                 vol = row.get("Volume")
+                vol_val = int(vol) if vol and vol == vol else None  # NaN guard
                 conn.execute("""
                     INSERT OR IGNORE INTO prices
                     (symbol,timestamp,open,high,low,close,prev_close,pre_market,post_market,volume)
@@ -403,8 +522,15 @@ def populate_history(symbol):
                     (symbol, day_ts,
                      round(float(row["Open"]),2), round(float(row["High"]),2),
                      round(float(row["Low"]),2),  round(float(row["Close"]),2),
-                     prev_close, None, None,
-                     int(vol) if vol and vol == vol else None))
+                     prev_close, None, None, vol_val))
+                # Heal pre-v4 rows: INSERT OR IGNORE is a no-op when the (symbol,timestamp) row
+                # already exists, so a row seeded before the `volume` column existed would keep
+                # a permanently NULL volume forever even after this v4 re-fetch — which is why
+                # the volume-spike rule was reporting "Insufficient volume data" in production.
+                if vol_val is not None:
+                    conn.execute(
+                        "UPDATE prices SET volume=? WHERE symbol=? AND timestamp=? AND volume IS NULL",
+                        (vol_val, symbol, day_ts))
             conn.commit()
     except Exception as e:
         log.warning("populate_history(%s) failed: %s", symbol, e)
@@ -420,6 +546,88 @@ def refresh_extended_loop():
             fetch_extended_data(s["symbol"])
 
 threading.Thread(target=refresh_extended_loop, daemon=True).start()
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OUTCOME TRACKING — score each alert ~5 trading days later (self-audit vs backtest)
+# ─────────────────────────────────────────────────────────────────────────────
+OUTCOME_HORIZON_DAYS = 5   # trading days after the alert to measure
+
+def _daily_close_series(symbol):
+    """Cached {date -> close} from yfinance for outcome scoring (13mo of daily bars)."""
+    def _fetch():
+        h = yf.Ticker(symbol).history(period="13mo")
+        if h is None or h.empty:
+            return {}
+        return {ts.strftime("%Y-%m-%d"): round(float(r["Close"]), 2) for ts, r in h.iterrows()}
+    try:
+        return yf_cached(f"outcome_daily:{symbol}", 3600, _fetch)
+    except Exception:
+        return {}
+
+def resolve_outcomes():
+    """For alerts old enough to have matured (>= OUTCOME_HORIZON_DAYS trading days) but not yet
+    scored, compute the stock's return since the alert and its signal-direction excess vs SPY."""
+    cutoff = int(time.time()) - int((OUTCOME_HORIZON_DAYS + 3) * 86400)  # calendar buffer for weekends
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT id,symbol,timestamp,price,detail FROM alerts "
+            "WHERE outcome_ts IS NULL AND timestamp <= ? ORDER BY timestamp ASC LIMIT 500",
+            (cutoff,)
+        ).fetchall()
+    if not rows:
+        return 0
+    spy = _daily_close_series("SPY")
+    resolved = 0
+    for r in rows:
+        try:
+            detail = json.loads(r["detail"]) if r["detail"] else {}
+        except Exception:
+            detail = {}
+        signal = detail.get("signal")
+        sdir = 1.0 if signal == "BUY" else -1.0 if signal == "SELL" else None
+        series = _daily_close_series(r["symbol"])
+        if not series:
+            continue
+        adate = datetime.fromtimestamp(r["timestamp"]).strftime("%Y-%m-%d")
+        dates = sorted(series.keys())
+        # first trading day on/after the alert date, then OUTCOME_HORIZON_DAYS later
+        start_i = next((i for i, d in enumerate(dates) if d >= adate), None)
+        if start_i is None or start_i + OUTCOME_HORIZON_DAYS >= len(dates):
+            continue  # not enough forward data yet
+        entry = r["price"] or series[dates[start_i]]
+        exit_close = series[dates[start_i + OUTCOME_HORIZON_DAYS]]
+        ret = (exit_close / entry - 1.0) * 100 if entry else 0.0
+        excess = None; correct = None
+        if sdir is not None:
+            spy_ret = 0.0
+            if spy:
+                sd = sorted(spy.keys())
+                si = next((i for i, d in enumerate(sd) if d >= adate), None)
+                if si is not None and si + OUTCOME_HORIZON_DAYS < len(sd):
+                    spy_ret = (spy[sd[si + OUTCOME_HORIZON_DAYS]] / spy[sd[si]] - 1.0) * 100
+            excess = sdir * (ret - spy_ret)
+            correct = 1 if excess > 0 else 0
+        with get_db() as conn:
+            conn.execute(
+                "UPDATE alerts SET outcome_ret=?, outcome_excess=?, outcome_correct=?, outcome_ts=? WHERE id=?",
+                (round(ret, 2), round(excess, 2) if excess is not None else None, correct, int(time.time()), r["id"])
+            )
+            conn.commit()
+        resolved += 1
+    if resolved:
+        log.info("resolve_outcomes: scored %d matured alerts", resolved)
+    return resolved
+
+def outcome_loop():
+    time.sleep(90)  # let first checks/history settle
+    while True:
+        try:
+            resolve_outcomes()
+        except Exception as e:
+            log.warning("resolve_outcomes failed: %s", e)
+        time.sleep(6 * 3600)
+
+threading.Thread(target=outcome_loop, daemon=True).start()
 
 def store_price(symbol, q):
     with get_db() as conn:
@@ -455,7 +663,7 @@ def get_history(symbol, days=90):
 def _cooldown_seconds():
     return get_setting_int("alert_cooldown_hours", 24) * 3600
 
-def log_alert(symbol, rule_type, message, price, detail=None):
+def log_alert(symbol, rule_type, message, price, detail=None, should_notify=True):
     now = int(time.time())
     with get_db() as conn:
         recent = conn.execute(
@@ -469,8 +677,11 @@ def log_alert(symbol, rule_type, message, price, detail=None):
             (symbol, now, rule_type, message, price, detail)
         )
         conn.commit()
-    # New alert actually inserted — fire outbound notifications off the check thread.
-    worker_pool.submit(notify_alert, symbol, rule_type, message, price)
+    # Alert is always written to the DB/UI regardless of notify_strong_only — that setting only
+    # gates the outbound push/email/WhatsApp notification, decided by the caller per check cycle
+    # (see run_check: compute_signal() + notify_strong_only gate).
+    if should_notify:
+        worker_pool.submit(notify_alert, symbol, rule_type, message, price)
 
 def get_alerts(limit=200):
     with get_db() as conn:
@@ -527,7 +738,42 @@ def _earnings_hint(symbol):
     when = "today" if days == 0 else ("tomorrow" if days == 1 else f"in {days} days")
     return f" Note: {symbol} is scheduled to report earnings {when} ({ed}) — factor this in if relevant."
 
-def synthesize_news(symbol, news_items, move_pct, direction, rule_label):
+def _is_near_earnings(symbol, window_days=2):
+    """True if symbol's next known earnings date is within +/- window_days of today —
+    used to tag alerts that may be earnings-driven rather than purely technical."""
+    with extended_lock:
+        ed = extended_state.get(symbol, {}).get("earnings_date")
+    if not ed:
+        return False
+    try:
+        days = (datetime.strptime(ed, "%Y-%m-%d").date() - datetime.now().date()).days
+    except Exception:
+        return False
+    return abs(days) <= window_days
+
+def _bear_regime_caveat(signal):
+    """Standalone bear-regime caveat sentence for bounce-watch (SELL-side) signals only — the
+    backtest's calibration window (see BACKTESTING.md) was bull-heavy, so bounce statistics are
+    unreliable evidence in a bear regime. Returns '' outside bear regime or for BUY signals —
+    used both in the alert detail blob (run_check) and the synthesize_news() prompt."""
+    if signal != "SELL":
+        return ""
+    try:
+        if get_market_regime() != "bear":
+            return ""
+    except Exception:
+        return ""
+    return ("Caution: the market is currently in a bear regime, but this rule's bounce-watch "
+            "statistics were calibrated on a mostly bull-market window — treat the backtested "
+            "edge as less reliable right now.")
+
+def _bear_regime_hint(signal):
+    """Same as _bear_regime_caveat but pre-fixed with a leading space for inline sentence-joining
+    into the synthesize_news() prompt string."""
+    caveat = _bear_regime_caveat(signal)
+    return f" {caveat}" if caveat else ""
+
+def synthesize_news(symbol, news_items, move_pct, direction, rule_label, rule_type=None, signal=None):
     key = get_anthropic_key()
     if not key:
         return None
@@ -541,11 +787,17 @@ def synthesize_news(symbol, news_items, move_pct, direction, rule_label):
             for item in news_items[:6]
         )
         dir_word = "up" if direction == "UP" else "down"
+        stats_line = _rule_stats_line(symbol, rule_type) if rule_type else ""
+        # Bear-regime caveat is keyed off the rule's actual BUY/SELL signal, NOT today's price
+        # direction — some rules' SELL (e.g. RSI overbought) doesn't imply today's move was down.
         prompt = (
             f"{symbol} triggered a {rule_label} alert. The stock moved {abs(move_pct):.1f}% {dir_word} today.\n\n"
             f"Recent news headlines:\n{headlines}\n\n"
             f"In 2-3 sentences, explain what may be driving this unusual move based on the news. "
             f"Be concise and specific to {symbol}.{_earnings_hint(symbol)}"
+            + (f" Backtested track record for this rule on {symbol}: {stats_line}. Cite this edge "
+               f"(or lack of confidence) rather than speaking generically." if stats_line else "")
+            + _bear_regime_hint(signal)
         )
         response = client.messages.create(
             model=get_setting("ai_synthesis_model", "claude-sonnet-4-6"),
@@ -596,6 +848,62 @@ def _send_whatsapp(text):
         urllib.request.urlopen(url, timeout=15).read()
     except Exception as e:
         log.warning("WhatsApp send failed: %s", e)
+
+def build_daily_digest():
+    """Summarize the last 24h of alerts (grouped by symbol, STRONG flagged first) into a short
+    text block for the once-a-day digest. Returns (subject, body) or None if nothing to report."""
+    since = int(time.time()) - 86400
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT symbol,rule_type,message,detail,timestamp FROM alerts WHERE timestamp>? ORDER BY symbol,timestamp",
+            (since,)).fetchall()
+    if not rows:
+        return None
+    by_sym = {}
+    for r in rows:
+        try:
+            strong = (json.loads(r["detail"]) or {}).get("strong") if r["detail"] else False
+        except Exception:
+            strong = False
+        by_sym.setdefault(r["symbol"], {"strong": False, "items": []})
+        by_sym[r["symbol"]]["items"].append(f"  • {r['rule_type']}: {r['message']}")
+        if strong:
+            by_sym[r["symbol"]]["strong"] = True
+    order = sorted(by_sym.items(), key=lambda kv: (not kv[1]["strong"], kv[0]))
+    lines = []
+    for sym, info in order:
+        tag = " ⚡STRONG" if info["strong"] else ""
+        lines.append(f"{sym}{tag}")
+        lines.extend(info["items"])
+        lines.append("")
+    n = len(rows)
+    subject = f"⚡ Tripwire daily digest — {n} alert{'s' if n != 1 else ''} across {len(by_sym)} stock{'s' if len(by_sym) != 1 else ''}"
+    body = "Your last 24 hours of Tripwire alerts:\n\n" + "\n".join(lines) + \
+           "\n(Daily digest mode. Turn off in Settings for instant alerts.)"
+    return subject, body
+
+def digest_loop():
+    """Send one digest per day at the configured local hour, if digest mode is on."""
+    last_sent_date = None
+    time.sleep(120)
+    while True:
+        try:
+            if get_setting_bool("daily_digest_enabled"):
+                now = datetime.now()
+                hour = get_setting_int("digest_hour", 8)
+                today = now.strftime("%Y-%m-%d")
+                if now.hour >= hour and last_sent_date != today:
+                    dg = build_daily_digest()
+                    last_sent_date = today  # mark regardless so we don't retry all day on empty
+                    if dg:
+                        subject, body = dg
+                        worker_pool.submit(_send_email, subject, body)
+                        worker_pool.submit(_send_whatsapp, subject)
+        except Exception as e:
+            log.warning("digest_loop error: %s", e)
+        time.sleep(600)
+
+threading.Thread(target=digest_loop, daemon=True).start()
 
 def notify_alert(symbol, rule_type, message, price):
     label = {"volatility":"Unusual Move","support_resistance":"S/R Breach",
@@ -865,6 +1173,91 @@ def evaluate_rules(symbol, quote, history, params):
 
     return results
 
+# Enable-flag keys carried over from a symbol's live params into the info-tier pass, so a rule
+# the user explicitly disabled doesn't reappear as "activity" — informational only, never a
+# signal, but still respects the user's own on/off choice for that rule.
+_RULE_ENABLE_KEYS = ("enable_volatility", "enable_support_resistance", "use_consecutive",
+                     "enable_volume", "enable_gap", "enable_rsi", "enable_ma")
+
+def _build_info_params(params, category):
+    """INFO_RULES params for this category, with the symbol's own enable/disable toggles
+    carried over (informational tier respects explicit user disablement)."""
+    info = dict(INFO_RULES.get(category, INFO_RULES["high_vol"]))
+    for k in _RULE_ENABLE_KEYS:
+        if k in params:
+            info[k] = params[k]
+    return info
+
+def compute_info_events(symbol, quote, history, params, category, signal_rules):
+    """Second, pure in-memory pass using the looser pre-tuning (v3-era) INFO_RULES thresholds
+    for day-to-day awareness, without diluting the validated signal tier. Reuses evaluate_rules'
+    exact math (no separate rule implementation, no extra network calls — same quote/history
+    already fetched for the signal pass). A rule that crosses the info threshold but NOT the
+    signal threshold becomes a transient, non-persisted 'activity' event — never a BUY/SELL
+    claim, never written to the alerts table, never sent to notify_alert."""
+    if not get_setting_bool("show_info_tier"):
+        return []
+    info_params = _build_info_params(params, category)
+    info_rules = evaluate_rules(symbol, quote, history, info_params)
+    signal_by_type = {r["rule_type"]: r for r in signal_rules}
+    events = []
+    for ir in info_rules:
+        if not ir.get("triggered") or ir.get("disabled"):
+            continue
+        sr = signal_by_type.get(ir["rule_type"])
+        if sr and sr.get("triggered") and not sr.get("disabled"):
+            continue  # already a real, validated signal — don't also show it as "info"
+        events.append({
+            "rule_type": ir["rule_type"],
+            "label": ir.get("label", ir["rule_type"]),
+            "message": f"activity: {ir.get('message', '')} (info · below signal threshold)",
+        })
+    return events
+
+# Server-side mirror of the frontend's computeSignal() (see RULE_SIGNAL_WEIGHT / computeSignal
+# in the dashboard JS) — MUST stay in lock-step with that function. Only used to decide whether
+# a check cycle's ensemble is STRONG enough to warrant an outbound notification when
+# notify_strong_only is on; the DB/UI always log every individual rule trigger regardless.
+# Vote membership is backtest-derived (BACKTESTING.md "weight-check"): rules with near-zero
+# solo edge (consecutive_down, gap, ma_cross) are excluded from the ensemble VOTE — their
+# individual alerts still fire and log — because removing noise voters roughly doubled the
+# quality of STRONG events (+0.93%→+1.89% 5d excess, 55%→61% hit), whereas up-weighting the
+# strongest rules was also tested and made things worse.
+RULE_SIGNAL_WEIGHT = {"consecutive_down": 0, "gap": 0, "ma_cross": 0}
+
+# Rules shown on the card for context but which never generate a logged alert, notification,
+# or news-synthesis call. consecutive_down had near-zero backtested edge yet was the single
+# largest alert generator (~1/4 of all alerts) — demoted to context to cut noise + API spend.
+CONTEXT_ONLY_RULES = {"consecutive_down"}
+
+def _rule_weight(rule_type):
+    return RULE_SIGNAL_WEIGHT.get(rule_type, 1)
+
+def compute_signal(rules):
+    """Mirrors the frontend's computeSignal(rules) exactly. Returns a label string
+    ('STRONG BUY' | 'STRONG BOUNCE WATCH' | 'TRENDING BUY' | 'BOUNCE WATCH' | 'PENDING')
+    or None if no weighted rule triggered."""
+    triggered = [r for r in (rules or [])
+                 if r.get("triggered") and not r.get("disabled") and _rule_weight(r["rule_type"]) > 0]
+    if not triggered:
+        return None
+    buys  = sum(_rule_weight(r["rule_type"]) for r in triggered if r.get("signal") == "BUY")
+    sells = sum(_rule_weight(r["rule_type"]) for r in triggered if r.get("signal") == "SELL")
+    total = buys + sells
+    if not total:
+        return "PENDING"
+    if total >= 2 and buys / total >= 2 / 3:
+        return "STRONG BUY"
+    if total >= 2 and sells / total >= 2 / 3:
+        return "STRONG BOUNCE WATCH"
+    if buys > sells:
+        return "TRENDING BUY"
+    if sells > buys:
+        return "BOUNCE WATCH"
+    return "PENDING"
+
+STRONG_SIGNALS = {"STRONG BUY", "STRONG BOUNCE WATCH"}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # MONITOR LOOP
 # ─────────────────────────────────────────────────────────────────────────────
@@ -877,6 +1270,8 @@ def run_check(symbols=None):
     stocks = get_stocks()
     if symbols:
         stocks = [s for s in stocks if s["symbol"] in symbols]
+    notify_strong_only = get_setting_bool("notify_strong_only")
+    digest_mode = get_setting_bool("daily_digest_enabled")  # digest replaces instant pushes
     for s in stocks:
         sym, cat = s["symbol"], s["category"]
         try:
@@ -886,13 +1281,20 @@ def run_check(symbols=None):
             params  = get_params(sym, cat)
             rules   = evaluate_rules(sym, quote, history, params)
             move_pct = ((quote["close"] - quote["prev_close"]) / quote["prev_close"] * 100) if quote.get("prev_close") else 0
+            # One ensemble read per symbol per check cycle — every rule-trigger alert logged
+            # below for this symbol/cycle shares the same STRONG-only notification gate.
+            ensemble_signal = compute_signal(rules)
+            symbol_is_strong = ensemble_signal in STRONG_SIGNALS
+            near_earnings = _is_near_earnings(sym)
             for rule in rules:
+                if rule.get("rule_type") in CONTEXT_ONLY_RULES:
+                    continue  # context-only: shown on the card, but no alert/notify/synthesis
                 if rule.get("triggered") and not rule.get("disabled"):
                     synthesis = None
                     if not is_in_cooldown(sym, rule["rule_type"]):
                         news_items = fetch_news(sym)
                         direction  = rule.get("direction") or ("UP" if move_pct >= 0 else "DOWN")
-                        synthesis  = synthesize_news(sym, news_items, move_pct, direction, rule.get("label", rule["rule_type"]))
+                        synthesis  = synthesize_news(sym, news_items, move_pct, direction, rule.get("label", rule["rule_type"]), rule["rule_type"], rule.get("signal"))
                         if synthesis:
                             rule["news_synthesis"] = synthesis
                     detail = json.dumps({
@@ -908,18 +1310,24 @@ def run_check(symbols=None):
                         "description":    rule.get("description"),
                         "rationale":      rule.get("rationale"),
                         "news_synthesis": synthesis,
+                        "near_earnings":  near_earnings,
+                        "strong":         symbol_is_strong,
+                        "bear_regime_caveat": _bear_regime_caveat(rule.get("signal")) or None,
                     })
-                    log_alert(sym, rule["rule_type"], rule["message"], quote["close"], detail)
+                    should_notify = False if digest_mode else (symbol_is_strong if notify_strong_only else True)
+                    log_alert(sym, rule["rule_type"], rule["message"], quote["close"], detail, should_notify)
+            info_events = compute_info_events(sym, quote, history, params, cat, rules)
             hist30 = get_history(sym, days=30)
             result = {
                 "quote": quote, "rules": rules, "params": params, "error": None,
                 "week52_high":   quote.get("week52_high"),
                 "week52_low":    quote.get("week52_low"),
                 "history_closes": [h["close"] for h in hist30],
+                "info_events": info_events,
             }
         except Exception as e:
             log.warning("run_check(%s) failed: %s", sym, e)
-            result = {"error": str(e), "rules": [], "params": {}, "history_closes": []}
+            result = {"error": str(e), "rules": [], "params": {}, "history_closes": [], "info_events": []}
         with state_lock:
             state["results"][sym] = result
     with state_lock:
@@ -1018,7 +1426,16 @@ def api_status():
         "last_check": last_check,
         "market_phase": market_phase(),
         "ai_enabled": bool(get_anthropic_key()),
+        "regime": get_market_regime(),
+        # Read fresh from the DB (not the boot-time settings cache) since `backtest.py apply`
+        # may run against the live DB while the app is up and we want the banner to notice.
+        "calibrated_at": _get_calibrated_at_fresh(),
     })
+
+@app.route("/api/rule-stats")
+@login_required
+def api_rule_stats():
+    return jsonify(RULE_STATS)
 
 @app.route("/api/stocks")
 @login_required
@@ -1030,7 +1447,8 @@ def api_stocks():
         with state_lock:
             cached = dict(state["results"].get(sym, {}))
         rules  = cached.get("rules", [])
-        any_alert = any(r.get("triggered") and not r.get("disabled") for r in rules)
+        any_alert = any(r.get("triggered") and not r.get("disabled")
+                        and r.get("rule_type") not in CONTEXT_ONLY_RULES for r in rules)
         with extended_lock:
             ext = dict(extended_state.get(sym, {}))
         if row:
@@ -1054,12 +1472,38 @@ def api_stocks():
                 "earnings_in_days": _days_until(ext.get("earnings_date")),
                 "volume": row["volume"] if "volume" in row.keys() else None,
                 "history_closes": cached.get("history_closes", []),
+                "info_events": cached.get("info_events", []),
             })
         else:
             results.append({"symbol": sym, "category": cat, "price": None,
                             "error": cached.get("error", "Waiting for first check..."),
-                            "rules": [], "history_closes": []})
+                            "rules": [], "history_closes": [], "info_events": []})
     return jsonify(results)
+
+@app.route("/api/history/<symbol>")
+@login_required
+def api_history(symbol):
+    """Daily closes (~13 months, covers 12M/YTD/3M/1M) plus a 5-day intraday series
+    for the detail-panel price chart. Cached so opening a card is cheap and repeatable."""
+    symbol = symbol.upper()
+    def _daily():
+        h = yf.Ticker(symbol).history(period="13mo")
+        if h is None or h.empty:
+            return []
+        return [{"date": ts.strftime("%Y-%m-%d"), "close": round(float(r["Close"]), 2)}
+                for ts, r in h.iterrows()]
+    def _intraday():
+        h = yf.Ticker(symbol).history(period="5d", interval="30m")
+        if h is None or h.empty:
+            return []
+        return [{"t": ts.strftime("%m-%d %H:%M"), "close": round(float(r["Close"]), 2)}
+                for ts, r in h.iterrows()]
+    try:
+        daily = yf_cached(f"chart_daily:{symbol}", 3600, _daily)
+        intraday = yf_cached(f"chart_intraday:{symbol}", 900, _intraday)
+        return jsonify({"symbol": symbol, "daily": daily, "intraday": intraday})
+    except Exception as e:
+        return jsonify({"symbol": symbol, "daily": [], "intraday": [], "error": str(e)})
 
 @app.route("/api/alerts")
 @login_required
@@ -1150,12 +1594,40 @@ def api_analytics():
     for i in range(29, -1, -1):
         day = datetime.fromtimestamp(now - i*86400).strftime("%Y-%m-%d")
         daily_series.append({"date": day, "count": daily.get(day, 0)})
+    # Live outcome scoring per rule (resolved alerts) vs the backtested edge in RULE_STATS.
+    with get_db() as conn:
+        orows = conn.execute(
+            "SELECT rule_type, COUNT(*) n, AVG(outcome_excess) avg_exc, "
+            "AVG(CASE WHEN outcome_correct=1 THEN 1.0 ELSE 0.0 END) hit "
+            "FROM alerts WHERE outcome_ts IS NOT NULL AND outcome_excess IS NOT NULL "
+            "GROUP BY rule_type").fetchall()
+        pending = conn.execute("SELECT COUNT(*) c FROM alerts WHERE outcome_ts IS NULL").fetchone()["c"]
+    # Backtested baseline per rule = simple average of the per-symbol rule_stats entries.
+    bt = {}
+    for sym, rules in RULE_STATS.items():
+        for rt, st in rules.items():
+            bt.setdefault(rt, []).append(st)
+    outcomes = []
+    for r in orows:
+        rt = r["rule_type"]
+        base = bt.get(rt, [])
+        bt_exc = round(sum(s.get("exc5", 0) for s in base) / len(base), 2) if base else None
+        bt_hit = round(sum(s.get("hit5", 0) for s in base) / len(base), 1) if base else None
+        outcomes.append({
+            "rule_type": rt, "n": r["n"],
+            "live_excess": round(r["avg_exc"], 2) if r["avg_exc"] is not None else None,
+            "live_hit": round(r["hit"] * 100, 1) if r["hit"] is not None else None,
+            "bt_excess": bt_exc, "bt_hit": bt_hit,
+        })
+    outcomes.sort(key=lambda x: -x["n"])
     return jsonify({
         "total": total,
         "by_symbol": [{"symbol": r["symbol"], "count": r["c"]} for r in by_symbol],
         "by_rule": [{"rule_type": r["rule_type"], "count": r["c"]} for r in by_rule],
         "signal_split": {"buy": buys, "sell": sells},
         "daily": daily_series,
+        "outcomes": outcomes,
+        "outcomes_pending": pending,
     })
 
 @app.route("/api/check", methods=["POST"])
@@ -1225,12 +1697,105 @@ def api_set_params(symbol):
     worker_pool.submit(run_check, [sym])
     return jsonify({"success": True, "params": current})
 
+@app.route("/api/stock/<symbol>/sensitivity", methods=["POST"])
+@login_required
+def api_set_sensitivity(symbol):
+    """Set the high-level sensitivity dial. Authoritative: replaces any advanced per-rule
+    overrides with a clean preset so switching the dial always fully takes effect."""
+    sym = symbol.upper()
+    level = (request.json or {}).get("level", "calibrated")
+    if level not in SENSITIVITY_LEVELS:
+        return jsonify({"success": False, "error": "invalid level"}), 400
+    save_params(sym, {"_sensitivity": level})
+    worker_pool.submit(run_check, [sym])
+    return jsonify({"success": True, "level": level})
+
 @app.route("/api/stock/<symbol>/params/reset", methods=["POST"])
 @login_required
 def api_reset_params(symbol):
     sym = symbol.upper()
     reset_params(sym)
     worker_pool.submit(run_check, [sym])
+    return jsonify({"success": True})
+
+# ── One-click recalibration (runs the standalone backtester as a subprocess) ──────
+BACKTEST_PY = Path(__file__).parent / "backtest.py"
+RECAL_STATE = {"running": False, "phase": "idle", "rc": None, "tail": "", "started": None}
+_recal_lock = threading.Lock()
+
+def _run_backtest(args, phase):
+    RECAL_STATE.update({"running": True, "phase": phase, "rc": None, "started": int(time.time())})
+    try:
+        proc = subprocess.run([sys.executable, str(BACKTEST_PY), *args],
+                              cwd=str(BACKTEST_PY.parent), capture_output=True, text=True, timeout=1800)
+        RECAL_STATE["rc"] = proc.returncode
+        RECAL_STATE["tail"] = (proc.stdout or "")[-1500:] + (("\n[stderr]\n" + proc.stderr[-800:]) if proc.returncode else "")
+    except Exception as e:
+        RECAL_STATE["rc"] = -1
+        RECAL_STATE["tail"] = f"error: {e}"
+    finally:
+        RECAL_STATE["running"] = False
+        RECAL_STATE["phase"] = "done"
+
+def _recal_diff():
+    """Preview: which live thresholds/enables would change if the latest recommendation applied."""
+    recp = Path(__file__).parent / "backtest_results" / "recommended_params.json"
+    if not recp.exists():
+        return None
+    try:
+        recs = json.loads(recp.read_text())
+    except Exception:
+        return None
+    changes = []
+    for sym, rec in recs.items():
+        cat = next((s["category"] for s in get_stocks() if s["symbol"] == sym), "high_vol")
+        cur = get_params(sym, cat)
+        for k, v in rec.items():
+            if k == "_sensitivity":
+                continue
+            old = cur.get(k)
+            try:
+                differ = (old is None) or (round(float(old), 4) != round(float(v), 4)) if isinstance(v, (int, float)) else (old != v)
+            except Exception:
+                differ = old != v
+            if differ:
+                changes.append({"symbol": sym, "key": k, "from": old, "to": v})
+    return changes
+
+@app.route("/api/recalibrate/run", methods=["POST"])
+@login_required
+def api_recal_run():
+    with _recal_lock:
+        if RECAL_STATE["running"]:
+            return jsonify({"success": False, "error": "already running", "phase": RECAL_STATE["phase"]})
+        # Full pipeline: refresh data → grid → combo → select (writes recommended_params.json + rule_stats.json)
+        threading.Thread(target=_run_backtest, args=(["--refresh"], "backtesting"), daemon=True).start()
+    return jsonify({"success": True})
+
+@app.route("/api/recalibrate/status")
+@login_required
+def api_recal_status():
+    out = dict(RECAL_STATE)
+    if not out["running"] and out["phase"] == "done":
+        out["diff"] = _recal_diff()
+    return jsonify(out)
+
+@app.route("/api/recalibrate/apply", methods=["POST"])
+@login_required
+def api_recal_apply():
+    with _recal_lock:
+        if RECAL_STATE["running"]:
+            return jsonify({"success": False, "error": "busy"})
+        threading.Thread(target=_run_backtest, args=(["apply"], "applying"), daemon=True).start()
+    return jsonify({"success": True})
+
+@app.route("/api/recalibrate/undo", methods=["POST"])
+@login_required
+def api_recal_undo():
+    with _recal_lock:
+        if RECAL_STATE["running"]:
+            return jsonify({"success": False, "error": "busy"})
+        threading.Thread(target=_run_backtest, args=(["undo"], "undoing"), daemon=True).start()
     return jsonify({"success": True})
 
 # ── Settings ──────────────────────────────────────────────────────────────────
@@ -1310,7 +1875,7 @@ AI_TOOLS = [
      "input_schema": {"type": "object", "properties": {"symbol": {"type": "string"}, "params": {"type": "object", "description": "Key/value rule params to update"}}, "required": ["symbol", "params"]}},
     {"name": "reset_rule_params", "description": "Reset a stock's rules to its category defaults.",
      "input_schema": {"type": "object", "properties": {"symbol": {"type": "string"}}, "required": ["symbol"]}},
-    {"name": "update_settings", "description": "Update app settings. Keys: check_interval_seconds, check_interval_closed_seconds, market_hours_only (0/1), alert_cooldown_hours, notify_email_enabled (0/1), notify_whatsapp_enabled (0/1), browser_notifications_enabled (0/1), alert_sound_enabled (0/1), ai_synthesis_model, ai_assistant_model. Do not set secrets here.",
+    {"name": "update_settings", "description": "Update app settings. Keys: check_interval_seconds, check_interval_closed_seconds, market_hours_only (0/1), alert_cooldown_hours, show_info_tier (0/1, day-to-day activity awareness below signal threshold), notify_strong_only (0/1, only push/email/WhatsApp for multi-rule-confirmed STRONG signals — default on), notify_email_enabled (0/1), notify_whatsapp_enabled (0/1), browser_notifications_enabled (0/1), alert_sound_enabled (0/1), ai_synthesis_model, ai_assistant_model. Do not set secrets here.",
      "input_schema": {"type": "object", "properties": {"changes": {"type": "object"}}, "required": ["changes"]}},
     {"name": "run_check_now", "description": "Trigger an immediate re-check of the watchlist (or specific symbols).",
      "input_schema": {"type": "object", "properties": {"symbols": {"type": "array", "items": {"type": "string"}}}}},
@@ -1451,13 +2016,27 @@ def _ai_system_prompt():
         with extended_lock:
             ext = dict(extended_state.get(sym, {}))
         q = cached.get("quote", {})
-        trig = [r["rule_type"] for r in cached.get("rules", []) if r.get("triggered") and not r.get("disabled")]
+        trig_rules = [r for r in cached.get("rules", []) if r.get("triggered") and not r.get("disabled")]
+        trig = [r["rule_type"] for r in trig_rules]
         ed = ext.get("earnings_date"); din = _days_until(ed)
         earn = f", earnings {ed} ({din}d)" if ed else ""
         lines.append(f"  {sym} [{s['category']}] ${q.get('close','?')}"
                      + (f" — triggered: {', '.join(trig)}" if trig else "")
                      + earn)
+        # Backtested evidence for each currently-triggered rule, so the assistant can cite the
+        # actual edge instead of speaking generically (see backtest_results/rule_stats.json).
+        for r in trig_rules:
+            evline = _rule_stats_line(sym, r["rule_type"])
+            if evline:
+                lines.append(f"    {r['rule_type']}: {evline}")
     watch = "\n".join(lines) if lines else "  (empty)"
+    regime = get_market_regime()
+    regime_note = (
+        "\n\nMarket regime note: SPY is currently below its 200-day SMA (bear regime). The "
+        "backtest's calibration window was mostly a bull market, so bounce-watch (SELL-side) "
+        "statistics above are less reliable right now — flag this if you cite them for a "
+        "bounce-watch signal." if regime == "bear" else ""
+    )
     return (
         "You are the built-in assistant for Tripwire, a personal stock-monitoring dashboard. "
         "You help the user understand market moves and manage the app.\n\n"
@@ -1471,9 +2050,11 @@ def _ai_system_prompt():
         "- Confirm with the user BEFORE destructive actions (removing a stock, clearing alerts).\n"
         "- For 'why did X move' or narrative questions, use get_stock_detail + get_news + web_search, then synthesize concisely.\n"
         "- When changing rules or settings, state exactly what you changed.\n"
+        "- When a triggered rule has backtested evidence listed below, cite it (the edge, hit rate, "
+        "and sample size) rather than describing the rule generically. Mention low-confidence flags.\n"
         "- Be concise and specific. Use plain language a retail investor understands.\n"
         "- You are informational only — never give personalized financial advice or guarantees.\n\n"
-        f"Current watchlist:\n{watch}"
+        f"Current watchlist:\n{watch}{regime_note}"
     )
 
 def _sse(obj):
@@ -1568,7 +2149,7 @@ button{cursor:pointer;border:none;outline:none}
 input,select{outline:none}
 
 /* Top bar */
-#topbar{background:#12151F;border-bottom:1px solid #1E2235;padding:0 20px;height:52px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+#topbar{background:#12151F;border-bottom:1px solid #1E2235;padding:0 20px;height:52px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;gap:12px;flex-wrap:wrap}
 #logo{font-weight:800;font-size:17px;color:#F59E0B;letter-spacing:-0.5px}
 #topbar-right{display:flex;align-items:center;gap:12px;font-size:13px;color:#6B7280}
 #status-dot{width:8px;height:8px;border-radius:50%;background:#10B981;display:inline-block;margin-right:4px;transition:background .3s}
@@ -1582,7 +2163,8 @@ input,select{outline:none}
 #window-banner strong{font-weight:800}
 
 /* Tabs */
-#tabs{display:flex;border-bottom:1px solid #1E2235;background:#12151F;padding:0 20px}
+/* Tabs — sticky under the (also sticky) topbar so the menu ribbon never scrolls away */
+#tabs{display:flex;border-bottom:1px solid #1E2235;background:#12151F;padding:0 20px;position:sticky;top:52px;z-index:99}
 .tab{padding:12px 18px;font-size:14px;color:#6B7280;border-bottom:2px solid transparent;cursor:pointer;background:none;border-left:none;border-right:none;border-top:none}
 .tab.active{color:#F59E0B;border-bottom-color:#F59E0B;font-weight:700}
 
@@ -1598,31 +2180,54 @@ input,select{outline:none}
 #add-status.err{color:#EF4444}
 #add-status.ok{color:#10B981}
 
-/* Stock grid */
-#stock-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px}
-.stock-card{background:#12151F;border:1px solid #1E2235;border-radius:12px;padding:14px;cursor:pointer;transition:border-color .15s,box-shadow .15s;position:relative}
+/* "Today" triage strip — what needs attention now, above the grid */
+#triage-strip{margin-bottom:14px}
+.triage-box{background:#12151F;border:1px solid #1E2235;border-radius:12px;padding:12px 14px}
+.triage-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.triage-row:last-child{margin-bottom:0}
+.triage-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#6B7280;min-width:96px}
+.triage-chip{display:inline-flex;align-items:center;gap:6px;border-radius:8px;padding:4px 10px;cursor:pointer;font-size:13px;font-weight:700;border:1px solid transparent}
+.triage-chip .tsym{font-weight:800}
+.triage-chip.buy{color:#10B981;background:#10B98115;border-color:#10B98144}
+.triage-chip.watch{color:#F59E0B;background:#F59E0B15;border-color:#F59E0B44}
+.triage-chip.trend{color:#9CA3AF;background:#37415118;border-color:#37415144}
+.triage-chip .tedge{font-weight:600;opacity:.85;font-size:12px}
+.triage-empty{color:#6B7280;font-size:13px}
+.triage-info{color:#6B7280;font-size:12px}
+
+/* Stock grid — compact cards sized to fit several per row and each within a laptop viewport */
+#stock-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px;align-items:start}
+.stock-card{background:#12151F;border:1px solid #1E2235;border-radius:12px;padding:12px 14px;cursor:pointer;transition:border-color .15s,box-shadow .15s;position:relative}
 .stock-card:hover{border-color:#374151;box-shadow:0 4px 20px #00000044}
 .stock-card.selected{border-color:#F59E0B;box-shadow:0 0 0 1px #F59E0B44}
 .stock-card.alert{border-color:#F59E0B55}
 .alert-dot{position:absolute;top:10px;right:10px;width:7px;height:7px;border-radius:50%;background:#F59E0B;box-shadow:0 0 6px #F59E0B}
-.stock-symbol{font-weight:800;font-size:15px;margin-bottom:2px;letter-spacing:-.3px}
-.stock-cat{font-size:15px;color:#6B7280;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px}
-.stock-price{font-size:22px;font-weight:800;margin-bottom:2px;letter-spacing:-1px}
-.stock-pct{font-size:13px;font-weight:600;margin-bottom:6px}
-.stock-ext{font-size:15px;margin-top:4px;display:flex;gap:8px}
-.stock-time{font-size:15px;color:#4B5563;margin-top:4px}
-.stock-err{font-size:17px;color:#EF4444;margin-top:8px}
+.card-top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.stock-symbol{font-weight:800;font-size:16px;letter-spacing:-.3px}
+.stock-cat{font-size:11px;color:#6B7280;text-transform:uppercase;letter-spacing:.5px}
+.stock-price{font-size:20px;font-weight:800;letter-spacing:-1px}
+.stock-pct{font-size:13px;font-weight:600}
+.card-priceline{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-top:2px}
+.stock-ext{font-size:11px;margin-top:3px;display:flex;gap:8px}
+.stock-time{font-size:11px;color:#4B5563;margin-top:3px}
+.stock-err{font-size:13px;color:#EF4444;margin-top:8px}
 .up{color:#10B981}.dn{color:#EF4444}.muted{color:#6B7280}
 .pre-clr{color:#A78BFA}.post-clr{color:#60A5FA}
-.remove-btn{position:absolute;top:8px;left:8px;background:#1A1D27;border:1px solid #2A2D3E;color:#6B7280;border-radius:4px;font-size:15px;padding:1px 5px;display:none;z-index:2}
+.remove-btn{position:absolute;top:8px;left:8px;background:#1A1D27;border:1px solid #2A2D3E;color:#6B7280;border-radius:4px;font-size:12px;padding:1px 5px;display:none;z-index:2}
 .stock-card:hover .remove-btn{display:block}
 
-/* Alert summary on card */
-.card-triggered{margin-top:10px;border-top:1px solid #1E2235;padding-top:8px}
-.card-triggered-hdr{font-size:15px;color:#F59E0B;font-weight:700;letter-spacing:.5px;margin-bottom:5px;text-transform:uppercase}
-.card-triggered-item{font-size:17px;color:#D1D5DB;padding:3px 0;display:flex;align-items:flex-start;gap:5px;line-height:1.4}
-.card-triggered-item .ti-dot{color:#F59E0B;flex-shrink:0;margin-top:1px}
-.card-triggered-item .ti-label{color:#F59E0B;font-weight:700;flex-shrink:0}
+/* Compact per-card rule status: one small chip per rule instead of a tall labeled list. */
+.card-signal-row{margin-top:8px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.rule-chips{margin-top:8px;display:flex;flex-wrap:wrap;gap:4px}
+.rule-chip{font-size:10px;font-weight:700;letter-spacing:.2px;border-radius:5px;padding:2px 6px;border:1px solid transparent;white-space:nowrap}
+.rule-chip.ok{color:#10B981;background:#10B9810F;border-color:#10B98122}
+.rule-chip.trig{color:#F59E0B;background:#F59E0B1A;border-color:#F59E0B44}
+.rule-chip.off{color:#4B5563;background:#37415112;border-color:#37415133}
+.card-status-hdr{font-size:11px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;margin-top:9px}
+
+/* Info-tier "activity" line — deliberately subordinate to .card-triggered (muted, small,
+   no border/background emphasis) since it carries no BUY/SELL claim, just awareness. */
+.info-tier-line{margin-top:8px;font-size:14px;color:#6B7280;line-height:1.4}
 
 /* Detail panel */
 #detail{background:#12151F;border:1px solid #1E2235;border-radius:14px;padding:22px;margin-bottom:16px}
@@ -1630,6 +2235,23 @@ input,select{outline:none}
 #detail-title{font-size:24px;font-weight:800;letter-spacing:-1px}
 #detail-meta{font-size:12px;color:#6B7280;margin-top:3px}
 #btn-close{background:#1E2235;color:#E4E0D8;border-radius:6px;padding:7px 14px;font-size:13px}
+
+/* Sensitivity dial */
+.sens-wrap{background:#0A0C12;border:1px solid #1E2235;border-radius:10px;padding:12px 14px;margin-bottom:16px}
+.sens-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#6B7280;margin-bottom:8px}
+.sens-seg{display:inline-flex;border:1px solid #1E2235;border-radius:8px;overflow:hidden}
+.sens-btn{background:#12151F;color:#9CA3AF;border:none;padding:7px 16px;font-size:13px;font-weight:700;cursor:pointer;border-right:1px solid #1E2235}
+.sens-btn:last-child{border-right:none}
+.sens-btn.active{background:#F59E0B;color:#000}
+.sens-desc{font-size:12px;color:#6B7280;margin-top:7px}
+
+/* Detail price chart (multi-timeframe) */
+#detail-chart{margin-bottom:16px}
+.chart-range-row{display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap}
+.chart-range-btn{font-size:12px;font-weight:700;color:#9CA3AF;background:#0A0C12;border:1px solid #1E2235;border-radius:6px;padding:4px 12px;cursor:pointer}
+.chart-range-btn.active{color:#F59E0B;border-color:#F59E0B66;background:#F59E0B12}
+.chart-box{background:#0A0C12;border:1px solid #1E2235;border-radius:10px;padding:10px}
+.chart-meta{display:flex;justify-content:space-between;font-size:12px;color:#6B7280;margin-bottom:4px}
 
 /* Price grid */
 #price-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;margin-bottom:10px}
@@ -1663,6 +2285,9 @@ input,select{outline:none}
 .rule-desc{font-size:12px;color:#9CA3AF;margin-bottom:6px;line-height:1.5}
 .rule-rationale{font-size:17px;color:#6B7280;background:#12151F;border-left:2px solid #374151;padding:7px 10px;border-radius:0 6px 6px 0;margin-bottom:10px;line-height:1.5;font-style:italic}
 .rule-params-line{font-size:17px;color:#3B82F6;margin-bottom:10px}
+.evidence-line{font-size:15px;color:#60A5FA;background:#3B82F60D;border:1px solid #3B82F62A;border-radius:6px;padding:6px 10px;margin-bottom:10px;line-height:1.5}
+.low-conf-badge{display:inline-block;margin-left:8px;font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:#F59E0B;background:#F59E0B15;border:1px solid #F59E0B44;border-radius:4px;padding:1px 6px}
+.bear-caveat{font-size:15px;color:#F87171;background:#EF44440D;border:1px solid #EF44442A;border-radius:6px;padding:6px 10px;margin-top:6px;margin-bottom:10px;line-height:1.5}
 .rule-vals{display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:6px;margin-bottom:10px}
 .val-cell{background:#12151F;border:1px solid #1E2235;border-radius:6px;padding:7px 10px}
 .val-cell-label{font-size:14px;color:#6B7280;margin-bottom:3px;letter-spacing:.5px;text-transform:uppercase}
@@ -1696,6 +2321,10 @@ input,select{outline:none}
 .alert-entry-time{font-size:17px;color:#4B5563;font-family:monospace}
 .alert-entry-rule{font-size:17px;color:#F59E0B;background:#F59E0B0F;border-radius:4px;padding:1px 8px;font-weight:700;text-transform:uppercase;letter-spacing:.4px}
 .alert-entry-price{font-size:17px;color:#9CA3AF;margin-left:auto}
+.window-chip{font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;border-radius:4px;padding:1px 7px}
+.window-chip.window-open{background:#3B82F615;color:#60A5FA;border:1px solid #3B82F633}
+.window-chip.window-closed{background:#6B728015;color:#6B7280;border:1px solid #6B728033}
+.alert-entry.window-expired{opacity:.62}
 .alert-entry-msg{font-size:13px;color:#E4E0D8;margin-bottom:6px;font-weight:500}
 .alert-entry-detail{font-size:17px;color:#6B7280;line-height:1.6}
 .alert-detail-vals{display:flex;gap:12px;flex-wrap:wrap;margin-top:6px}
@@ -1734,6 +2363,10 @@ input,select{outline:none}
 .mp-pre,.mp-post{background:#F59E0B15;color:#F59E0B;border:1px solid #F59E0B40}
 .mp-closed{background:#6B728015;color:#9CA3AF;border:1px solid #6B728040}
 
+/* Bear-regime pill + calibration staleness stamp */
+#regime-pill{font-size:17px;font-weight:800;border-radius:10px;padding:2px 9px;letter-spacing:.3px;background:#EF444418;color:#F87171;border:1px solid #EF444444}
+#calib-stamp.calib-stale{color:#F87171;font-weight:800}
+
 /* Earnings chip on cards */
 .earnings-chip{display:inline-block;font-size:15px;font-weight:700;border-radius:4px;padding:1px 7px;margin-top:5px;background:#3B82F615;color:#60A5FA;border:1px solid #3B82F633}
 .earnings-chip.soon{background:#F59E0B15;color:#F59E0B;border-color:#F59E0B44}
@@ -1763,11 +2396,24 @@ input,select{outline:none}
 
 /* Analytics tab */
 #pane-analytics{padding-bottom:60px}
+
+/* Glossary */
+#pane-glossary{max-width:820px;padding-bottom:80px}
+.gloss-link{color:#60A5FA;cursor:pointer;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:2px}
+.gloss-link:hover{color:#93C5FD}
+.gloss-entry{background:#12151F;border:1px solid #1E2235;border-radius:10px;padding:14px 16px;margin-bottom:10px;scroll-margin-top:110px;transition:border-color .3s,background .3s}
+.gloss-entry.gloss-flash{border-color:#F59E0B;background:#F59E0B10}
+.gloss-term{font-size:16px;font-weight:800;color:#F59E0B;margin-bottom:5px}
+.gloss-def{font-size:14px;color:#C9C6BE;line-height:1.6}
+.gloss-def b{color:#E4E0D8}
 .analytics-card{background:#12151F;border:1px solid #1E2235;border-radius:12px;padding:18px 20px;margin-bottom:16px}
 .analytics-card h3{font-size:13px;color:#F59E0B;margin-bottom:6px;letter-spacing:.5px;text-transform:uppercase}
 .analytics-summary{display:flex;gap:20px;flex-wrap:wrap;margin-bottom:16px}
 .an-stat{background:#12151F;border:1px solid #1E2235;border-radius:10px;padding:12px 18px}
 .an-stat-num{font-size:22px;font-weight:800}
+.outcome-table{width:100%;border-collapse:collapse;font-size:13px}
+.outcome-table th{text-align:right;color:#9CA3AF;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.4px;padding:6px 8px;border-bottom:1px solid #1E2235}
+.outcome-table td{text-align:right;padding:7px 8px;border-bottom:1px solid #12151F}
 .an-stat-lbl{font-size:17px;color:#6B7280;text-transform:uppercase;letter-spacing:.5px}
 .abar-row{display:flex;align-items:center;gap:10px;margin-bottom:7px}
 .abar-label{font-size:12px;color:#9CA3AF;width:110px;text-align:right;flex-shrink:0}
@@ -1828,6 +2474,7 @@ input,select{outline:none}
   <div id="logo">⚡ Tripwire</div>
   <div id="topbar-right">
     <span id="market-phase" class="mp-closed">—</span>
+    <span id="regime-pill" class="regime-bear" style="display:none">🐻 BEAR REGIME</span>
     <span><span id="status-dot"></span><span id="status-txt">Connecting...</span></span>
     <span id="last-check-txt"></span>
     <button id="btn-check" onclick="manualCheck()">▶ Check Now</button>
@@ -1841,9 +2488,10 @@ input,select{outline:none}
   <button class="tab" onclick="switchTab('assistant',this)">🤖 Assistant</button>
   <button class="tab" onclick="switchTab('analytics',this)">Analytics</button>
   <button class="tab" onclick="switchTab('settings',this)">Settings</button>
+  <button class="tab" onclick="switchTab('glossary',this)" id="tab-glossary-btn">📖 Glossary</button>
 </div>
 
-<div id="window-banner">⏱ <strong>Act within ~4 trading days.</strong> Rule thresholds are calibrated from a backtested 1–5 day edge — signals lose their statistical validity beyond that window.</div>
+<div id="window-banner">⏱ <strong>Act within ~4 trading days.</strong> Rule thresholds are calibrated from a backtested 1–5 day edge — signals lose their statistical validity beyond that window.<span id="calib-stamp"></span></div>
 
 <div id="content">
   <div id="err-banner" class="err-banner" style="display:none"></div>
@@ -1861,8 +2509,9 @@ input,select{outline:none}
       <button id="btn-add" onclick="addStock()">+ Add</button>
       <span id="add-status"></span>
     </div>
-    <div id="detail" style="display:none"></div>
+    <div id="triage-strip"></div>
     <div id="stock-grid"></div>
+    <div id="detail" style="display:none"></div>
   </div>
 
   <div id="pane-alerts" style="display:none">
@@ -1887,6 +2536,8 @@ input,select{outline:none}
   <div id="pane-analytics" style="display:none"></div>
 
   <div id="pane-settings" style="display:none"></div>
+
+  <div id="pane-glossary" style="display:none"></div>
 </div>
 
 <script>
@@ -1995,9 +2646,42 @@ async function postJSON(url,body){ const r=await fetch(url,{method:'POST',header
 
 let aiEnabled=false, maxAlertId=0, notifPrimed=false, appSettings={};
 
+// ── Backtest evidence (fetched once; absent/empty = feature silently off) ──────
+let ruleStats={}, ruleStatsLoaded=false;
+async function loadRuleStats(){
+  if(ruleStatsLoaded) return;
+  ruleStatsLoaded=true;
+  try{ ruleStats=await fetchJSON('/api/rule-stats')||{}; }catch(e){ ruleStats={}; }
+}
+function ruleStatsFor(sym,ruleType){
+  return (ruleStats[sym]||{})[ruleType]||null;
+}
+// Compact evidence line, e.g. "Backtested: +3.2% avg vs SPY over 5d · 62% hit · n=41 · worst case -2.8%"
+function ruleStatsLine(sym,ruleType){
+  const st=ruleStatsFor(sym,ruleType);
+  if(!st) return '';
+  const parts=[`${st.exc5>=0?'+':''}${st.exc5.toFixed(1)}% avg vs SPY over 5d`];
+  if(st.hit5!=null) parts.push(`${Math.round(st.hit5)}% hit`);
+  parts.push(`n=${st.n}`);
+  if(st.mae!=null) parts.push(`worst case ${st.mae>=0?'+':''}${st.mae.toFixed(1)}%`);
+  return `Backtested: ${parts.join(' · ')}`;
+}
+function lowConfidenceBadge(sym,ruleType){
+  const st=ruleStatsFor(sym,ruleType);
+  if(!st) return '';
+  if(st.short_history||st.n<30) return '<span class="low-conf-badge" title="Short trading history or small sample size">low confidence</span>';
+  return '';
+}
+function evidenceLineHTML(sym,ruleType){
+  const line=ruleStatsLine(sym,ruleType);
+  if(!line) return '';
+  return `<div class="evidence-line">📊 ${linkifyGlossary(line)}${lowConfidenceBadge(sym,ruleType)}</div>`;
+}
+
 async function loadAll(){
   try{
     const [s,a,st]=await Promise.all([fetchJSON('/api/stocks'),fetchJSON('/api/alerts'),fetchJSON('/api/status')]);
+    await loadRuleStats();
     stocks=s; alerts=a.alerts||[];
     renderStatus(st);
     renderGrid();
@@ -2014,9 +2698,11 @@ loadAll();
 
 // ── Status ────────────────────────────────────────────────────────────────────
 const PHASE_LABEL={regular:'● Market open',pre:'Pre-market',post:'After-hours',closed:'Market closed'};
+let currentRegime='bull';
 function renderStatus(st){
   checking=st.status==='checking';
   aiEnabled=!!st.ai_enabled;
+  currentRegime=st.regime||'bull';
   document.getElementById('status-dot').className=checking?'checking':'';
   document.getElementById('status-txt').textContent=checking?'Checking...':'Running';
   document.getElementById('btn-check').disabled=checking;
@@ -2026,6 +2712,28 @@ function renderStatus(st){
     const d=new Date(st.last_check);
     document.getElementById('last-check-txt').textContent='Last: '+d.toLocaleTimeString();
   }
+  const rp=document.getElementById('regime-pill');
+  if(rp) rp.style.display=(currentRegime==='bear')?'inline-block':'none';
+  renderCalibStamp(st.calibrated_at);
+}
+// Mirrors app.py's _bear_regime_caveat(signal) — SELL-side (bounce-watch) only, bear regime only.
+function bearRegimeCaveatHTML(signal){
+  if(signal!=='SELL'||currentRegime!=='bear') return '';
+  return `<div class="bear-caveat">🐻 Caution: the market is currently in a bear regime, but this rule's bounce-watch statistics were calibrated on a mostly bull-market window — treat the backtested edge as less reliable right now.</div>`;
+}
+
+// Calibration-date stamp appended to the action-window banner. Turns amber/warning-emphasized
+// once the calibration is stale (>90 days) so the user knows the backtest evidence may no
+// longer reflect current thresholds/market conditions.
+const CALIB_STALE_DAYS=90;
+function renderCalibStamp(calibratedAt){
+  const el=document.getElementById('calib-stamp');
+  if(!el) return;
+  if(!calibratedAt){ el.textContent=''; el.className=''; return; }
+  const days=Math.floor((Date.now()-new Date(calibratedAt+'T00:00:00').getTime())/86400000);
+  const stale=days>CALIB_STALE_DAYS;
+  el.textContent=` · calibrated ${calibratedAt}${stale?' (stale — over 90 days old)':''}`;
+  el.className=stale?'calib-stale':'';
 }
 
 async function manualCheck(){
@@ -2035,16 +2743,24 @@ async function manualCheck(){
 }
 
 // ── Browser notifications ─────────────────────────────────────────────────────
+function alertDetailOf(a){ try{ return a.detail?JSON.parse(a.detail):{}; }catch(e){ return {}; } }
+
 function checkNewAlertNotifications(){
   const ids=alerts.map(a=>a.id);
   const newMax=ids.length?Math.max(...ids):0;
   if(!notifPrimed){ maxAlertId=newMax; notifPrimed=true; return; }  // don't fire on first load
   if(newMax>maxAlertId){
-    const fresh=alerts.filter(a=>a.id>maxAlertId);
+    let fresh=alerts.filter(a=>a.id>maxAlertId);
+    // Respect notify_strong_only client-side too, so browser push matches the same STRONG-only
+    // gate the server applies to email/WhatsApp — every alert still appears in the Alerts tab
+    // regardless; this only filters which ones trigger a push/sound.
+    if(appSettings.notify_strong_only!=='0'){
+      fresh=fresh.filter(a=>alertDetailOf(a).strong===true);
+    }
     if(appSettings.browser_notifications_enabled!=='0' && 'Notification' in window && Notification.permission==='granted'){
       fresh.slice(0,3).forEach(a=>{ try{ new Notification('⚡ '+a.symbol+' alert',{body:a.message}); }catch(e){} });
     }
-    if(appSettings.alert_sound_enabled==='1') beep();
+    if(appSettings.alert_sound_enabled==='1' && fresh.length) beep();
     maxAlertId=newMax;
   }
 }
@@ -2061,14 +2777,89 @@ function beep(){
 // ── Tabs ──────────────────────────────────────────────────────────────────────
 function switchTab(name,btn){
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
-  btn.classList.add('active');
-  ['stocks','alerts','assistant','analytics','settings'].forEach(n=>{
+  if(btn) btn.classList.add('active');
+  ['stocks','alerts','assistant','analytics','settings','glossary'].forEach(n=>{
     const el=document.getElementById('pane-'+n);
     if(el) el.style.display=(n===name)?'':'none';
   });
   if(name==='settings') loadSettings();
   if(name==='analytics') loadAnalytics();
   if(name==='assistant') loadChatHistory();
+  if(name==='glossary') renderGlossary();
+}
+
+// Jump to a specific glossary entry from an inline term link anywhere in the app.
+function openGlossary(id){
+  const btn=document.getElementById('tab-glossary-btn');
+  switchTab('glossary',btn);
+  requestAnimationFrame(()=>{
+    const el=document.getElementById('gloss-'+id);
+    if(el){
+      el.classList.add('gloss-flash');
+      const y=el.getBoundingClientRect().top+window.pageYOffset-100;
+      window.scrollTo({top:y,behavior:'smooth'});
+      setTimeout(()=>el.classList.remove('gloss-flash'),1600);
+    }
+  });
+  return false;
+}
+
+// Linkify a curated set of jargon terms in a plain-text string (first occurrence of each
+// term only, to avoid clutter). Applied to backend-supplied rule descriptions and evidence
+// lines, which are plain text — safe to inject as HTML after this pass.
+const GLOSSARY_LINK_RULES=[
+  [/\bbounce[- ]?watch\b/i,'bounce'],[/\bbounce\b/i,'bounce'],
+  [/\bback-?tested\b/i,'backtested'],[/\bback-?test(?:ing)?\b/i,'backtested'],
+  [/\bRSI\b/,'rsi'],
+  [/\boverbought\b/i,'obos'],[/\boversold\b/i,'obos'],[/\bOB\/OS\b/i,'obos'],
+  [/\bcross-?over\b/i,'crossover'],[/\bgolden cross\b/i,'crossover'],[/\bdeath cross\b/i,'crossover'],
+  [/\bgap\b/i,'gap'],
+  [/\bexcess return\b/i,'excess'],[/\bvs\.? SPY\b/i,'excess'],
+  [/\bhit rate\b/i,'hitrate'],
+  [/\bvolatility\b/i,'volatility'],
+  [/\bsupport\b/i,'sr'],[/\bresistance\b/i,'sr'],
+  [/\bSTRONG\b/,'strong'],
+  [/\bvolume\b/i,'volume'],
+  [/\balert\b/i,'alert'],
+];
+function linkifyGlossary(text){
+  if(!text) return text;
+  let out=String(text); const used=new Set();
+  for(const [re,id] of GLOSSARY_LINK_RULES){
+    if(used.has(id)) continue;
+    let hit=false;
+    out=out.replace(re,m=>{if(hit)return m;hit=true;used.add(id);
+      return `<a class="gloss-link" href="javascript:void(0)" onclick="openGlossary('${id}');event.stopPropagation();return false;">${m}</a>`;});
+  }
+  return out;
+}
+
+const GLOSSARY=[
+  ['alert','Alert','A rule "fires" (alerts) when its condition crosses the configured threshold — e.g. today\'s move exceeds the volatility threshold. Every alert is logged to the Alerts tab; whether it also sends a push/email/WhatsApp depends on your notification settings.'],
+  ['strong','STRONG signal','When at least two independent rules agree on the same direction (a two-thirds majority of the voting rules), Tripwire escalates to a <b>STRONG BUY</b> or <b>STRONG BOUNCE WATCH</b>. STRONG signals carried the strongest backtested edge (~+1.9% over 5 days, 61% hit) and are what outbound notifications default to. Only the four rules with a proven edge vote (volatility, support/resistance, volume, RSI); gap, consecutive-down and MA-cross still alert individually but don\'t vote.'],
+  ['bounce','Bounce watch','What used to be a "SELL" signal. Backtesting this watchlist found that downside triggers (a gap down, an oversold RSI, a support break) were historically followed by a <b>rebound within a few days</b>, not a continued decline — so a downside signal is framed as a "bounce watch" (a possible dip-buy setup) rather than a sell. This is calibrated on a bull-heavy period; in a sustained bear market the bounce tendency weakens.'],
+  ['backtested','Backtested','Every threshold in Tripwire was chosen by replaying ~5 years of daily prices and measuring what actually happened after each trigger (see the Backtesting doc). The "Backtested: +x% over 5d" line on a rule is that rule\'s measured historical edge, not a guess.'],
+  ['excess','Excess return (vs SPY)','A rule\'s forward return with the S&P 500 (SPY) subtracted over the same window, so the rule isn\'t credited for a move that was really just the whole market rising. +2% excess means the stock beat SPY by 2 points over the measured days.'],
+  ['hitrate','Hit rate','The percent of a rule\'s historical triggers where the signal was "right" (a positive signal-direction excess return). 55–62% is typical for the strong rules — an edge, not a crystal ball.'],
+  ['mae','Worst case (MAE)','Maximum Adverse Excursion — the average worst intraday drawdown within the window after a trigger. It answers "if I acted on this, how far underwater might I have gone before the edge played out?"'],
+  ['window','4-day action window','The thresholds are tuned to a 1–5 trading-day edge, so a signal is only considered actionable for about four trading days. Older alerts are greyed as "window closed" and stop counting toward the combined signal.'],
+  ['volatility','Volatility (unusual move)','Fires when today\'s percentage move is unusually large versus the stock\'s own recent average daily move (e.g. 3.75× the 10-day norm). Big outlier moves often mark a catalyst worth investigating.'],
+  ['sr','Support / Resistance','<b>Support</b> is a price floor the stock has repeatedly bounced off; <b>resistance</b> is a ceiling it has repeatedly failed to break. A close decisively beyond the prior N-day high/low (plus a buffer) is a breakout/breakdown. Upside breakouts were the single strongest rule in backtesting.'],
+  ['volume','Volume spike','Fires when today\'s share volume is a multiple (e.g. 3×) of the recent average — a surge signals unusual institutional interest and conviction behind a move.'],
+  ['gap','Gap','The jump between yesterday\'s close and today\'s open, before regular trading. A large gap reflects overnight news (earnings, guidance, macro). Gap <i>up</i> carried a modest edge; gap <i>down</i> tends to fade (see bounce watch).'],
+  ['rsi','RSI','Relative Strength Index — a 0–100 momentum gauge of how fast and far price has moved recently. High = overbought, low = oversold. Tripwire uses a longer 21-period RSI with 80/35 thresholds on most stocks, tuned from the backtest.'],
+  ['obos','Overbought / Oversold (OB/OS)','<b>Overbought</b> (RSI ≥ the OB threshold, e.g. 80) means price has run up fast and may be due to cool off — a bounce-watch, though strong stocks can stay overbought for weeks. <b>Oversold</b> (RSI ≤ the OS threshold, e.g. 35) means it has fallen fast and may rebound — a possible buy setup.'],
+  ['crossover','Moving-average cross-over','When a short moving average crosses a long one: a <b>golden cross</b> (short rises above long) is a bullish trend shift, a <b>death cross</b> (short falls below long) a bearish one. Backtesting showed little short-term edge here, so MA-cross is off by default and doesn\'t vote toward STRONG signals — it\'s kept as chart context.'],
+  ['info','Info tier (activity)','A quieter second pass using the looser pre-tuning thresholds. It surfaces day-to-day "activity" on a card for awareness, without making a buy/sell claim, logging an alert, or sending a notification. Turn it off in Settings if you only want validated signals.'],
+];
+let glossaryRendered=false;
+function renderGlossary(){
+  if(glossaryRendered) return;
+  glossaryRendered=true;
+  const pane=document.getElementById('pane-glossary');
+  pane.innerHTML=`<h2 style="font-size:20px;font-weight:800;margin-bottom:6px">📖 Glossary</h2>`+
+    `<div style="color:#6B7280;font-size:13px;margin-bottom:18px">Plain-English definitions of the terms Tripwire uses. Dotted-underlined terms elsewhere in the app link here.</div>`+
+    GLOSSARY.map(([id,term,def])=>`<div class="gloss-entry" id="gloss-${id}"><div class="gloss-term">${term}</div><div class="gloss-def">${def}</div></div>`).join('');
 }
 
 // ── Add / remove stock ────────────────────────────────────────────────────────
@@ -2101,7 +2892,13 @@ async function removeStock(sym,e){
 // ensemble's value comes from independent confirmation, which a dominant rule undermines. Only
 // the ma_cross exclusion held up (roughly neutral, consistent with its ~zero solo edge), so it's
 // the only non-1 weight kept here.
-const RULE_SIGNAL_WEIGHT={ma_cross:0};
+// Must stay in lock-step with Python's RULE_SIGNAL_WEIGHT (see compute_signal in the backend).
+// Near-zero-edge rules are excluded from the ensemble vote (their individual alerts still show):
+// backtest "weight-check" found removing these noise voters doubled STRONG-event quality, while
+// up-weighting the strongest rules regressed it.
+const RULE_SIGNAL_WEIGHT={consecutive_down:0,gap:0,ma_cross:0};
+// Context-only rules (mirror of Python CONTEXT_ONLY_RULES): shown but never alert/notify.
+const CONTEXT_ONLY_RULES={consecutive_down:1};
 function ruleWeight(r){ return RULE_SIGNAL_WEIGHT[r.rule_type]??1; }
 
 function computeSignal(rules){
@@ -2141,45 +2938,41 @@ function renderGrid(){
     const sign=s.pct>0?'+':'';
     const selCls=selectedSym===s.symbol?' selected':'';
     const alertCls=s.alert?' alert':'';
-    const triggered=(s.rules||[]).filter(r=>r.triggered&&!r.disabled);
+    const triggered=(s.rules||[]).filter(r=>r.triggered&&!r.disabled&&!CONTEXT_ONLY_RULES[r.rule_type]);
 
     const sig=computeSignal(s.rules);
     const allRules=(s.rules||[]).filter(r=>!r.disabled);
     const hasRuleData=allRules.length>0&&allRules.some(r=>r.message&&!r.message.includes('Insufficient')&&!r.message.includes('Waiting'));
 
+    // Compact status: a one-line header + a wrap of small chips (one per active rule),
+    // amber if triggered, green if OK. Full detail is one click away in the panel below.
     let rulesHTML='';
     if(hasRuleData){
-      if(triggered.length>0){
-        rulesHTML=`
-          <div class="card-triggered">
-            <div class="card-triggered-hdr">⚠ ${triggered.length} rule${triggered.length>1?'s':''} triggered</div>
-            ${triggered.map(r=>`<div class="card-triggered-item">
-              <span class="ti-dot">▸</span>
-              <span><span class="ti-label">${shortRuleLabel(r.rule_type)}:</span> ${cardRuleDetail(r)} ${ruleSigBadge(r.signal)}</span>
-            </div>`).join('')}
-          </div>
-          <div class="card-signal">${signalBadge(sig)}</div>`;
-      } else {
-        // All rules evaluated and all OK — show compact per-rule status
-        rulesHTML=`
-          <div class="card-triggered">
-            <div class="card-triggered-hdr" style="color:#10B981">✓ All rules OK</div>
-            ${allRules.map(r=>`<div class="card-triggered-item">
-              <span class="ti-dot" style="color:#10B981">✓</span>
-              <span><span class="ti-label" style="color:#9CA3AF">${shortRuleLabel(r.rule_type)}:</span> ${cardRuleDetail(r)}</span>
-            </div>`).join('')}
-          </div>`;
-      }
+      const chips=allRules.map(r=>{
+        const ctx=CONTEXT_ONLY_RULES[r.rule_type];
+        const cls=ctx?'off':(r.triggered&&!r.disabled)?'trig':'ok';
+        const tip=ctx?(r.label||r.rule_type)+' (context only — does not alert)':(r.label||r.rule_type);
+        return `<span class="rule-chip ${cls}" title="${escAttr(tip)}">${shortRuleLabel(r.rule_type)}</span>`;
+      }).join('');
+      const hdr=triggered.length>0
+        ? `<div class="card-status-hdr" style="color:#F59E0B">⚠ ${triggered.length} triggered</div>`
+        : `<div class="card-status-hdr" style="color:#10B981">✓ All rules OK</div>`;
+      const sigHTML=sig?`<div class="card-signal-row">${signalBadge(sig)}</div>`:'';
+      rulesHTML=`${hdr}${sigHTML}<div class="rule-chips">${chips}</div>`;
     }
 
     return `<div class="stock-card${selCls}${alertCls}" onclick="selectStock('${s.symbol}')">
       <button class="remove-btn" onclick="removeStock('${s.symbol}',event)">✕</button>
       ${s.alert?'<div class="alert-dot"></div>':''}
-      <div class="stock-symbol">${s.symbol}</div>
-      <div class="stock-cat">${(s.category||'').replace('_vol',' vol')}</div>
+      <div class="card-top">
+        <span class="stock-symbol">${s.symbol}</span>
+        <span class="stock-cat">${(s.category||'').replace('_vol',' vol')}</span>
+      </div>
       ${s.price!=null?`
-        <div class="stock-price">$${s.price}</div>
-        <div class="stock-pct ${pctCls}">${sign}${s.pct}%</div>
+        <div class="card-priceline">
+          <span class="stock-price">$${s.price}</span>
+          <span class="stock-pct ${pctCls}">${sign}${s.pct}%</span>
+        </div>
         <div class="stock-ext">
           ${s.pre_market?`<span class="pre-clr">Pre $${s.pre_market}</span>`:''}
           ${s.post_market?`<span class="post-clr">Post $${s.post_market}</span>`:''}
@@ -2187,11 +2980,66 @@ function renderGrid(){
         <div class="stock-time">${s.date} ${s.time}</div>
         ${earningsChip(s)}
         ${rulesHTML}
+        ${infoEventsLineHTML(s)}
       `:`<div class="stock-err">${s.error||'Loading...'}</div>`}
     </div>`;
   }).join('');
 
   if(selectedSym){const s=stocks.find(x=>x.symbol===selectedSym);if(s)renderDetail(s);}
+  renderTriage();
+}
+
+// "Today" triage strip: rank what needs attention now — STRONG first, then trending,
+// then a one-line count of info-tier activity. Chips jump to the stock's detail panel.
+function renderTriage(){
+  const el=document.getElementById('triage-strip');
+  if(!el) return;
+  const strong=[], trend=[]; let infoCount=0;
+  for(const s of stocks){
+    if(!s.rules||!s.rules.length) continue;
+    const sig=computeSignal(s.rules);
+    if(sig){
+      if(sig.label.startsWith('STRONG')) strong.push({s,sig});
+      else if(sig.label==='TRENDING BUY'||sig.label==='BOUNCE WATCH') trend.push({s,sig});
+    }
+    if((s.info_events||[]).length) infoCount++;
+  }
+  const bestEdge=(s)=>{
+    // surface the strongest triggered rule's backtested 5d edge, if we have stats
+    let best=null;
+    for(const r of (s.rules||[])){
+      if(!r.triggered||r.disabled) continue;
+      const st=(ruleStats[s.symbol]||{})[r.rule_type];
+      if(st&&(best==null||st.exc5>best)) best=st.exc5;
+    }
+    return best;
+  };
+  const chip=(s,sig)=>{
+    const cls=sig.label.includes('BUY')?'buy':sig.label.includes('WATCH')?'watch':'trend';
+    const e=bestEdge(s);
+    const edge=e!=null?`<span class="tedge">${e>=0?'+':''}${e.toFixed(1)}% 5d</span>`:'';
+    return `<span class="triage-chip ${cls}" onclick="selectStock('${s.symbol}')"><span class="tsym">${s.symbol}</span> ${sig.label} ${edge}</span>`;
+  };
+  if(!strong.length&&!trend.length){
+    el.innerHTML=`<div class="triage-box"><span class="triage-empty">✓ No strong or trending signals right now.</span>${infoCount?` <span class="triage-info">· ${infoCount} stock${infoCount>1?'s':''} showing info-tier activity.</span>`:''}</div>`;
+    return;
+  }
+  let rows='';
+  if(strong.length) rows+=`<div class="triage-row"><span class="triage-label">⚡ Needs attention</span>${strong.map(x=>chip(x.s,x.sig)).join('')}</div>`;
+  if(trend.length)  rows+=`<div class="triage-row"><span class="triage-label">Trending</span>${trend.map(x=>chip(x.s,x.sig)).join('')}</div>`;
+  if(infoCount)     rows+=`<div class="triage-row"><span class="triage-label">Activity</span><span class="triage-info">${infoCount} stock${infoCount>1?'s':''} with info-tier activity (below signal threshold)</span></div>`;
+  el.innerHTML=`<div class="triage-box">${rows}</div>`;
+}
+
+// Two-tier alerts: a single muted "activity" line per card for rules that crossed the looser
+// pre-tuning (info) threshold but not the validated signal threshold — informational only,
+// never a BUY/SELL claim, visually subordinate to real triggered rules. See INFO_RULES/
+// compute_info_events in app.py and the show_info_tier setting.
+function infoEventsLineHTML(s){
+  const events=s.info_events||[];
+  if(!events.length) return '';
+  const text=events.map(e=>shortRuleLabel(e.rule_type)+': '+e.message.replace(/^activity:\s*/,'')).join('  ·  ');
+  return `<div class="info-tier-line">⚡ activity: ${text}</div>`;
 }
 
 function earningsChip(s){
@@ -2230,7 +3078,16 @@ function selectStock(sym){
   if(selectedSym===sym){selectedSym=null;document.getElementById('detail').style.display='none';renderGrid();return;}
   selectedSym=sym;
   const s=stocks.find(x=>x.symbol===sym);
-  if(s){renderDetail(s);renderGrid();}
+  if(s){
+    renderDetail(s);renderGrid();
+    // Detail renders below the grid — bring it into view, offset for the sticky topbar+tabs.
+    requestAnimationFrame(()=>{
+      const el=document.getElementById('detail');
+      if(!el) return;
+      const y=el.getBoundingClientRect().top+window.pageYOffset-96;
+      window.scrollTo({top:y,behavior:'smooth'});
+    });
+  }
 }
 
 function pctStr(a,b){const p=((a-b)/b*100);return(p>0?'+':'')+p.toFixed(2)+'%';}
@@ -2261,6 +3118,12 @@ function renderDetail(s){
       </div>
       <button id="btn-close" onclick="selectStock('${s.symbol}')">✕ Close</button>
     </div>
+    <div id="detail-chart">
+      <div class="chart-range-row">
+        ${['5D','1M','3M','YTD','12M'].map(r=>`<button class="chart-range-btn${r===chartRange?' active':''}" onclick="setChartRange('${s.symbol}','${r}')">${r}</button>`).join('')}
+      </div>
+      <div class="chart-box" id="chart-box"><div style="color:#6B7280;font-size:13px;padding:30px;text-align:center">Loading chart…</div></div>
+    </div>
     <div id="price-grid">
       <div class="price-cell"><div class="price-cell-label">Price</div>
         <div class="price-cell-val">$${s.price||'—'}</div>
@@ -2283,11 +3146,106 @@ function renderDetail(s){
       </div>
     </div>
     <div class="ranges-grid">${ranges}</div>
-    <div class="section-label">Rules</div>
+    ${sensitivityControlHTML(s)}
+    <div class="section-label">Rules <span style="color:#4B5563;font-weight:400;text-transform:none;letter-spacing:0">— advanced: fine-tune individual thresholds via each rule's Edit button</span></div>
     <div id="rules-container">
       ${(s.rules||[]).map((r,i)=>ruleHTML(s.symbol,r,i,s.history_closes,s.params)).join('')}
       ${(!s.rules||s.rules.length===0)?'<div style="color:#6B7280;font-size:13px">No rule data yet — click Check Now</div>':''}
     </div>`;
+  loadDetailChart(s.symbol);
+}
+
+// ── Sensitivity dial ──────────────────────────────────────────────────────────
+function sensitivityControlHTML(s){
+  const cur=(s.params&&s.params._sensitivity)||'calibrated';
+  const opts=[
+    ['conservative','Conservative','Fewer, higher-conviction alerts'],
+    ['calibrated','Calibrated','Backtest-tuned (recommended)'],
+    ['sensitive','Sensitive','More alerts, catches smaller moves'],
+  ];
+  const btns=opts.map(([v,label,desc])=>
+    `<button class="sens-btn${v===cur?' active':''}" title="${desc}" onclick="setSensitivity('${s.symbol}','${v}')">${label}</button>`).join('');
+  return `<div class="sens-wrap">
+    <div class="sens-label">Alert sensitivity</div>
+    <div class="sens-seg">${btns}</div>
+    <div class="sens-desc">${opts.find(o=>o[0]===cur)[2]}</div>
+  </div>`;
+}
+async function setSensitivity(sym,level){
+  const r=await postJSON('/api/stock/'+encodeURIComponent(sym)+'/sensitivity',{level});
+  if(r&&r.success){ await loadAll(); }
+}
+
+// ── Detail multi-timeframe price chart ────────────────────────────────────────
+let chartRange='3M';
+const chartCache={};  // sym -> {daily:[{date,close}], intraday:[{t,close}]}
+async function loadDetailChart(sym){
+  if(chartCache[sym]){ renderDetailChart(sym); return; }
+  try{
+    const d=await fetchJSON('/api/history/'+encodeURIComponent(sym));
+    chartCache[sym]=d;
+  }catch(e){ chartCache[sym]={daily:[],intraday:[]}; }
+  if(selectedSym===sym) renderDetailChart(sym);
+}
+function setChartRange(sym,r){
+  chartRange=r;
+  document.querySelectorAll('.chart-range-btn').forEach(b=>b.classList.toggle('active',b.textContent===r));
+  renderDetailChart(sym);
+}
+function pointsForRange(data,range){
+  if(!data) return {pts:[],xlabel:''};
+  if(range==='5D'){
+    const iv=data.intraday||[];
+    return {pts:iv.map(x=>({label:x.t,close:x.close})),xlabel:'last 5 market days'};
+  }
+  const daily=data.daily||[];
+  if(!daily.length) return {pts:[],xlabel:''};
+  let cut;
+  const now=new Date();
+  if(range==='1M') cut=new Date(now.getFullYear(),now.getMonth()-1,now.getDate());
+  else if(range==='3M') cut=new Date(now.getFullYear(),now.getMonth()-3,now.getDate());
+  else if(range==='YTD') cut=new Date(now.getFullYear(),0,1);
+  else cut=new Date(now.getFullYear()-1,now.getMonth(),now.getDate()); // 12M
+  const iso=cut.toISOString().slice(0,10);
+  const f=daily.filter(x=>x.date>=iso);
+  return {pts:(f.length?f:daily).map(x=>({label:x.date,close:x.close})),xlabel:range};
+}
+function renderDetailChart(sym){
+  const box=document.getElementById('chart-box');
+  if(!box) return;
+  const {pts,xlabel}=pointsForRange(chartCache[sym],chartRange);
+  if(!pts.length){ box.innerHTML='<div style="color:#6B7280;font-size:13px;padding:30px;text-align:center">No chart data for this range.</div>'; return; }
+  box.innerHTML=priceLineSVG(pts,xlabel);
+}
+function priceLineSVG(pts,xlabel){
+  const W=760,H=220,pT=14,pB=26,pL=52,pR=12;
+  const plotW=W-pL-pR, plotH=H-pT-pB;
+  const closes=pts.map(p=>p.close);
+  const lo=Math.min(...closes), hi=Math.max(...closes);
+  const span=(hi-lo)||1;
+  const x=i=>pL+(pts.length<=1?plotW/2:(i/(pts.length-1))*plotW);
+  const y=v=>pT+plotH-((v-lo)/span)*plotH;
+  const first=closes[0], last=closes[closes.length-1];
+  const up=last>=first;
+  const stroke=up?'#10B981':'#EF4444';
+  const line=pts.map((p,i)=>`${i?'L':'M'}${x(i).toFixed(1)},${y(p.close).toFixed(1)}`).join('');
+  const area=`M${x(0).toFixed(1)},${(pT+plotH).toFixed(1)} `+pts.map((p,i)=>`L${x(i).toFixed(1)},${y(p.close).toFixed(1)}`).join(' ')+` L${x(pts.length-1).toFixed(1)},${(pT+plotH).toFixed(1)} Z`;
+  // y-axis gridlines (lo, mid, hi)
+  const grid=[lo,(lo+hi)/2,hi].map(v=>{
+    const yy=y(v).toFixed(1);
+    return `<line x1="${pL}" y1="${yy}" x2="${W-pR}" y2="${yy}" stroke="#1E2235" stroke-width="1"/>`+
+           `<text x="${pL-6}" y="${(+yy+3).toFixed(1)}" fill="#4B5563" font-size="10" text-anchor="end">$${v.toFixed(2)}</text>`;
+  }).join('');
+  const pct=(((last-first)/first)*100);
+  const pctTxt=(pct>=0?'+':'')+pct.toFixed(2)+'%';
+  const gid='g'+Math.random().toString(36).slice(2,7);
+  return `<div class="chart-meta"><span>${xlabel} · ${pts.length} pts</span><span style="color:${stroke};font-weight:700">${pctTxt} · $${last.toFixed(2)}</span></div>`+
+    `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:${H}px" preserveAspectRatio="none">`+
+    `<defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${stroke}" stop-opacity="0.22"/><stop offset="100%" stop-color="${stroke}" stop-opacity="0"/></linearGradient></defs>`+
+    `${grid}<path d="${area}" fill="url(#${gid})"/><path d="${line}" fill="none" stroke="${stroke}" stroke-width="1.6"/>`+
+    `<text x="${pL}" y="${H-6}" fill="#4B5563" font-size="10">${pts[0].label}</text>`+
+    `<text x="${W-pR}" y="${H-6}" fill="#4B5563" font-size="10" text-anchor="end">${pts[pts.length-1].label}</text>`+
+    `</svg>`;
 }
 
 // ── Rule card ─────────────────────────────────────────────────────────────────
@@ -2345,8 +3303,10 @@ function ruleHTML(sym,r,idx,historyClosed,params){
         <button class="edit-toggle" onclick="toggleEdit('${sym}','${r.rule_type}')">Edit</button>
       </div>
     </div>
-    <div class="rule-desc">${r.description||''}</div>
-    ${r.rationale?`<div class="rule-rationale">${r.rationale}</div>`:''}
+    <div class="rule-desc">${linkifyGlossary(r.description||'')}</div>
+    ${r.rationale?`<div class="rule-rationale">${linkifyGlossary(r.rationale)}</div>`:''}
+    ${evidenceLineHTML(sym,r.rule_type)}
+    ${r.triggered&&!r.disabled?bearRegimeCaveatHTML(r.signal):''}
     ${r.news_synthesis?`<div class="rule-news-synthesis"><div class="rule-news-label">📰 News Synthesis</div><div class="rule-news-text">${r.news_synthesis}</div></div>`:''}
     ${r.param_summary?`<div class="rule-params-line">⚙ ${r.param_summary}</div>`:''}
     ${chart}
@@ -2407,6 +3367,33 @@ async function resetParams(sym){
 
 // ── Alert log (grouped by ticker) ─────────────────────────────────────────────
 const alertGroupOpen={};
+const ACTION_WINDOW_TRADING_DAYS=4;
+
+// Simple Mon-Fri trading-day count between a unix timestamp (seconds) and now. A holiday
+// calendar is deliberately not modeled (see market_phase() docstring for the same tradeoff) —
+// this is an approximation for "is this alert still inside its calibrated action window."
+function tradingDaysSince(ts){
+  const start=new Date(ts*1000);
+  const now=new Date();
+  let d=new Date(start.getFullYear(),start.getMonth(),start.getDate());
+  const end=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+  let days=0;
+  while(d<end){
+    d.setDate(d.getDate()+1);
+    const dow=d.getDay();
+    if(dow!==0&&dow!==6) days++;
+  }
+  return days;
+}
+function isWithinActionWindow(ts){ return tradingDaysSince(ts)<=ACTION_WINDOW_TRADING_DAYS; }
+function actionWindowChipHTML(ts){
+  const age=tradingDaysSince(ts);
+  if(age>ACTION_WINDOW_TRADING_DAYS){
+    return `<span class="window-chip window-closed" title="Beyond the ${ACTION_WINDOW_TRADING_DAYS}-trading-day calibration window">window closed</span>`;
+  }
+  const left=ACTION_WINDOW_TRADING_DAYS-age;
+  return `<span class="window-chip window-open">window: ${left}d left</span>`;
+}
 
 function renderAlerts(){
   const el=document.getElementById('alert-pane');
@@ -2447,11 +3434,13 @@ function renderAlerts(){
       const ruleLabel={volatility:'Unusual Move',support_resistance:'S/R Breach',consecutive_down:'Consec. Down',volume:'Volume Spike',gap:'Opening Gap',rsi:'RSI Extreme',ma_cross:'MA Crossover'}[a.rule_type]||a.rule_type.replace(/_/g,' ');
       const alertSig=detail.signal?ruleSigBadge(detail.signal):'';
 
-      return `<div class="alert-entry" style="${a.ack?'opacity:.5':''}">
+      return `<div class="alert-entry${isWithinActionWindow(a.ts)?'':' window-expired'}" style="${a.ack?'opacity:.5':''}">
         <div class="alert-entry-header">
           <span class="alert-entry-time">${a.time}</span>
           <span class="alert-entry-rule">${ruleLabel}</span>
           ${alertSig}
+          ${actionWindowChipHTML(a.ts)}
+          ${detail.near_earnings?'<span class="earnings-chip soon" style="margin-top:0">📅 earnings-driven?</span>':''}
           ${a.ack?'<span style="font-size:15px;color:#10B981">✓ ack</span>':''}
           <span class="alert-entry-price">Price: $${a.price}</span>
         </div>
@@ -2459,12 +3448,18 @@ function renderAlerts(){
         ${detail.description?`<div class="alert-entry-detail">${detail.description}</div>`:''}
         ${detailVals.length>0?`<div class="alert-detail-vals">${detailVals.join('')}</div>`:''}
         ${detail.rationale?`<div class="alert-rationale">${detail.rationale}</div>`:''}
+        ${evidenceLineHTML(a.symbol,a.rule_type)}
+        ${detail.bear_regime_caveat?`<div class="bear-caveat">🐻 ${detail.bear_regime_caveat}</div>`:''}
         ${detail.news_synthesis?`<div class="news-synthesis"><div class="news-synthesis-label">📰 News Synthesis</div><div class="news-synthesis-text">${detail.news_synthesis}</div></div>`:''}
       </div>`;
     }).join('');
 
-    // Compute group signal from all alerts in this group (same evidence-based weights as computeSignal)
-    const groupSigs=entries.map(a=>{let d={};try{if(a.detail)d=JSON.parse(a.detail);}catch(e){}return d.signal?{signal:d.signal,rule_type:a.rule_type}:null;}).filter(Boolean).filter(g=>(RULE_SIGNAL_WEIGHT[g.rule_type]??1)>0);
+    // Compute group signal from alerts in this group STILL INSIDE the action window (same
+    // evidence-based weights as computeSignal). Alerts older than the calibrated window are
+    // excluded from both the vote tally and the badge — otherwise a "STRONG BOUNCE WATCH"
+    // badge could be built from weeks-old alerts, directly contradicting the banner above it.
+    const inWindowEntries=entries.filter(a=>isWithinActionWindow(a.ts));
+    const groupSigs=inWindowEntries.map(a=>{let d={};try{if(a.detail)d=JSON.parse(a.detail);}catch(e){}return d.signal?{signal:d.signal,rule_type:a.rule_type}:null;}).filter(Boolean).filter(g=>(RULE_SIGNAL_WEIGHT[g.rule_type]??1)>0);
     const gBuys=groupSigs.filter(g=>g.signal==='BUY').reduce((s,g)=>s+(RULE_SIGNAL_WEIGHT[g.rule_type]??1),0);
     const gSells=groupSigs.filter(g=>g.signal==='SELL').reduce((s,g)=>s+(RULE_SIGNAL_WEIGHT[g.rule_type]??1),0);
     const gTotal=gBuys+gSells;
@@ -2518,8 +3513,12 @@ const SETTINGS_FORM=[
     {key:'check_interval_closed_seconds',label:'Check interval when closed (seconds)',type:'number'},
     {key:'market_hours_only',label:'Only check during market hours',type:'toggle'},
     {key:'alert_cooldown_hours',label:'Alert cooldown (hours)',type:'number'},
+    {key:'show_info_tier',label:'Show day-to-day activity (info tier)',type:'toggle',hint:'Shows a muted "activity" line on stock cards for moves that cross the looser pre-2026 thresholds but not the validated signal thresholds — informational only, never a BUY/SELL claim.'},
   ]},
   {group:'Notifications',rows:[
+    {key:'daily_digest_enabled',label:'Daily digest instead of instant pings',type:'toggle',hint:'When on, suppresses instant push/email/WhatsApp and sends one summary per day instead (email + WhatsApp) — a better fit for the 1–5 day signal horizon. Alerts still appear live in the app.'},
+    {key:'digest_hour',label:'Digest hour (0–23, local time)',type:'number',hint:'Hour of day the daily digest is sent.'},
+    {key:'notify_strong_only',label:'Only push/email/WhatsApp for STRONG signals',type:'toggle',hint:'When on (default), outbound notifications only fire when at least 2 independent rules agree (STRONG BUY / STRONG BOUNCE WATCH). Every alert still appears in the Alerts tab regardless. Ignored while daily digest is on.'},
     {key:'browser_notifications_enabled',label:'Browser notifications',type:'toggle'},
     {key:'alert_sound_enabled',label:'Alert sound',type:'toggle'},
     {key:'notify_email_enabled',label:'Email notifications',type:'toggle'},
@@ -2563,8 +3562,72 @@ async function loadSettings(){
        <button id="btn-test-notify" onclick="testNotify()">Send test notification</button>
        <button class="btn-reset" onclick="enableBrowserNotifs()">Enable browser notifications</button>
        <span id="settings-status"></span>
+     </div>`+
+    `<div class="settings-group"><h3>Recalibration</h3>
+       <div class="set-hint" style="margin-bottom:10px">Re-run the 5-year backtest on fresh data to re-tune every rule threshold, then review and apply the changes. Takes a couple of minutes.</div>
+       <div class="settings-actions">
+         <button id="btn-recal-run" onclick="recalRun()">🔄 Recalibrate now</button>
+         <span id="recal-status" class="set-hint"></span>
+       </div>
+       <div id="recal-result" style="margin-top:12px"></div>
      </div>`;
+  refreshRecalStatus();
 }
+
+// ── One-click recalibration ───────────────────────────────────────────────────
+let recalPoll=null;
+async function recalRun(){
+  const btn=document.getElementById('btn-recal-run'); if(btn) btn.disabled=true;
+  document.getElementById('recal-result').innerHTML='';
+  await postJSON('/api/recalibrate/run',{});
+  pollRecal();
+}
+function pollRecal(){
+  if(recalPoll) clearInterval(recalPoll);
+  recalPoll=setInterval(refreshRecalStatus,3000);
+  refreshRecalStatus();
+}
+async function refreshRecalStatus(){
+  let st; try{ st=await fetchJSON('/api/recalibrate/status'); }catch(e){ return; }
+  const status=document.getElementById('recal-status');
+  const btn=document.getElementById('btn-recal-run');
+  if(!status) return;
+  if(st.running){
+    status.textContent='⏳ '+(st.phase||'working')+'…';
+    if(btn) btn.disabled=true;
+    if(!recalPoll) pollRecal();
+    return;
+  }
+  if(btn) btn.disabled=false;
+  if(recalPoll){ clearInterval(recalPoll); recalPoll=null; }
+  if(st.phase==='done'){
+    status.textContent=st.rc===0?'✓ done':'⚠ finished with issues (rc '+st.rc+')';
+    renderRecalResult(st);
+  }else{
+    status.textContent='';
+  }
+}
+function renderRecalResult(st){
+  const box=document.getElementById('recal-result'); if(!box) return;
+  const diff=st.diff||[];
+  if(st.rc!==0){
+    box.innerHTML=`<div class="err-banner" style="white-space:pre-wrap">${escapeHTML(st.tail||'Recalibration failed.')}</div>`;
+    return;
+  }
+  if(!diff.length){
+    box.innerHTML=`<div class="set-hint">✓ Recalibration complete — no threshold changes recommended (already up to date).</div>`;
+    return;
+  }
+  const rows=diff.slice(0,60).map(c=>`<tr><td style="text-align:left">${c.symbol}</td><td style="text-align:left">${c.key}</td><td class="muted">${c.from==null?'—':c.from}</td><td>→</td><td class="up">${c.to}</td></tr>`).join('');
+  box.innerHTML=`<div class="set-hint" style="margin-bottom:8px">${diff.length} proposed change${diff.length>1?'s':''}:</div>
+    <table class="outcome-table"><tbody>${rows}</tbody></table>
+    <div class="settings-actions" style="margin-top:12px">
+      <button id="btn-save-settings" onclick="recalApply()">✓ Apply changes</button>
+      <button class="btn-reset" onclick="recalUndo()">↩ Undo last apply</button>
+    </div>`;
+}
+async function recalApply(){ await postJSON('/api/recalibrate/apply',{}); document.getElementById('recal-status').textContent='⏳ applying…'; pollRecal(); setTimeout(loadAll,4000); }
+async function recalUndo(){ await postJSON('/api/recalibrate/undo',{}); document.getElementById('recal-status').textContent='⏳ undoing…'; pollRecal(); setTimeout(loadAll,4000); }
 
 async function saveSettings(){
   const body={};
@@ -2617,9 +3680,38 @@ async function loadAnalytics(){
       <div class="an-stat"><div class="an-stat-num up">${d.signal_split.buy}</div><div class="an-stat-lbl">Buy signals (30d)</div></div>
       <div class="an-stat"><div class="an-stat-num" style="color:#F59E0B">${d.signal_split.sell}</div><div class="an-stat-lbl">Bounce-watch signals (30d)</div></div>
     </div>
+    ${outcomesCardHTML(d)}
     <div class="analytics-card"><h3>Alerts per stock</h3>${bars(d.by_symbol,'symbol',symMax)||'<div class="set-hint">No data</div>'}</div>
     <div class="analytics-card"><h3>Alerts by rule type</h3>${bars(byRule,'rule_type',ruleMax)||'<div class="set-hint">No data</div>'}</div>
     <div class="analytics-card"><h3>Activity — last 30 days</h3>${sparkline(d.daily)}</div>`;
+}
+
+// Self-scoring: how each rule's LIVE outcomes (resolved ~5 trading days after firing) compare
+// with its backtested edge. This is the app auditing its own predictions on forward data.
+function outcomesCardHTML(d){
+  const rows=d.outcomes||[];
+  const ruleName={volatility:'Unusual Move',support_resistance:'S/R Breach',consecutive_down:'Consec Down',volume:'Volume',gap:'Gap',rsi:'RSI',ma_cross:'MA Cross'};
+  const pend=d.outcomes_pending?`<div class="set-hint" style="margin-top:8px">${d.outcomes_pending} alert${d.outcomes_pending>1?'s':''} still maturing (scored ~5 trading days after firing).</div>`:'';
+  if(!rows.length){
+    return `<div class="analytics-card"><h3>Live vs backtested — self-scoring</h3>
+      <div class="set-hint">No alerts have matured yet. Once alerts are ${5} trading days old they're scored here against their ${linkifyGlossary('backtested')} edge.</div>${pend}</div>`;
+  }
+  const cell=(live,bt,suffix)=>{
+    if(live==null) return '<td class="muted">—</td>';
+    const cls=bt==null?'':(live>=bt-0.01?'up':'dn');
+    return `<td class="${cls}">${live>=0?'+':''}${live}${suffix}<span class="muted" style="font-size:11px"> vs ${bt!=null?(bt>=0?'+':'')+bt+suffix:'—'}</span></td>`;
+  };
+  const body=rows.map(r=>`<tr>
+    <td style="text-align:left">${ruleName[r.rule_type]||r.rule_type}</td>
+    <td>${r.n}</td>
+    ${cell(r.live_hit,r.bt_hit,'%')}
+    ${cell(r.live_excess,r.bt_excess,'%')}
+  </tr>`).join('');
+  return `<div class="analytics-card"><h3>Live vs backtested — self-scoring</h3>
+    <table class="outcome-table"><thead><tr>
+      <th style="text-align:left">Rule</th><th>Scored</th><th>${linkifyGlossary('Hit rate')} (live vs backtest)</th><th>Avg ${linkifyGlossary('excess return')} 5d (live vs backtest)</th>
+    </tr></thead><tbody>${body}</tbody></table>
+    <div class="set-hint" style="margin-top:8px">Green = live is meeting or beating the backtest; red = underperforming. Small samples are noisy — read with the "Scored" count in mind.</div>${pend}</div>`;
 }
 
 function sparkline(daily){
@@ -2651,6 +3743,7 @@ const CHAT_SUGGESTIONS=[
 ];
 
 function escapeHTML(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function escAttr(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function mdLite(s){
   return escapeHTML(s)
     .replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>')

@@ -624,17 +624,23 @@ def select(years):
     wl = get_watchlist()
     recommendations = {}
     decisions = []   # human-readable audit rows
+    rule_stats = {}  # symbol -> rule -> evidence summary for the UI (see BACKTESTING.md)
     for sym, cat in wl.items():
         rec = {}
+        sym_short_hist = bool(grid.loc[grid["symbol"] == sym, "short_history"].iloc[0]) \
+            if (grid["symbol"] == sym).any() else False
+        rule_stats[sym] = {}
         for rule in RULE_TYPES:
             sub = grid[(grid["symbol"] == sym) & (grid["rule"] == rule)]
             best, reason = pick_best(sub)
             adopt_level = None; chosen = None; note = reason
+            evidence_row = None  # the grid/pooled row whose stats back the adopted params
             if best is not None:
                 oos = best.get("oos_mean_exc5", np.nan)
                 if best["n"] >= MIN_N and pd.notna(oos) and oos > 0:
                     adopt_level = "ticker"; chosen = json.loads(best["params_json"])
                     note = f"ticker: exc5={best['mean_exc5']*100:.2f}% n={int(best['n'])} oos={oos*100:.2f}%"
+                    evidence_row = best
             # ma_cross showed ~no edge at this horizon even pooled (see BACKTESTING.md); only
             # adopt it where a ticker itself validated out-of-sample, never via category fallback.
             if chosen is None and rule == "ma_cross":
@@ -649,6 +655,7 @@ def select(years):
                     if not match.empty:
                         adopt_level = "category"; chosen = json.loads(match.iloc[0]["params_json"])
                         note = f"category fallback: exc5={pbest['mean_exc5']*100:.2f}% n={int(pbest['n'])} ({reason})"
+                        evidence_row = pbest
             if chosen is None:
                 adopt_level = "disable"
                 note = f"disable: {reason}"
@@ -658,11 +665,24 @@ def select(years):
                 rec.update(_enable_flag(rule))
             decisions.append({"symbol": sym, "category": cat, "rule": rule,
                               "decision": adopt_level, "note": note})
+            # Evidence for the UI: only meaningful when a threshold was actually adopted —
+            # a "disable" decision has no live threshold to attach backtested stats to.
+            if evidence_row is not None:
+                rule_stats[sym][rule] = {
+                    "exc5": round(float(evidence_row["mean_exc5"]) * 100, 3),
+                    "hit5": round(float(evidence_row["hit5"]) * 100, 1) if pd.notna(evidence_row.get("hit5")) else None,
+                    "n": int(evidence_row["n"]),
+                    "mae": round(float(evidence_row["mae"]) * 100, 3) if pd.notna(evidence_row.get("mae")) else None,
+                    "level": adopt_level,
+                    "short_history": sym_short_hist,
+                }
         recommendations[sym] = rec
     (RESULTS_DIR / "recommended_params.json").write_text(json.dumps(recommendations, indent=2))
     pd.DataFrame(decisions).to_csv(RESULTS_DIR / "decisions.csv", index=False)
+    (RESULTS_DIR / "rule_stats.json").write_text(json.dumps(rule_stats, indent=2))
     log(f"Selection -> {RESULTS_DIR/'recommended_params.json'} ({len(recommendations)} tickers)")
     log(f"Decisions -> {RESULTS_DIR/'decisions.csv'}")
+    log(f"Rule stats -> {RESULTS_DIR/'rule_stats.json'}")
     return recommendations, decisions
 
 def _enable_flag(rule):
@@ -679,10 +699,12 @@ def _disable_flag(rule):
 # PHASE C: COMBINATIONS (agreement + ablation) over selected per-ticker rules
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Mirrors the live app's RULE_SIGNAL_WEIGHT (app.py, computeSignal): support_resistance and
-# volatility count double (strongest solo backtested edge), ma_cross counts zero (no edge at
-# this horizon), everything else counts once.
-LIVE_RULE_WEIGHT = {"support_resistance": 2, "volatility": 2, "ma_cross": 0}
+# Mirrors the live app's RULE_SIGNAL_WEIGHT (app.py, computeSignal): near-zero-edge rules
+# (consecutive_down, gap, ma_cross) are excluded from the ensemble vote; the remaining "core
+# four" (volatility, support_resistance, volume, rsi) each count once. Chosen by comparing
+# variants with `weight-check`: excluding noise voters beat both plain equal-vote and the
+# earlier idea of double-weighting the strongest rules (which regressed).
+LIVE_RULE_WEIGHT = {"consecutive_down": 0, "gap": 0, "ma_cross": 0}
 
 def _ticker_winners_and_signals(sym, df, cache, grid):
     """Rules with a positive-edge best param for this ticker, and each rule's daily active
@@ -908,8 +930,14 @@ def apply_recs():
         existing.update(rec)
         c.execute("INSERT OR REPLACE INTO rule_params (symbol,params) VALUES (?,?)", (sym, json.dumps(existing)))
         applied += 1
+    # Stamp when this calibration was applied so the running app can show a freshness
+    # warning (see app.py /api/status + the window-banner). Same (key,value) settings
+    # schema the app's set_setting() uses — written directly since we never import app.py.
+    calibrated_at = datetime.now().date().isoformat()
+    c.execute("INSERT OR REPLACE INTO settings (key,value) VALUES ('calibrated_at', ?)", (calibrated_at,))
     c.commit(); c.close()
     log(f"Applied recommendations to {applied} tickers. Backup: params_backup_{ts}.json")
+    log(f"Stamped calibrated_at={calibrated_at} in the app settings table.")
 
 def undo_apply():
     backups = sorted(RESULTS_DIR.glob("params_backup_*.json"))
