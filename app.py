@@ -814,40 +814,53 @@ def synthesize_news(symbol, news_items, move_pct, direction, rule_label, rule_ty
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _send_email(subject, body):
+    """Returns (ok, message). Callers that only care about fire-and-forget (real alerts)
+    can ignore the return value; api_test_notify uses it to show the user what actually
+    happened instead of a blind "sent" — silent failures here were exactly why email
+    notifications could be enabled yet never arrive with no way to tell why."""
     if not get_setting_bool("notify_email_enabled"):
-        return
+        return False, "Email notifications are turned off"
     host = get_setting("smtp_host", ""); user = get_setting("smtp_user", "")
     pwd  = get_setting("smtp_password", ""); to = get_setting("notify_email_to", "") or user
-    if not (host and user and to):
-        log.warning("Email enabled but SMTP host/user/recipient incomplete")
-        return
+    missing = [n for n, v in (("SMTP host", host), ("SMTP username", user), ("recipient", to)) if not v]
+    if missing:
+        msg = f"Missing: {', '.join(missing)} — fill these in and Save first"
+        log.warning("Email enabled but incomplete: %s", msg)
+        return False, msg
     try:
-        msg = EmailMessage()
-        msg["Subject"] = subject
-        msg["From"] = user
-        msg["To"] = to
-        msg.set_content(body)
+        msg_obj = EmailMessage()
+        msg_obj["Subject"] = subject
+        msg_obj["From"] = user
+        msg_obj["To"] = to
+        msg_obj.set_content(body)
         with smtplib.SMTP(host, get_setting_int("smtp_port", 587), timeout=15) as s:
             s.starttls()
             if pwd:
                 s.login(user, pwd)
-            s.send_message(msg)
+            s.send_message(msg_obj)
+        return True, f"Sent to {to}"
     except Exception as e:
         log.warning("Email send failed: %s", e)
+        return False, f"{type(e).__name__}: {e}"
 
 def _send_whatsapp(text):
+    """Returns (ok, message) — see _send_email docstring."""
     if not get_setting_bool("notify_whatsapp_enabled"):
-        return
+        return False, "WhatsApp notifications are turned off"
     phone = get_setting("callmebot_phone", ""); key = get_setting("callmebot_apikey", "")
-    if not (phone and key):
-        log.warning("WhatsApp enabled but phone/apikey incomplete")
-        return
+    missing = [n for n, v in (("phone", phone), ("CallMeBot API key", key)) if not v]
+    if missing:
+        msg = f"Missing: {', '.join(missing)} — fill these in and Save first"
+        log.warning("WhatsApp enabled but incomplete: %s", msg)
+        return False, msg
     try:
         url = "https://api.callmebot.com/whatsapp.php?" + urllib.parse.urlencode(
             {"phone": phone, "text": text, "apikey": key})
-        urllib.request.urlopen(url, timeout=15).read()
+        resp = urllib.request.urlopen(url, timeout=15).read().decode("utf-8", "replace")
+        return True, "Sent"
     except Exception as e:
         log.warning("WhatsApp send failed: %s", e)
+        return False, f"{type(e).__name__}: {e}"
 
 def build_daily_digest():
     """Summarize the last 24h of alerts (grouped by symbol, STRONG flagged first) into a short
@@ -1568,40 +1581,34 @@ def api_alerts_export():
 @app.route("/api/analytics")
 @login_required
 def api_analytics():
-    now = int(time.time())
-    cutoff = now - 30 * 86400
+    """Performance scorecard: how the app's OWN signals actually played out (self-scoring),
+    not alert-volume vanity metrics. Everything here is built from resolved outcomes
+    (alerts scored ~5 trading days after firing by resolve_outcomes)."""
     with get_db() as conn:
-        by_symbol = conn.execute(
-            "SELECT symbol, COUNT(*) c FROM alerts GROUP BY symbol ORDER BY c DESC").fetchall()
-        by_rule = conn.execute(
-            "SELECT rule_type, COUNT(*) c FROM alerts GROUP BY rule_type ORDER BY c DESC").fetchall()
-        recent = conn.execute(
-            "SELECT timestamp, detail FROM alerts WHERE timestamp>?", (cutoff,)).fetchall()
-        total = conn.execute("SELECT COUNT(*) c FROM alerts").fetchone()["c"]
-    # Daily counts (last 30 days) + BUY/SELL split from detail JSON
-    daily = {}
-    buys = sells = 0
-    for r in recent:
-        day = datetime.fromtimestamp(r["timestamp"]).strftime("%Y-%m-%d")
-        daily[day] = daily.get(day, 0) + 1
-        try:
-            sig = (json.loads(r["detail"]) or {}).get("signal") if r["detail"] else None
-            if sig == "BUY": buys += 1
-            elif sig == "SELL": sells += 1
-        except Exception:
-            pass
-    daily_series = []
-    for i in range(29, -1, -1):
-        day = datetime.fromtimestamp(now - i*86400).strftime("%Y-%m-%d")
-        daily_series.append({"date": day, "count": daily.get(day, 0)})
-    # Live outcome scoring per rule (resolved alerts) vs the backtested edge in RULE_STATS.
-    with get_db() as conn:
+        # Per-rule live outcomes vs backtested edge
         orows = conn.execute(
             "SELECT rule_type, COUNT(*) n, AVG(outcome_excess) avg_exc, "
             "AVG(CASE WHEN outcome_correct=1 THEN 1.0 ELSE 0.0 END) hit "
             "FROM alerts WHERE outcome_ts IS NOT NULL AND outcome_excess IS NOT NULL "
             "GROUP BY rule_type").fetchall()
+        # Per-stock realized edge (which stocks' signals actually paid off)
+        srows = conn.execute(
+            "SELECT symbol, COUNT(*) n, AVG(outcome_excess) avg_exc, "
+            "AVG(CASE WHEN outcome_correct=1 THEN 1.0 ELSE 0.0 END) hit "
+            "FROM alerts WHERE outcome_ts IS NOT NULL AND outcome_excess IS NOT NULL "
+            "GROUP BY symbol ORDER BY avg_exc DESC").fetchall()
+        # Headline: overall across all scored signals
+        head = conn.execute(
+            "SELECT COUNT(*) n, AVG(outcome_excess) avg_exc, "
+            "AVG(CASE WHEN outcome_correct=1 THEN 1.0 ELSE 0.0 END) hit "
+            "FROM alerts WHERE outcome_ts IS NOT NULL AND outcome_excess IS NOT NULL").fetchone()
+        # Recent resolved signals (the receipts behind the aggregate)
+        recent = conn.execute(
+            "SELECT symbol, rule_type, timestamp, detail, outcome_ret, outcome_excess, outcome_correct "
+            "FROM alerts WHERE outcome_ts IS NOT NULL AND outcome_excess IS NOT NULL "
+            "ORDER BY timestamp DESC LIMIT 15").fetchall()
         pending = conn.execute("SELECT COUNT(*) c FROM alerts WHERE outcome_ts IS NULL").fetchone()["c"]
+
     # Backtested baseline per rule = simple average of the per-symbol rule_stats entries.
     bt = {}
     for sym, rules in RULE_STATS.items():
@@ -1609,24 +1616,54 @@ def api_analytics():
             bt.setdefault(rt, []).append(st)
     outcomes = []
     for r in orows:
-        rt = r["rule_type"]
-        base = bt.get(rt, [])
-        bt_exc = round(sum(s.get("exc5", 0) for s in base) / len(base), 2) if base else None
-        bt_hit = round(sum(s.get("hit5", 0) for s in base) / len(base), 1) if base else None
+        base = bt.get(r["rule_type"], [])
         outcomes.append({
-            "rule_type": rt, "n": r["n"],
+            "rule_type": r["rule_type"], "n": r["n"],
             "live_excess": round(r["avg_exc"], 2) if r["avg_exc"] is not None else None,
             "live_hit": round(r["hit"] * 100, 1) if r["hit"] is not None else None,
-            "bt_excess": bt_exc, "bt_hit": bt_hit,
+            "bt_excess": round(sum(s.get("exc5", 0) for s in base) / len(base), 2) if base else None,
+            "bt_hit": round(sum(s.get("hit5", 0) for s in base) / len(base), 1) if base else None,
         })
-    outcomes.sort(key=lambda x: -x["n"])
+    outcomes.sort(key=lambda x: -(x["live_excess"] if x["live_excess"] is not None else -99))
+
+    by_stock = [{"symbol": r["symbol"], "n": r["n"],
+                 "avg_excess": round(r["avg_exc"], 2) if r["avg_exc"] is not None else None,
+                 "hit": round(r["hit"] * 100, 1) if r["hit"] is not None else None} for r in srows]
+
+    recent_list = []
+    for r in recent:
+        try:
+            sig = (json.loads(r["detail"]) or {}).get("signal") if r["detail"] else None
+        except Exception:
+            sig = None
+        recent_list.append({
+            "symbol": r["symbol"], "rule_type": r["rule_type"], "signal": sig,
+            "date": datetime.fromtimestamp(r["timestamp"]).strftime("%b %d"),
+            "ret": r["outcome_ret"], "excess": r["outcome_excess"], "correct": r["outcome_correct"],
+        })
+
+    # Overall backtested hit rate across all rules that have live outcomes, for calibration drift.
+    live_hits = [o["live_hit"] for o in outcomes if o["live_hit"] is not None]
+    bt_hits   = [o["bt_hit"]   for o in outcomes if o["bt_hit"]   is not None]
+    headline = {
+        "n": head["n"] or 0,
+        "pct_correct": round(head["hit"] * 100, 1) if head["hit"] is not None else None,
+        "avg_excess": round(head["avg_exc"], 2) if head["avg_exc"] is not None else None,
+    }
+    calibration = None
+    if headline["n"] >= 10 and live_hits and bt_hits:
+        live_overall = sum(live_hits) / len(live_hits)
+        bt_overall = sum(bt_hits) / len(bt_hits)
+        calibration = {
+            "live_hit": round(live_overall, 1), "bt_hit": round(bt_overall, 1),
+            "drifting": live_overall < bt_overall - 8,  # meaningfully below backtest
+        }
     return jsonify({
-        "total": total,
-        "by_symbol": [{"symbol": r["symbol"], "count": r["c"]} for r in by_symbol],
-        "by_rule": [{"rule_type": r["rule_type"], "count": r["c"]} for r in by_rule],
-        "signal_split": {"buy": buys, "sell": sells},
-        "daily": daily_series,
+        "headline": headline,
         "outcomes": outcomes,
+        "by_stock": by_stock,
+        "recent": recent_list,
+        "calibration": calibration,
         "outcomes_pending": pending,
     })
 
@@ -1827,11 +1864,17 @@ def api_post_settings():
 @app.route("/api/settings/test-notify", methods=["POST"])
 @login_required
 def api_test_notify():
-    worker_pool.submit(_send_email, "⚡ Tripwire test", "This is a Tripwire test notification.")
-    worker_pool.submit(_send_whatsapp, "⚡ Tripwire test notification")
+    # A manual test click should wait for the real outcome (up to the 15s SMTP/HTTP
+    # timeouts) rather than reporting fire-and-forget "sent" regardless of what happened —
+    # that blind-success behavior was exactly why a misconfigured channel looked "on" while
+    # silently never delivering anything.
+    email_future = worker_pool.submit(_send_email, "⚡ Tripwire test", "This is a Tripwire test notification.")
+    whatsapp_future = worker_pool.submit(_send_whatsapp, "⚡ Tripwire test notification")
+    email_ok, email_msg = email_future.result(timeout=20)
+    whatsapp_ok, whatsapp_msg = whatsapp_future.result(timeout=20)
     return jsonify({"success": True,
-                    "email": get_setting_bool("notify_email_enabled"),
-                    "whatsapp": get_setting_bool("notify_whatsapp_enabled")})
+                    "email": {"ok": email_ok, "message": email_msg},
+                    "whatsapp": {"ok": whatsapp_ok, "message": whatsapp_msg}})
 
 # ─────────────────────────────────────────────────────────────────────────────
 # AI ASSISTANT
@@ -2172,10 +2215,15 @@ input,select{outline:none}
 #content{padding:20px;max-width:1440px;margin:0 auto}
 
 /* Add ticker */
-#add-bar{background:#12151F;border:1px solid #1E2235;border-radius:10px;padding:14px 16px;margin-bottom:16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-#add-bar input{background:#0A0C12;border:1px solid #1E2235;color:#E4E0D8;border-radius:6px;padding:8px 12px;font-size:13px;width:120px}
-#add-bar select{background:#0A0C12;border:1px solid #1E2235;color:#E4E0D8;border-radius:6px;padding:8px 12px;font-size:13px}
-#btn-add{background:#10B981;color:#fff;border-radius:6px;padding:8px 16px;font-weight:700;font-size:13px}
+/* Deliberately subtle "ghost" affordance — a dashed border and muted colors so it recedes
+   next to the stock grid, but still a clearly-labeled, always-visible, one-click target
+   (below the grid, not hidden behind an extra click) so it stays easy to find. */
+#add-bar{background:transparent;border:1px dashed #2A2D3E;border-radius:8px;padding:7px 10px;margin-top:14px;display:flex;gap:7px;align-items:center;flex-wrap:wrap;opacity:.8;transition:opacity .15s,border-color .15s;max-width:fit-content}
+#add-bar:hover,#add-bar:focus-within{opacity:1;border-color:#4B5563}
+#add-bar-label{font-size:12px;color:#6B7280;font-weight:600}
+#add-bar input{background:#0A0C12;border:1px solid #1E2235;color:#E4E0D8;border-radius:5px;padding:5px 9px;font-size:12px;width:90px}
+#add-bar select{background:#0A0C12;border:1px solid #1E2235;color:#E4E0D8;border-radius:5px;padding:5px 9px;font-size:12px}
+#btn-add{background:#10B981;color:#fff;border-radius:5px;padding:5px 12px;font-weight:700;font-size:12px}
 #add-status{font-size:12px;color:#6B7280}
 #add-status.err{color:#EF4444}
 #add-status.ok{color:#10B981}
@@ -2387,6 +2435,10 @@ input,select{outline:none}
 .settings-group h3{font-size:13px;color:#F59E0B;margin-bottom:14px;letter-spacing:.5px;text-transform:uppercase}
 .set-row{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}
 .set-row label{font-size:13px;color:#9CA3AF;flex:1}
+/* .switch is also a <label> (wraps the hidden checkbox) — without this override, the
+   ".set-row label{flex:1}" rule above stretches it full-width into a long bar instead of
+   the compact pill it's styled to be. */
+.set-row label.switch{flex:none}
 .set-row input[type=text],.set-row input[type=number],.set-row input[type=password],.set-row select{background:#0A0C12;border:1px solid #1E2235;color:#E4E0D8;border-radius:6px;padding:7px 10px;font-size:13px;width:200px;max-width:55%}
 .set-hint{font-size:17px;color:#6B7280;margin:-6px 0 12px 0;line-height:1.5}
 .settings-actions{display:flex;gap:10px;align-items:center;margin-top:8px}
@@ -2408,6 +2460,16 @@ input,select{outline:none}
 .gloss-def b{color:#E4E0D8}
 .analytics-card{background:#12151F;border:1px solid #1E2235;border-radius:12px;padding:18px 20px;margin-bottom:16px}
 .analytics-card h3{font-size:13px;color:#F59E0B;margin-bottom:6px;letter-spacing:.5px;text-transform:uppercase}
+/* Performance scorecard */
+.perf-title{font-size:20px;font-weight:800;margin-bottom:2px}
+.perf-headline{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+.perf-hero{flex:1;min-width:220px;background:#12151F;border:1px solid #1E2235;border-radius:12px;padding:18px 20px}
+.perf-hero-num{font-size:38px;font-weight:800;letter-spacing:-1.5px;line-height:1}
+.perf-hero-lbl{font-size:13px;color:#9CA3AF;margin-top:6px;line-height:1.4}
+.perf-drift{background:#F59E0B12;border:1px solid #F59E0B44;color:#F59E0B;border-radius:10px;padding:12px 16px;font-size:13px;margin-bottom:16px;line-height:1.5}
+.perf-ok{background:#10B98110;border:1px solid #10B98133;color:#10B981;border-radius:10px;padding:10px 16px;font-size:13px;margin-bottom:16px}
+.rt-buy{background:#10B98120;color:#10B981;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:700}
+.rt-watch{background:#F59E0B20;color:#F59E0B;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:700}
 .analytics-summary{display:flex;gap:20px;flex-wrap:wrap;margin-bottom:16px}
 .an-stat{background:#12151F;border:1px solid #1E2235;border-radius:10px;padding:12px 18px}
 .an-stat-num{font-size:22px;font-weight:800}
@@ -2486,7 +2548,7 @@ input,select{outline:none}
   <button class="tab active" onclick="switchTab('stocks',this)">Stocks</button>
   <button class="tab" onclick="switchTab('alerts',this)" id="tab-alerts-btn">Alerts</button>
   <button class="tab" onclick="switchTab('assistant',this)">🤖 Assistant</button>
-  <button class="tab" onclick="switchTab('analytics',this)">Analytics</button>
+  <button class="tab" onclick="switchTab('analytics',this)">📊 Performance</button>
   <button class="tab" onclick="switchTab('settings',this)">Settings</button>
   <button class="tab" onclick="switchTab('glossary',this)" id="tab-glossary-btn">📖 Glossary</button>
 </div>
@@ -2497,20 +2559,20 @@ input,select{outline:none}
   <div id="err-banner" class="err-banner" style="display:none"></div>
 
   <div id="pane-stocks">
+    <div id="triage-strip"></div>
+    <div id="stock-grid"></div>
     <div id="add-bar">
-      <strong style="font-size:13px">Add ticker:</strong>
+      <span id="add-bar-label">+ Add ticker</span>
       <input id="inp-symbol" placeholder="e.g. TSLA" maxlength="10"
              onkeydown="if(event.key==='Enter')addStock()">
-      <select id="inp-cat">
+      <select id="inp-cat" title="Sets the alert-sensitivity profile for this stock — how big a move, gap, etc. has to be before a rule triggers. Volatile stocks (e.g. small caps, momentum names) need looser thresholds than a low-vol utility or blue chip, or they'd alert constantly. You can fine-tune this per stock later.">
         <option value="high_vol">High Vol</option>
         <option value="mod_vol">Moderate Vol</option>
         <option value="low_vol">Low Vol</option>
       </select>
-      <button id="btn-add" onclick="addStock()">+ Add</button>
+      <button id="btn-add" onclick="addStock()">Add</button>
       <span id="add-status"></span>
     </div>
-    <div id="triage-strip"></div>
-    <div id="stock-grid"></div>
     <div id="detail" style="display:none"></div>
   </div>
 
@@ -3645,10 +3707,12 @@ async function saveSettings(){
 
 async function testNotify(){
   const st=document.getElementById('settings-status');
-  st.textContent='Sending…';
+  st.textContent='Sending… (waiting for real delivery result, up to ~20s)';
   const r=await postJSON('/api/settings/test-notify',{});
-  st.textContent=`Sent (email:${r.email?'on':'off'}, whatsapp:${r.whatsapp?'on':'off'}) — save first if you just edited creds`;
-  setTimeout(()=>st.textContent='',5000);
+  const line=(label,res)=>`${res.ok?'✓':'✗'} ${label}: ${res.message}`;
+  st.innerHTML=`<div style="color:${r.email.ok?'#10B981':'#EF4444'}">${line('Email',r.email)}</div>`+
+               `<div style="color:${r.whatsapp.ok?'#10B981':'#EF4444'}">${line('WhatsApp',r.whatsapp)}</div>`+
+               `<div class="set-hint" style="margin-top:4px">Just edited credentials? Save settings first, then test again.</div>`;
 }
 
 function enableBrowserNotifs(){
@@ -3660,75 +3724,83 @@ function enableBrowserNotifs(){
 }
 
 // ── Analytics tab ─────────────────────────────────────────────────────────────
+const RULE_DISPLAY_NAME={volatility:'Unusual Move',support_resistance:'S/R Breakout',consecutive_down:'Consec Down',volume:'Volume Spike',gap:'Gap',rsi:'RSI',ma_cross:'MA Cross'};
+
+// Performance scorecard: does the app's own signal actually work? Everything here is built
+// from resolved outcomes — each alert scored ~5 trading days after it fired, vs SPY.
 async function loadAnalytics(){
   const d=await fetchJSON('/api/analytics');
   const pane=document.getElementById('pane-analytics');
-  if(!d.total){ pane.innerHTML='<div class="no-alerts">No alert history yet.</div>'; return; }
-  const bars=(items,keyName,max)=>items.map(it=>{
-    const w=max?Math.max(3,it.count/max*100):0;
-    return `<div class="abar-row"><span class="abar-label">${it[keyName]}</span>
-      <div class="abar-track"><div class="abar-fill" style="width:${w}%"></div></div>
-      <span class="abar-val">${it.count}</span></div>`;
-  }).join('');
-  const symMax=Math.max(...d.by_symbol.map(x=>x.count),1);
-  const ruleMax=Math.max(...d.by_rule.map(x=>x.count),1);
-  const ruleName={volatility:'Unusual Move',support_resistance:'S/R Breach',consecutive_down:'Consec Down',volume:'Volume',gap:'Gap',rsi:'RSI',ma_cross:'MA Cross'};
-  const byRule=d.by_rule.map(x=>({count:x.count,rule_type:ruleName[x.rule_type]||x.rule_type}));
-  pane.innerHTML=`
-    <div class="analytics-summary">
-      <div class="an-stat"><div class="an-stat-num">${d.total}</div><div class="an-stat-lbl">Total alerts</div></div>
-      <div class="an-stat"><div class="an-stat-num up">${d.signal_split.buy}</div><div class="an-stat-lbl">Buy signals (30d)</div></div>
-      <div class="an-stat"><div class="an-stat-num" style="color:#F59E0B">${d.signal_split.sell}</div><div class="an-stat-lbl">Bounce-watch signals (30d)</div></div>
-    </div>
-    ${outcomesCardHTML(d)}
-    <div class="analytics-card"><h3>Alerts per stock</h3>${bars(d.by_symbol,'symbol',symMax)||'<div class="set-hint">No data</div>'}</div>
-    <div class="analytics-card"><h3>Alerts by rule type</h3>${bars(byRule,'rule_type',ruleMax)||'<div class="set-hint">No data</div>'}</div>
-    <div class="analytics-card"><h3>Activity — last 30 days</h3>${sparkline(d.daily)}</div>`;
-}
+  const h=d.headline||{};
+  const pend=d.outcomes_pending?`<div class="set-hint" style="margin-top:4px">${d.outcomes_pending} signal${d.outcomes_pending>1?'s':''} still maturing (each is scored ~5 trading days after it fires).</div>`:'';
 
-// Self-scoring: how each rule's LIVE outcomes (resolved ~5 trading days after firing) compare
-// with its backtested edge. This is the app auditing its own predictions on forward data.
-function outcomesCardHTML(d){
-  const rows=d.outcomes||[];
-  const ruleName={volatility:'Unusual Move',support_resistance:'S/R Breach',consecutive_down:'Consec Down',volume:'Volume',gap:'Gap',rsi:'RSI',ma_cross:'MA Cross'};
-  const pend=d.outcomes_pending?`<div class="set-hint" style="margin-top:8px">${d.outcomes_pending} alert${d.outcomes_pending>1?'s':''} still maturing (scored ~5 trading days after firing).</div>`:'';
-  if(!rows.length){
-    return `<div class="analytics-card"><h3>Live vs backtested — self-scoring</h3>
-      <div class="set-hint">No alerts have matured yet. Once alerts are ${5} trading days old they're scored here against their ${linkifyGlossary('backtested')} edge.</div>${pend}</div>`;
+  if(!h.n){
+    pane.innerHTML=`<h2 class="perf-title">📊 Performance</h2>
+      <div class="analytics-card"><div class="set-hint">No signals have matured yet. Once an alert is ~5 trading days old, Tripwire scores what actually happened (the stock's move and its ${linkifyGlossary('excess return')} vs the S&P 500) and reports here whether its signals are working.</div>${pend}</div>`;
+    return;
   }
+
+  // Headline
+  const hitClr=h.pct_correct>=55?'#10B981':h.pct_correct>=50?'#F59E0B':'#EF4444';
+  const excClr=h.avg_excess>=0?'#10B981':'#EF4444';
+  const headlineHTML=`<div class="perf-headline">
+    <div class="perf-hero"><div class="perf-hero-num" style="color:${hitClr}">${h.pct_correct}%</div><div class="perf-hero-lbl">of ${h.n} matured signals beat the market</div></div>
+    <div class="perf-hero"><div class="perf-hero-num" style="color:${excClr}">${h.avg_excess>=0?'+':''}${h.avg_excess}%</div><div class="perf-hero-lbl">avg ${linkifyGlossary('excess return')} vs S&P 500 over 5 days</div></div>
+  </div>`;
+
+  // Calibration nudge
+  let calibHTML='';
+  if(d.calibration){
+    const c=d.calibration;
+    if(c.drifting){
+      calibHTML=`<div class="perf-drift">⚠ Live hit rate (${c.live_hit}%) is tracking below the backtested ${c.bt_hit}% — the market may have shifted. Consider <a class="gloss-link" href="javascript:void(0)" onclick="switchTab('settings',document.querySelectorAll('.tab')[4]);setTimeout(()=>document.getElementById('btn-recal-run')&&document.getElementById('btn-recal-run').scrollIntoView({block:'center'}),300);return false;">recalibrating</a>.</div>`;
+    }else{
+      calibHTML=`<div class="perf-ok">✓ Live hit rate (${c.live_hit}%) is in line with the backtested ${c.bt_hit}% — calibration looks healthy.</div>`;
+    }
+  }
+
+  // Per-rule live vs backtested
   const cell=(live,bt,suffix)=>{
     if(live==null) return '<td class="muted">—</td>';
     const cls=bt==null?'':(live>=bt-0.01?'up':'dn');
     return `<td class="${cls}">${live>=0?'+':''}${live}${suffix}<span class="muted" style="font-size:11px"> vs ${bt!=null?(bt>=0?'+':'')+bt+suffix:'—'}</span></td>`;
   };
-  const body=rows.map(r=>`<tr>
-    <td style="text-align:left">${ruleName[r.rule_type]||r.rule_type}</td>
-    <td>${r.n}</td>
-    ${cell(r.live_hit,r.bt_hit,'%')}
-    ${cell(r.live_excess,r.bt_excess,'%')}
+  const ruleBody=(d.outcomes||[]).map(r=>`<tr>
+    <td style="text-align:left">${RULE_DISPLAY_NAME[r.rule_type]||r.rule_type}</td>
+    <td>${r.n}</td>${cell(r.live_hit,r.bt_hit,'%')}${cell(r.live_excess,r.bt_excess,'%')}
   </tr>`).join('');
-  return `<div class="analytics-card"><h3>Live vs backtested — self-scoring</h3>
-    <table class="outcome-table"><thead><tr>
-      <th style="text-align:left">Rule</th><th>Scored</th><th>${linkifyGlossary('Hit rate')} (live vs backtest)</th><th>Avg ${linkifyGlossary('excess return')} 5d (live vs backtest)</th>
-    </tr></thead><tbody>${body}</tbody></table>
-    <div class="set-hint" style="margin-top:8px">Green = live is meeting or beating the backtest; red = underperforming. Small samples are noisy — read with the "Scored" count in mind.</div>${pend}</div>`;
-}
+  const ruleCard=`<div class="analytics-card"><h3>By rule — live vs backtested</h3>
+    <table class="outcome-table"><thead><tr><th style="text-align:left">Rule</th><th>Scored</th><th>${linkifyGlossary('Hit rate')}</th><th>Avg ${linkifyGlossary('excess return')} 5d</th></tr></thead>
+    <tbody>${ruleBody}</tbody></table>
+    <div class="set-hint" style="margin-top:8px">Green = live is meeting or beating the backtest; red = underperforming. Small "Scored" counts are noisy.</div></div>`;
 
-function sparkline(daily){
-  if(!daily||!daily.length) return '';
-  const W=700,H=90,pT=8,pB=20,pL=8,pR=8;
-  const plotW=W-pL-pR, plotH=H-pT-pB;
-  const max=Math.max(...daily.map(x=>x.count),1);
-  const bw=plotW/daily.length-2;
-  const bars=daily.map((x,i)=>{
-    const bh=Math.max(0,(x.count/max)*plotH);
-    const bx=pL+i*(plotW/daily.length);
-    const by=pT+plotH-bh;
-    return `<rect x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${Math.max(2,bw).toFixed(1)}" height="${bh.toFixed(1)}" fill="#F59E0B" rx="1"><title>${x.date}: ${x.count}</title></rect>`;
+  // Per-stock realized edge
+  const stockBody=(d.by_stock||[]).map(s=>{
+    const cls=s.avg_excess>=0?'up':'dn';
+    return `<tr><td style="text-align:left">${s.symbol}</td><td>${s.n}</td>
+      <td class="${cls}">${s.avg_excess>=0?'+':''}${s.avg_excess}%</td><td>${s.hit}%</td></tr>`;
   }).join('');
-  const lbl=`<text x="${pL}" y="${H-4}" fill="#6B7280" font-size="9">${daily[0].date}</text>
-    <text x="${W-pR}" y="${H-4}" fill="#6B7280" font-size="9" text-anchor="end">${daily[daily.length-1].date}</text>`;
-  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:${H}px">${bars}${lbl}</svg>`;
+  const stockCard=(d.by_stock||[]).length?`<div class="analytics-card"><h3>By stock — which signals paid off</h3>
+    <table class="outcome-table"><thead><tr><th style="text-align:left">Stock</th><th>Scored</th><th>Avg ${linkifyGlossary('excess return')} 5d</th><th>${linkifyGlossary('Hit rate')}</th></tr></thead>
+    <tbody>${stockBody}</tbody></table></div>`:'';
+
+  // Recent resolved signals (the receipts)
+  const sigBadge=(s)=>s==='BUY'?'<span class="rt-buy">BUY</span>':s==='SELL'?'<span class="rt-watch">BOUNCE</span>':'<span class="muted">—</span>';
+  const recentBody=(d.recent||[]).map(r=>{
+    const ok=r.correct===1;
+    return `<tr><td style="text-align:left">${r.date}</td><td style="text-align:left">${r.symbol}</td>
+      <td style="text-align:left">${RULE_DISPLAY_NAME[r.rule_type]||r.rule_type} ${sigBadge(r.signal)}</td>
+      <td class="${r.excess>=0?'up':'dn'}">${r.excess>=0?'+':''}${r.excess}%</td>
+      <td style="color:${ok?'#10B981':'#EF4444'}">${ok?'✓':'✗'}</td></tr>`;
+  }).join('');
+  const recentCard=(d.recent||[]).length?`<div class="analytics-card"><h3>Recent resolved signals</h3>
+    <table class="outcome-table"><thead><tr><th style="text-align:left">Date</th><th style="text-align:left">Stock</th><th style="text-align:left">Signal</th><th>${linkifyGlossary('excess return')} 5d</th><th>Right?</th></tr></thead>
+    <tbody>${recentBody}</tbody></table>
+    <div class="set-hint" style="margin-top:8px">"Right?" = the signal-direction move beat the S&P 500 over the next 5 trading days.</div></div>`:'';
+
+  pane.innerHTML=`<h2 class="perf-title">📊 Performance</h2>
+    <div class="set-hint" style="margin:-6px 0 14px">How Tripwire's own signals actually played out — the app scoring itself on forward data.${pend?' '+d.outcomes_pending+' still maturing.':''}</div>
+    ${headlineHTML}${calibHTML}${ruleCard}${stockCard}${recentCard}`;
 }
 
 // ── Assistant tab ─────────────────────────────────────────────────────────────
