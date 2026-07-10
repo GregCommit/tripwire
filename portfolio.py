@@ -9,9 +9,14 @@ Run:  python portfolio.py
 Open: http://localhost:5010   (add to your phone's home screen for app mode)
 
 Env:
-  PORTFOLIO_PASSWORD  login password (default "tripwire" - change it!)
-  PORTFOLIO_PORT      port (default 5010)
-  PORTFOLIO_DEMO=1    simulated quotes, no internet needed (try the UI)
+  PORTFOLIO_PASSWORD    login password (default "tripwire" - change it!)
+  PORTFOLIO_PORT / PORT port (default 5010; cloud hosts set PORT)
+  PORTFOLIO_DEMO=1      simulated quotes, no internet needed (try the UI)
+  PORTFOLIO_DATA_DIR    where portfolio.db lives (default ~/.tripwire_portfolio)
+  PORTFOLIO_GIST_TOKEN  GitHub token (gist scope) for cloud backup
+  PORTFOLIO_GIST_ID     Gist id to restore from on a fresh deploy
+
+Cloud deploy (see PORTFOLIO.md): gunicorn -w 1 --threads 16 -b 0.0.0.0:$PORT portfolio:app
 """
 
 import sqlite3, threading, time, json, os, logging, math, random, struct, zlib, hashlib
@@ -35,7 +40,7 @@ log = logging.getLogger("portfolio")
 app = Flask(__name__)
 app.secret_key = os.environ.get("PORTFOLIO_SECRET_KEY", "tripwire-portfolio-dev-secret")
 
-PORT = int(os.environ.get("PORTFOLIO_PORT", "5010"))
+PORT = int(os.environ.get("PORT") or os.environ.get("PORTFOLIO_PORT") or "5010")
 DEMO = os.environ.get("PORTFOLIO_DEMO") == "1"
 AUTH_PASSWORD = os.environ.get("PORTFOLIO_PASSWORD")
 if not AUTH_PASSWORD:
@@ -55,7 +60,8 @@ INDEX_NAMES = dict(INDICES)
 # DATABASE
 # ─────────────────────────────────────────────────────────────────────────────
 
-DB_PATH = Path.home() / ".tripwire_portfolio" / "portfolio.db"
+_data_dir = os.environ.get("PORTFOLIO_DATA_DIR")
+DB_PATH = (Path(_data_dir) if _data_dir else Path.home() / ".tripwire_portfolio") / "portfolio.db"
 
 def get_db():
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -109,6 +115,20 @@ def init_db():
                 for i, (s, nm, sh, c) in enumerate(seed):
                     conn.execute("INSERT INTO positions(portfolio_id,symbol,name,shares,cost,sort_order,added_at) "
                                  "VALUES(?,?,?,?,?,?,?)", (pid, s, nm, sh, c, i, int(time.time())))
+        conn.commit()
+
+def get_setting(key, default=None):
+    with get_db() as conn:
+        r = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+        return r["value"] if r else default
+
+def set_setting(key, value):
+    with get_db() as conn:
+        if value is None:
+            conn.execute("DELETE FROM settings WHERE key=?", (key,))
+        else:
+            conn.execute("INSERT INTO settings(key,value) VALUES(?,?) "
+                         "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, str(value)))
         conn.commit()
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -549,12 +569,160 @@ def check_alerts(quotes):
                 fired.append({"id": a["id"], "symbol": a["symbol"], "kind": a["kind"],
                               "threshold": a["threshold"], "price": price})
         conn.commit()
+    if fired:
+        schedule_backup()
     return fired
 
 def all_alerts():
     with get_db() as conn:
         return [dict(r) for r in conn.execute(
             "SELECT * FROM price_alerts ORDER BY active DESC, created_at DESC").fetchall()]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CLOUD BACKUP (snapshot -> private GitHub Gist; survives ephemeral host disks)
+# ─────────────────────────────────────────────────────────────────────────────
+
+GIST_FILENAME = "tripwire-portfolio-backup.json"
+
+def snapshot():
+    with get_db() as conn:
+        pfs = []
+        for pf in conn.execute("SELECT * FROM portfolios ORDER BY sort_order, id").fetchall():
+            pfs.append({
+                "name": pf["name"], "sort_order": pf["sort_order"],
+                "positions": [dict(r) for r in conn.execute(
+                    "SELECT symbol,name,shares,cost,sort_order,added_at FROM positions "
+                    "WHERE portfolio_id=? ORDER BY sort_order, id", (pf["id"],)).fetchall()],
+            })
+        alerts = [dict(r) for r in conn.execute(
+            "SELECT symbol,kind,threshold,active,created_at,triggered_at,triggered_price "
+            "FROM price_alerts").fetchall()]
+    return {"app": "tripwire-portfolio", "version": 1, "exported_at": int(time.time()),
+            "portfolios": pfs, "alerts": alerts}
+
+def restore_snapshot(data):
+    if not isinstance(data, dict) or not isinstance(data.get("portfolios"), list):
+        raise ValueError("not a portfolio backup file")
+    with get_db() as conn:
+        conn.execute("DELETE FROM positions")
+        conn.execute("DELETE FROM price_alerts")
+        conn.execute("DELETE FROM portfolios")
+        for i, pf in enumerate(data["portfolios"]):
+            cur = conn.execute("INSERT INTO portfolios(name, sort_order) VALUES(?,?)",
+                               (pf.get("name") or f"Portfolio {i+1}", pf.get("sort_order", i)))
+            pid = cur.lastrowid
+            for j, p in enumerate(pf.get("positions") or []):
+                if not p.get("symbol"):
+                    continue
+                conn.execute("INSERT OR IGNORE INTO positions"
+                             "(portfolio_id,symbol,name,shares,cost,sort_order,added_at) VALUES(?,?,?,?,?,?,?)",
+                             (pid, str(p["symbol"]).upper(), p.get("name"),
+                              float(p.get("shares") or 0), float(p.get("cost") or 0),
+                              p.get("sort_order", j), p.get("added_at") or int(time.time())))
+        for a in data.get("alerts") or []:
+            if not a.get("symbol") or a.get("kind") not in ("above", "below"):
+                continue
+            conn.execute("INSERT INTO price_alerts"
+                         "(symbol,kind,threshold,active,created_at,triggered_at,triggered_price) VALUES(?,?,?,?,?,?,?)",
+                         (str(a["symbol"]).upper(), a["kind"], float(a.get("threshold") or 0),
+                          1 if a.get("active", 1) else 0, a.get("created_at"),
+                          a.get("triggered_at"), a.get("triggered_price")))
+        if not conn.execute("SELECT 1 FROM portfolios").fetchone():
+            conn.execute("INSERT INTO portfolios(name, sort_order) VALUES('My Portfolio', 0)")
+        conn.commit()
+
+def _github_request(method, url, token, payload=None):
+    req = urllib.request.Request(url, method=method,
+        data=json.dumps(payload).encode("utf-8") if payload is not None else None,
+        headers={"Authorization": "Bearer " + token,
+                 "Accept": "application/vnd.github+json",
+                 "User-Agent": "tripwire-portfolio",
+                 "Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+def backup_config():
+    """Token/gist id come from the DB (set in the UI) or env (survives disk wipes)."""
+    token = get_setting("gist_token") or os.environ.get("PORTFOLIO_GIST_TOKEN")
+    gist_id = get_setting("gist_id") or os.environ.get("PORTFOLIO_GIST_ID")
+    return token, gist_id
+
+def backup_to_gist():
+    token, gist_id = backup_config()
+    if not token:
+        return False
+    files = {GIST_FILENAME: {"content": json.dumps(snapshot(), indent=1)}}
+    try:
+        if gist_id:
+            _github_request("PATCH", "https://api.github.com/gists/" + gist_id, token, {"files": files})
+        else:
+            r = _github_request("POST", "https://api.github.com/gists", token,
+                                {"description": "Tripwire Portfolio backup (auto-updated)",
+                                 "public": False, "files": files})
+            gist_id = r["id"]
+            set_setting("gist_id", gist_id)
+        set_setting("last_backup_ts", int(time.time()))
+        set_setting("last_backup_error", None)
+        log.info("portfolio backed up to gist %s", gist_id)
+        return True
+    except Exception as e:
+        msg = "%s %s" % (getattr(e, "code", ""), getattr(e, "reason", e))
+        set_setting("last_backup_error", msg.strip())
+        log.warning("gist backup failed: %s", e)
+        return False
+
+_backup_timer = None
+_backup_timer_lock = threading.Lock()
+
+def schedule_backup(delay=5):
+    """Debounced auto-backup after any data change."""
+    token, _ = backup_config()
+    if not token:
+        return
+    global _backup_timer
+    with _backup_timer_lock:
+        if _backup_timer:
+            _backup_timer.cancel()
+        _backup_timer = threading.Timer(delay, backup_to_gist)
+        _backup_timer.daemon = True
+        _backup_timer.start()
+
+def restore_from_gist():
+    token, gist_id = backup_config()
+    if not (token and gist_id):
+        raise ValueError("cloud backup is not configured")
+    g = _github_request("GET", "https://api.github.com/gists/" + gist_id, token)
+    f = (g.get("files") or {}).get(GIST_FILENAME)
+    if not f:
+        raise ValueError("backup file not found in gist")
+    content = f.get("content")
+    if f.get("truncated") and f.get("raw_url"):
+        req = urllib.request.Request(f["raw_url"], headers={"User-Agent": "tripwire-portfolio"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            content = resp.read().decode("utf-8")
+    restore_snapshot(json.loads(content))
+
+def maybe_restore_on_boot():
+    """Fresh deploy on an ephemeral disk + env-configured backup -> pull the data back."""
+    token, gist_id = backup_config()
+    if not (token and gist_id):
+        return
+    with get_db() as conn:
+        if conn.execute("SELECT COUNT(*) c FROM positions").fetchone()["c"]:
+            return
+    try:
+        restore_from_gist()
+        log.info("restored portfolio data from gist backup %s", gist_id)
+    except Exception as e:
+        log.warning("auto-restore from gist failed: %s", e)
+
+def backup_status():
+    token, gist_id = backup_config()
+    ts = get_setting("last_backup_ts")
+    return {"configured": bool(token), "gist_id": gist_id,
+            "via_env": bool(not get_setting("gist_token") and os.environ.get("PORTFOLIO_GIST_TOKEN")),
+            "last_backup_ts": int(ts) if ts else None,
+            "last_error": get_setting("last_backup_error")}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # AUTH
@@ -615,6 +783,7 @@ def api_portfolio_create():
         conn.execute("INSERT INTO portfolios(name, sort_order) VALUES(?, "
                      "(SELECT COALESCE(MAX(sort_order),0)+1 FROM portfolios))", (name,))
         conn.commit()
+    schedule_backup()
     return jsonify(state_payload())
 
 @app.route("/api/portfolios/<int:pid>", methods=["PATCH", "DELETE"])
@@ -633,6 +802,7 @@ def api_portfolio_modify(pid):
                 return jsonify({"error": "name required"}), 400
             conn.execute("UPDATE portfolios SET name=? WHERE id=?", (name, pid))
         conn.commit()
+    schedule_backup()
     return jsonify(state_payload())
 
 @app.route("/api/positions", methods=["POST"])
@@ -654,6 +824,7 @@ def api_position_add():
                                       name=COALESCE(excluded.name, positions.name)""",
                      (pid, symbol, name, shares, cost, pid, int(time.time())))
         conn.commit()
+    schedule_backup()
     return jsonify(state_payload())
 
 @app.route("/api/positions/<int:pos_id>", methods=["PATCH", "DELETE"])
@@ -673,6 +844,7 @@ def api_position_modify(pos_id):
                 vals.append(pos_id)
                 conn.execute(f"UPDATE positions SET {', '.join(sets)} WHERE id=?", vals)
         conn.commit()
+    schedule_backup()
     return jsonify(state_payload())
 
 @app.route("/api/quotes")
@@ -750,6 +922,7 @@ def api_alert_create():
         conn.execute("INSERT INTO price_alerts(symbol,kind,threshold,active,created_at) VALUES(?,?,?,1,?)",
                      (symbol, kind, threshold, int(time.time())))
         conn.commit()
+    schedule_backup()
     return jsonify({"alerts": all_alerts()})
 
 @app.route("/api/alerts/<int:aid>", methods=["DELETE"])
@@ -758,7 +931,69 @@ def api_alert_delete(aid):
     with get_db() as conn:
         conn.execute("DELETE FROM price_alerts WHERE id=?", (aid,))
         conn.commit()
+    schedule_backup()
     return jsonify({"alerts": all_alerts()})
+
+# ── backup / export / import ────────────────────────────────────────────────
+
+@app.route("/api/backup")
+@require_auth_api
+def api_backup_status():
+    return jsonify(backup_status())
+
+@app.route("/api/backup/config", methods=["POST"])
+@require_auth_api
+def api_backup_config():
+    token = ((request.get_json(silent=True) or {}).get("token") or "").strip()
+    if not token:
+        return jsonify({"error": "token required"}), 400
+    set_setting("gist_token", token)
+    set_setting("last_backup_error", None)
+    if not backup_to_gist():
+        set_setting("gist_token", None)
+        err = get_setting("last_backup_error") or "backup failed"
+        return jsonify({"error": "GitHub rejected the token: " + err}), 400
+    return jsonify(backup_status())
+
+@app.route("/api/backup/now", methods=["POST"])
+@require_auth_api
+def api_backup_now():
+    backup_to_gist()
+    return jsonify(backup_status())
+
+@app.route("/api/backup/restore", methods=["POST"])
+@require_auth_api
+def api_backup_restore():
+    try:
+        restore_from_gist()
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify(state_payload())
+
+@app.route("/api/backup/disable", methods=["POST"])
+@require_auth_api
+def api_backup_disable():
+    set_setting("gist_token", None)
+    set_setting("gist_id", None)
+    return jsonify(backup_status())
+
+@app.route("/api/export")
+@require_auth_api
+def api_export():
+    body = json.dumps(snapshot(), indent=1)
+    fname = "portfolio-backup-%s.json" % datetime.now().strftime("%Y%m%d")
+    return Response(body, mimetype="application/json",
+                    headers={"Content-Disposition": "attachment; filename=" + fname})
+
+@app.route("/api/import", methods=["POST"])
+@require_auth_api
+def api_import():
+    try:
+        restore_snapshot(request.get_json(force=True))
+    except Exception as e:
+        return jsonify({"error": "import failed: %s" % e}), 400
+    schedule_backup()
+    return jsonify(state_payload())
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PWA ASSETS (manifest, service worker, generated icons)
@@ -1099,6 +1334,10 @@ body.editing .rdel{display:flex}
 .setrow .k{flex:1}
 .setrow select{background:var(--card2);color:var(--text);border:1px solid var(--line);
   border-radius:8px;padding:6px 10px;font-size:14px}
+.tokinput{width:100%;padding:11px;border-radius:10px;border:1px solid var(--line);
+  background:var(--card2);color:var(--text);font-size:14px;outline:none;margin-bottom:10px}
+.tokinput:focus{border-color:var(--accent)}
+.bknote{font-size:12.5px;color:var(--dim);line-height:1.45;margin-bottom:10px}
 
 /* toast */
 #toast{position:fixed;top:calc(var(--sat) + 14px);left:50%;transform:translate(-50%,-140%);
@@ -1246,6 +1485,28 @@ body.editing .rdel{display:flex}
         <button class="btn ghost" style="flex:none;padding:8px 14px" onclick="askNotify()">Enable</button></div>
       <div class="setrow"><span class="k">Sign out</span>
         <button class="btn ghost" style="flex:none;padding:8px 14px" onclick="location.href='/logout'">Log out</button></div>
+
+      <div class="card-s">
+        <h3>Cloud backup</h3>
+        <div id="bk_status" class="bknote"></div>
+        <div id="bk_setup">
+          <input id="bk_token" class="tokinput" type="password" autocomplete="off"
+                 placeholder="GitHub token with &quot;gist&quot; scope">
+          <div class="btnrow"><button class="btn primary" id="bk_save">Enable auto-backup</button></div>
+        </div>
+        <div id="bk_actions" style="display:none">
+          <div class="btnrow">
+            <button class="btn ghost" id="bk_now">Back up now</button>
+            <button class="btn ghost" id="bk_restore">Restore</button>
+            <button class="btn danger" id="bk_off">Disable</button>
+          </div>
+        </div>
+        <div class="btnrow" style="margin-top:10px">
+          <button class="btn ghost" onclick="location.href='/api/export'">Export file</button>
+          <button class="btn ghost" id="bk_import">Import file</button>
+        </div>
+        <input type="file" id="bk_file" accept=".json,application/json" style="display:none">
+      </div>
       <div class="muted" id="aboutline"></div>
     </div>
   </div>
@@ -1546,7 +1807,7 @@ $('sortbtn').onclick = () => {
   renderList();
 };
 
-$('setbtn').onclick = () => { $('s_interval').value = S.interval; openSheet('settings'); };
+$('setbtn').onclick = () => { $('s_interval').value = S.interval; openSheet('settings'); loadBackup(); };
 $('s_interval').onchange = e => { S.interval = +e.target.value; localStorage.interval = S.interval; schedule(); };
 
 async function renamePf() {
@@ -1565,6 +1826,76 @@ async function deletePf() {
     closeSheet('settings'); renderAll(); refresh();
   } catch(e) { toast(e.message); }
 }
+
+/* ── cloud backup ──────────────────────────────────────────────── */
+
+function renderBackup(d) {
+  $('bk_setup').style.display = d.configured ? 'none' : '';
+  $('bk_actions').style.display = d.configured ? '' : 'none';
+  if (d.configured) {
+    let s = 'Auto-backup is ON — every change is saved to a private GitHub Gist';
+    if (d.gist_id) s += ` (id ${d.gist_id.slice(0,10)}…)`;
+    if (d.via_env) s += ', configured via env vars';
+    s += '.';
+    if (d.last_backup_ts) s += ` Last backup ${ago(d.last_backup_ts)}.`;
+    if (d.last_error) s += ` ⚠️ Last error: ${d.last_error}`;
+    $('bk_status').textContent = s;
+  } else {
+    $('bk_status').textContent = 'Back up portfolios, positions and alerts to a private GitHub Gist ' +
+      'after every change. Create a token at github.com → Settings → Developer settings → ' +
+      'Personal access tokens (classic) with only the "gist" scope, and paste it here.';
+  }
+}
+
+async function loadBackup() {
+  try { renderBackup(await api('/api/backup')); } catch(e) {}
+}
+
+$('bk_save').onclick = async () => {
+  const token = $('bk_token').value.trim();
+  if (!token) { toast('Paste a GitHub token first'); return; }
+  $('bk_save').textContent = 'Checking…';
+  try {
+    renderBackup(await api('/api/backup/config', {method:'POST', body:JSON.stringify({token})}));
+    $('bk_token').value = '';
+    toast('Cloud backup enabled ✓');
+  } catch(e) { toast(e.message, 5000); }
+  $('bk_save').textContent = 'Enable auto-backup';
+};
+
+$('bk_now').onclick = async () => {
+  const d = await api('/api/backup/now', {method:'POST'});
+  renderBackup(d);
+  toast(d.last_error ? 'Backup failed: ' + d.last_error : 'Backed up ✓');
+};
+
+$('bk_restore').onclick = async () => {
+  if (!confirm('Replace everything on this device with the cloud backup?')) return;
+  try {
+    S.state = await api('/api/backup/restore', {method:'POST'});
+    renderAll(); refresh();
+    toast('Restored from cloud backup ✓');
+  } catch(e) { toast(e.message, 5000); }
+};
+
+$('bk_off').onclick = async () => {
+  if (!confirm('Disable cloud backup? (The Gist itself is not deleted.)')) return;
+  renderBackup(await api('/api/backup/disable', {method:'POST'}));
+};
+
+$('bk_import').onclick = () => $('bk_file').click();
+$('bk_file').onchange = async e => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  if (!confirm(`Replace everything with the contents of "${file.name}"?`)) return;
+  try {
+    const text = await file.text();
+    S.state = await api('/api/import', {method:'POST', body: text});
+    renderAll(); refresh();
+    toast('Imported ✓');
+  } catch(err) { toast(err.message, 5000); }
+};
 
 /* ── sheets ────────────────────────────────────────────────────── */
 
@@ -1897,7 +2228,10 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').cat
 # MAIN
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Init at import time so `gunicorn portfolio:app` works on cloud hosts
+init_db()
+maybe_restore_on_boot()
+
 if __name__ == "__main__":
-    init_db()
     log.info("Portfolio tracker starting on http://localhost:%d %s", PORT, "(DEMO MODE)" if DEMO else "")
     app.run(host="0.0.0.0", port=PORT, threaded=True)

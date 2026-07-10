@@ -31,17 +31,72 @@ set PORTFOLIO_DEMO=1        (Windows)     PORTFOLIO_DEMO=1 python portfolio.py  
 Demo mode seeds a sample portfolio and simulates ticking quotes, charts,
 search and news — useful for exploring the UI.
 
-## Install it on your phone (the "app" part)
+## Live data — how it connects
 
-1. Run `run_portfolio.bat` and open the printed `https://….trycloudflare.com`
-   URL on your phone (or `http://<laptop-ip>:5010` on the same WiFi).
-2. Sign in.
-3. **iPhone (Safari):** Share button → *Add to Home Screen*.
-   **Android (Chrome):** menu ⋮ → *Add to Home screen* / *Install app*.
-4. Launch it from the icon — it opens full-screen like a native app.
+There is **no API key to set up**. Any time the app runs *without*
+`PORTFOLIO_DEMO=1`, every quote, chart, search and news item comes live
+from Yahoo Finance (the same public API the Yahoo Finance app uses; the
+`yfinance` library is the fallback path). Quotes refresh every 10 seconds
+while the app is open. Demo mode exists only for trying the UI offline —
+just don't set the variable and you're on live data.
 
-Note: the free trycloudflare URL changes each run, so re-add the icon if
-you restart the tunnel, or keep the same-WiFi address for a stable icon.
+## Run it in the cloud (phone-only, no laptop needed)
+
+The recommended setup: host the app on Render's free tier, then install
+it on your phone from the Render URL. Your laptop can stay off; the URL
+is permanent (unlike the trycloudflare one).
+
+1. Push this repo to your GitHub (already done if you're reading this on
+   GitHub).
+2. Sign up at https://render.com (free) → **New → Blueprint** → connect
+   this repo. Render reads `render.yaml` and creates the service.
+3. In the service's **Environment** tab set `PORTFOLIO_PASSWORD` to a
+   strong password. (Optionally `PORTFOLIO_GIST_TOKEN` /
+   `PORTFOLIO_GIST_ID` — see **Cloud backup** below.)
+4. Open `https://tripwire-portfolio.onrender.com` (or whatever name you
+   picked) on your phone and *Add to Home Screen*:
+   - **iPhone (Safari):** Share button → *Add to Home Screen*.
+   - **Android (Chrome):** menu ⋮ → *Add to Home screen* / *Install app*.
+
+Free-tier notes:
+
+- The instance **sleeps after ~15 min idle**; the first open after a
+  break takes ~30–60 s to wake. Everything is instant after that.
+- The free disk is **wiped on every deploy/restart**, so turn on cloud
+  backup (below) — with the two Gist env vars set, the app restores your
+  data automatically on boot. Without backup you'd re-enter holdings
+  after a redeploy.
+- Price alerts are evaluated while the app is open on some device (each
+  refresh checks them) — same behavior as My Stocks.
+
+Any other Python host works the same way (`Procfile` included):
+`gunicorn -w 1 --threads 16 -b 0.0.0.0:$PORT portfolio:app`.
+
+### Alternative: keep running it from the laptop
+
+`run_portfolio.bat` still works as before — starts the app locally plus a
+Cloudflare tunnel, and you open the printed `https://….trycloudflare.com`
+URL on your phone. Downsides: the laptop must stay on, and the free
+tunnel URL changes each run.
+
+## Cloud backup (data + settings survive anything)
+
+The app can snapshot everything you'd hate to lose — portfolios,
+positions, cost bases, alerts — to a **private GitHub Gist** after every
+change (debounced a few seconds):
+
+1. Create a token at github.com → *Settings → Developer settings →
+   Personal access tokens (classic)* → **only the `gist` scope**.
+2. In the app: ⚙ Settings → **Cloud backup** → paste the token →
+   *Enable auto-backup*. The app creates a private Gist and shows its id.
+3. On a cloud host, also set env vars `PORTFOLIO_GIST_TOKEN` (the same
+   token) and `PORTFOLIO_GIST_ID` (the id from step 2). Then a fresh
+   deploy with an empty database **restores itself automatically** on
+   boot.
+
+Manual controls in Settings: *Back up now*, *Restore*, *Disable*, plus
+**Export file / Import file** for keeping your own JSON copies or moving
+data between a laptop install and a cloud install.
 
 ## Features
 
@@ -85,10 +140,13 @@ Same model as the main Tripwire app: a single password gate.
 
 ## Env reference
 
-| Variable             | Default    | Meaning                          |
-|----------------------|------------|----------------------------------|
-| `PORTFOLIO_PASSWORD` | `tripwire` | Login password                   |
-| `PORTFOLIO_PORT`     | `5010`     | HTTP port                        |
-| `PORTFOLIO_DEMO`     | unset      | `1` = simulated market data      |
-| `PORTFOLIO_NO_TUNNEL`| unset      | `1` = launcher skips cloudflared |
-| `PORTFOLIO_SECRET_KEY`| dev value | Flask session secret             |
+| Variable              | Default    | Meaning                                    |
+|-----------------------|------------|--------------------------------------------|
+| `PORTFOLIO_PASSWORD`  | `tripwire` | Login password                             |
+| `PORTFOLIO_PORT`/`PORT`| `5010`    | HTTP port (cloud hosts set `PORT`)         |
+| `PORTFOLIO_DEMO`      | unset      | `1` = simulated market data (live is default) |
+| `PORTFOLIO_NO_TUNNEL` | unset      | `1` = launcher skips cloudflared           |
+| `PORTFOLIO_SECRET_KEY`| dev value  | Flask session secret (set on cloud hosts)  |
+| `PORTFOLIO_DATA_DIR`  | `~/.tripwire_portfolio` | Directory for the SQLite DB   |
+| `PORTFOLIO_GIST_TOKEN`| unset      | GitHub token (gist scope) for cloud backup |
+| `PORTFOLIO_GIST_ID`   | unset      | Gist to auto-restore from on empty boot    |

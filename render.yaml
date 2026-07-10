@@ -1,0 +1,18 @@
+# One-click deploy of the mobile portfolio tracker to Render (free tier).
+# https://render.com -> New -> Blueprint -> point at this repo.
+services:
+  - type: web
+    name: tripwire-portfolio
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn -w 1 --threads 16 -b 0.0.0.0:$PORT portfolio:app
+    envVars:
+      - key: PORTFOLIO_PASSWORD   # set this in the Render dashboard
+        sync: false
+      - key: PORTFOLIO_SECRET_KEY # keeps you logged in across restarts
+        generateValue: true
+      - key: PORTFOLIO_GIST_TOKEN # optional: cloud backup (gist scope token)
+        sync: false
+      - key: PORTFOLIO_GIST_ID    # optional: auto-restore after redeploys
+        sync: false

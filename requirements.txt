@@ -1,0 +1,5 @@
+# Requirements for portfolio.py (the mobile portfolio tracker).
+# The main Tripwire dashboard (app.py) additionally manages its own deps.
+flask>=3.0
+yfinance>=0.2.40
+gunicorn>=21.0
