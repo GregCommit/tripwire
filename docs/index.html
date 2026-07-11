@@ -1,0 +1,1285 @@
+<!doctype html>
+<!--
+  Tripwire Portfolio — phone-only edition
+  =======================================
+  Runs 100% in the browser: your portfolios/positions/alerts live in the
+  phone's localStorage, and quotes come straight from Yahoo Finance through
+  public CORS relays (no server, no account, no API key).
+  Host these static files anywhere (GitHub Pages: Settings -> Pages ->
+  deploy from branch -> /docs) and Add to Home Screen on the phone.
+  Add ?demo=1 to the URL for simulated data.
+-->
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0b0f14">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Portfolio">
+<title>Portfolio</title>
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" href="./apple-touch-icon.png">
+<link rel="icon" href="./icon-192.png">
+<style>
+:root{
+  color-scheme:dark;
+  --bg:#0b0f14; --card:#151a22; --card2:#1b2230; --line:#232c3b;
+  --text:#e6edf3; --dim:#8b98a5; --dim2:#5c6875;
+  --green:#22c55e; --green-soft:#12351f; --red:#ef4444; --red-soft:#3a1518;
+  --amber:#f59e0b; --accent:#34d399;
+  --sat:env(safe-area-inset-top,0px); --sab:env(safe-area-inset-bottom,0px);
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{background:var(--bg);color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  overscroll-behavior-y:contain;-webkit-font-smoothing:antialiased;
+  user-select:none;-webkit-user-select:none}
+button{font-family:inherit;color:inherit;background:none;border:0;cursor:pointer}
+input{font-family:inherit}
+#appwrap{max-width:560px;margin:0 auto;padding-bottom:calc(64px + var(--sab))}
+
+header{position:sticky;top:0;z-index:20;background:rgba(11,15,20,.86);
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  padding:calc(var(--sat) + 10px) 16px 8px;border-bottom:1px solid var(--line)}
+.hrow{display:flex;align-items:center;gap:10px}
+.hrow h1{font-size:20px;font-weight:800;letter-spacing:-.3px;flex:1}
+.hbtn{width:34px;height:34px;border-radius:50%;background:var(--card);display:flex;
+  align-items:center;justify-content:center;font-size:17px;color:var(--dim);flex-shrink:0}
+.hbtn:active{background:var(--card2)}
+#mktdot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--dim2);margin-right:6px}
+#mktdot.open{background:var(--green)} #mktdot.pre,#mktdot.post{background:var(--amber)}
+#mktlabel{font-size:12px;color:var(--dim)}
+#pftabs{display:flex;gap:8px;overflow-x:auto;padding:10px 0 4px;scrollbar-width:none}
+#pftabs::-webkit-scrollbar{display:none}
+.pftab{flex-shrink:0;padding:7px 14px;border-radius:18px;background:var(--card);
+  font-size:13.5px;font-weight:600;color:var(--dim);white-space:nowrap}
+.pftab.on{background:var(--accent);color:#04110b}
+
+#summary{margin:12px 16px;background:linear-gradient(150deg,#161d29,#121722);
+  border:1px solid var(--line);border-radius:16px;padding:16px}
+#summary .lbl{font-size:12px;color:var(--dim);text-transform:uppercase;letter-spacing:.6px}
+#totval{font-size:32px;font-weight:800;letter-spacing:-.5px;margin:2px 0 10px;font-variant-numeric:tabular-nums}
+.sumrow{display:flex;gap:12px}
+.sumcell{flex:1;background:rgba(255,255,255,.03);border-radius:10px;padding:8px 10px}
+.sumcell .k{font-size:11px;color:var(--dim)}
+.sumcell .v{font-size:14.5px;font-weight:700;margin-top:2px;font-variant-numeric:tabular-nums}
+
+#indices{display:flex;gap:8px;overflow-x:auto;padding:2px 16px 10px;scrollbar-width:none}
+#indices::-webkit-scrollbar{display:none}
+.idx{flex-shrink:0;background:var(--card);border:1px solid var(--line);border-radius:12px;
+  padding:8px 12px;min-width:118px}
+.idx .n{font-size:11.5px;color:var(--dim);font-weight:600}
+.idx .p{font-size:14px;font-weight:700;margin-top:2px;font-variant-numeric:tabular-nums}
+.idx .c{font-size:12px;font-weight:600;font-variant-numeric:tabular-nums}
+
+#list{margin:0 16px}
+.lhead{display:flex;align-items:center;justify-content:space-between;padding:6px 2px}
+.lhead .t{font-size:13px;color:var(--dim);font-weight:600}
+.lhead button{font-size:13px;color:var(--accent);font-weight:600;padding:4px 8px}
+.row{display:flex;align-items:center;gap:10px;padding:12px 2px;border-bottom:1px solid var(--line)}
+.row:active{background:rgba(255,255,255,.02)}
+.rdel{width:24px;height:24px;border-radius:50%;background:var(--red);color:#fff;font-size:15px;
+  font-weight:800;display:none;align-items:center;justify-content:center;flex-shrink:0}
+body.editing .rdel{display:flex}
+.rleft{flex:1;min-width:0}
+.rsym{font-size:16.5px;font-weight:800;letter-spacing:-.2px}
+.rname{font-size:12px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px}
+.rpos{font-size:11.5px;color:var(--dim2);margin-top:1px;font-variant-numeric:tabular-nums}
+.rright{text-align:right;flex-shrink:0}
+.rprice{font-size:16px;font-weight:700;font-variant-numeric:tabular-nums;margin-bottom:3px}
+.pill{display:inline-block;min-width:86px;text-align:center;padding:5px 8px;border-radius:8px;
+  font-size:14px;font-weight:700;color:#fff;font-variant-numeric:tabular-nums;background:var(--dim2)}
+.pill.up{background:var(--green)} .pill.dn{background:var(--red)}
+.rext{font-size:11px;color:var(--amber);margin-top:3px;font-variant-numeric:tabular-nums}
+@keyframes flashUp{0%{background:var(--green-soft)}100%{background:transparent}}
+@keyframes flashDn{0%{background:var(--red-soft)}100%{background:transparent}}
+.row.fup{animation:flashUp 1s} .row.fdn{animation:flashDn 1s}
+#empty{padding:44px 20px;text-align:center;color:var(--dim)}
+#empty .big{font-size:38px;margin-bottom:10px}
+#empty button{margin-top:14px;background:var(--accent);color:#04110b;font-weight:700;
+  padding:11px 22px;border-radius:12px;font-size:15px}
+
+#status{position:fixed;bottom:calc(10px + var(--sab));left:0;right:0;text-align:center;
+  font-size:11px;color:var(--dim2);pointer-events:none;z-index:5}
+#fab{position:fixed;right:18px;bottom:calc(26px + var(--sab));width:54px;height:54px;border-radius:50%;
+  background:var(--accent);color:#04110b;font-size:28px;font-weight:700;box-shadow:0 6px 20px rgba(52,211,153,.35);
+  display:flex;align-items:center;justify-content:center;z-index:15}
+#fab:active{transform:scale(.94)}
+
+.sheet{position:fixed;inset:0;z-index:40;visibility:hidden}
+.sheet.open{visibility:visible}
+.sheet .back{position:absolute;inset:0;background:rgba(0,0,0,.55);opacity:0;transition:opacity .25s}
+.sheet.open .back{opacity:1}
+.sheet .panel{position:absolute;left:0;right:0;bottom:0;max-height:calc(100% - var(--sat) - 10px);
+  background:#10151d;border-radius:18px 18px 0 0;transform:translateY(100%);
+  transition:transform .28s cubic-bezier(.32,.72,.35,1);display:flex;flex-direction:column;
+  max-width:560px;margin:0 auto}
+.sheet.open .panel{transform:translateY(0)}
+.grab{width:38px;height:4px;border-radius:2px;background:#2c3648;margin:9px auto 2px;flex-shrink:0}
+.sheet .body{overflow-y:auto;padding:8px 18px calc(24px + var(--sab));-webkit-overflow-scrolling:touch}
+.shead{display:flex;align-items:center;gap:10px;padding:6px 18px 4px}
+.shead .t1{font-size:18px;font-weight:800;flex:1}
+.xbtn{width:30px;height:30px;border-radius:50%;background:var(--card2);color:var(--dim);
+  font-size:15px;display:flex;align-items:center;justify-content:center}
+
+#d_name{font-size:13px;color:var(--dim);margin-top:-2px}
+#d_price{font-size:34px;font-weight:800;letter-spacing:-.5px;font-variant-numeric:tabular-nums;margin-top:8px}
+#d_chg{font-size:15.5px;font-weight:700;margin-top:2px;font-variant-numeric:tabular-nums}
+#d_ext{font-size:12.5px;color:var(--amber);margin-top:4px;font-variant-numeric:tabular-nums}
+.up-t{color:var(--green)} .dn-t{color:var(--red)}
+#chartbox{position:relative;margin-top:14px}
+#chart{width:100%;height:190px;display:block;touch-action:pan-y}
+#scrub{position:absolute;top:0;left:0;background:var(--card2);border:1px solid var(--line);
+  border-radius:8px;padding:4px 8px;font-size:11.5px;display:none;pointer-events:none;
+  font-variant-numeric:tabular-nums;white-space:nowrap}
+#ranges{display:flex;gap:4px;margin-top:10px}
+#ranges button{flex:1;padding:7px 0;border-radius:8px;font-size:12.5px;font-weight:700;color:var(--dim)}
+#ranges button.on{background:var(--card2);color:var(--accent)}
+.card-s{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-top:14px}
+.card-s h3{font-size:13px;color:var(--dim);font-weight:700;text-transform:uppercase;
+  letter-spacing:.5px;margin-bottom:10px}
+#statgrid{display:grid;grid-template-columns:1fr 1fr;gap:9px 18px}
+.stat{display:flex;justify-content:space-between;font-size:13.5px;border-bottom:1px solid var(--line);padding-bottom:6px}
+.stat .k{color:var(--dim)} .stat .v{font-weight:600;font-variant-numeric:tabular-nums}
+.posgrid{display:flex;gap:10px;margin-bottom:12px}
+.posgrid label{flex:1;font-size:11.5px;color:var(--dim)}
+.posgrid input,.posgrid select{width:100%;margin-top:4px;padding:10px;border-radius:10px;border:1px solid var(--line);
+  background:var(--card2);color:var(--text);font-size:15px;outline:none;font-variant-numeric:tabular-nums}
+.posgrid input:focus{border-color:var(--accent)}
+.btnrow{display:flex;gap:10px}
+.btn{flex:1;padding:11px;border-radius:11px;font-size:14px;font-weight:700;text-align:center}
+.btn.primary{background:var(--accent);color:#04110b}
+.btn.ghost{background:var(--card2);color:var(--dim)}
+.btn.danger{background:var(--red-soft);color:#fca5a5}
+#posmeta{display:flex;gap:10px;margin-top:12px}
+.alertrow{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);font-size:14px}
+.alertrow .k{flex:1}
+.alertrow .del{color:var(--red);font-size:13px;font-weight:700;padding:4px 6px}
+.newsrow{display:block;padding:11px 0;border-bottom:1px solid var(--line);color:inherit;text-decoration:none}
+.newsrow .nt{font-size:14px;font-weight:600;line-height:1.35}
+.newsrow .nm{font-size:11.5px;color:var(--dim2);margin-top:4px}
+
+#q{width:100%;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:var(--card);
+  color:var(--text);font-size:16px;outline:none;margin-bottom:8px}
+#q:focus{border-color:var(--accent)}
+.srow{display:flex;align-items:center;padding:12px 2px;border-bottom:1px solid var(--line)}
+.srow .sl{flex:1;min-width:0}
+.srow .ss{font-size:15.5px;font-weight:800}
+.srow .sn{font-size:12px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.srow .sx{font-size:11px;color:var(--dim2);flex-shrink:0;margin-left:8px}
+.addform{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin:10px 0}
+.addform .ttl{font-size:14px;font-weight:700;margin-bottom:10px}
+
+.setrow{display:flex;align-items:center;gap:10px;padding:13px 2px;border-bottom:1px solid var(--line);font-size:15px}
+.setrow .k{flex:1}
+.setrow select{background:var(--card2);color:var(--text);border:1px solid var(--line);
+  border-radius:8px;padding:6px 10px;font-size:14px}
+.bknote{font-size:12.5px;color:var(--dim);line-height:1.45;margin-bottom:10px}
+
+#toast{position:fixed;top:calc(var(--sat) + 14px);left:50%;transform:translate(-50%,-140%);
+  background:var(--card2);border:1px solid var(--line);color:var(--text);padding:12px 18px;
+  border-radius:14px;font-size:14px;font-weight:600;z-index:60;transition:transform .3s;
+  max-width:88%;box-shadow:0 8px 30px rgba(0,0,0,.5)}
+#toast.show{transform:translate(-50%,0)}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid var(--dim2);border-top-color:var(--accent);
+  border-radius:50%;animation:sp 1s linear infinite;vertical-align:-2px}
+@keyframes sp{to{transform:rotate(360deg)}}
+.muted{color:var(--dim);font-size:13px;text-align:center;padding:14px 0}
+</style></head>
+<body>
+<div id="appwrap">
+  <header>
+    <div class="hrow">
+      <h1>Portfolio</h1>
+      <span><span id="mktdot"></span><span id="mktlabel"></span></span>
+      <button class="hbtn" id="sortbtn" title="Sort">&#8645;</button>
+      <button class="hbtn" id="setbtn" title="Settings">&#9881;</button>
+    </div>
+    <div id="pftabs"></div>
+  </header>
+
+  <div id="summary" style="display:none">
+    <div class="lbl">Total value</div>
+    <div id="totval">—</div>
+    <div class="sumrow">
+      <div class="sumcell"><div class="k">Day P/L</div><div class="v" id="daypl">—</div></div>
+      <div class="sumcell"><div class="k">Total P/L</div><div class="v" id="totpl">—</div></div>
+      <div class="sumcell"><div class="k">Cost basis</div><div class="v" id="costb">—</div></div>
+    </div>
+  </div>
+
+  <div id="indices"></div>
+
+  <div id="list">
+    <div class="lhead">
+      <span class="t" id="lcount"></span>
+      <button id="editbtn">Edit</button>
+    </div>
+    <div id="rows"></div>
+    <div id="empty" style="display:none">
+      <div class="big">&#128200;</div>
+      <div>No symbols yet.<br>Add stocks, ETFs, crypto or indices to track.</div>
+      <button onclick="openAdd()">Add symbol</button>
+    </div>
+  </div>
+</div>
+
+<div id="status"></div>
+<button id="fab" onclick="openAdd()">+</button>
+<div id="toast"></div>
+
+<!-- detail sheet -->
+<div class="sheet" id="detail">
+  <div class="back" onclick="closeSheet('detail')"></div>
+  <div class="panel">
+    <div class="grab"></div>
+    <div class="shead">
+      <div style="flex:1">
+        <div class="t1" id="d_sym"></div>
+        <div id="d_name"></div>
+      </div>
+      <button class="xbtn" onclick="closeSheet('detail')">&#10005;</button>
+    </div>
+    <div class="body">
+      <div id="d_price">—</div>
+      <div id="d_chg"></div>
+      <div id="d_ext"></div>
+      <div id="chartbox">
+        <canvas id="chart"></canvas>
+        <div id="scrub"></div>
+      </div>
+      <div id="ranges"></div>
+      <div class="card-s" id="poscard">
+        <h3>Your position</h3>
+        <div class="posgrid">
+          <label>Shares<input id="p_shares" type="text" inputmode="decimal" placeholder="0"></label>
+          <label>Avg cost / share<input id="p_cost" type="text" inputmode="decimal" placeholder="0.00"></label>
+        </div>
+        <div class="btnrow"><button class="btn primary" id="p_save">Save position</button></div>
+        <div id="posmeta"></div>
+      </div>
+      <div class="card-s">
+        <h3>Price alerts</h3>
+        <div id="alertlist"></div>
+        <div class="posgrid" style="margin-top:10px">
+          <label>Alert when price
+            <select id="a_kind">
+              <option value="above">rises above</option>
+              <option value="below">falls below</option>
+            </select>
+          </label>
+          <label>Price<input id="a_thr" type="text" inputmode="decimal" placeholder="0.00"></label>
+        </div>
+        <div class="btnrow"><button class="btn ghost" id="a_add">Add alert</button></div>
+      </div>
+      <div class="card-s">
+        <h3>Statistics</h3>
+        <div id="statgrid"></div>
+      </div>
+      <div class="card-s">
+        <h3>News</h3>
+        <div id="newslist"><div class="muted"><span class="spin"></span></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- add sheet -->
+<div class="sheet" id="add">
+  <div class="back" onclick="closeSheet('add')"></div>
+  <div class="panel">
+    <div class="grab"></div>
+    <div class="shead"><div class="t1">Add symbol</div>
+      <button class="xbtn" onclick="closeSheet('add')">&#10005;</button></div>
+    <div class="body" style="min-height:340px">
+      <input id="q" type="search" placeholder="Search ticker or company&hellip;"
+             autocomplete="off" autocapitalize="characters" enterkeyhint="search">
+      <div id="results"></div>
+    </div>
+  </div>
+</div>
+
+<!-- settings sheet -->
+<div class="sheet" id="settings">
+  <div class="back" onclick="closeSheet('settings')"></div>
+  <div class="panel">
+    <div class="grab"></div>
+    <div class="shead"><div class="t1">Settings</div>
+      <button class="xbtn" onclick="closeSheet('settings')">&#10005;</button></div>
+    <div class="body">
+      <div class="setrow"><span class="k">Refresh interval</span>
+        <select id="s_interval">
+          <option value="5000">5 s</option><option value="10000">10 s</option>
+          <option value="30000">30 s</option><option value="60000">60 s</option>
+        </select></div>
+      <div class="setrow"><span class="k">Rename this portfolio</span>
+        <button class="btn ghost" style="flex:none;padding:8px 14px" onclick="renamePf()">Rename</button></div>
+      <div class="setrow"><span class="k">Delete this portfolio</span>
+        <button class="btn danger" style="flex:none;padding:8px 14px" onclick="deletePf()">Delete</button></div>
+      <div class="setrow"><span class="k">Notifications for alerts</span>
+        <button class="btn ghost" style="flex:none;padding:8px 14px" onclick="askNotify()">Enable</button></div>
+
+      <div class="card-s">
+        <h3>Backup</h3>
+        <div class="bknote">Your data lives on this phone (browser storage). Export a JSON file
+          now and then — save it to iCloud/Drive — and you can restore or move to another device.
+          Files are compatible with the server edition of this app.</div>
+        <div class="btnrow">
+          <button class="btn ghost" id="bk_export">Export file</button>
+          <button class="btn ghost" id="bk_import">Import file</button>
+        </div>
+        <input type="file" id="bk_file" accept=".json,application/json" style="display:none">
+      </div>
+
+      <div class="card-s">
+        <h3>Data connection</h3>
+        <div class="bknote" id="relaynote"></div>
+        <div class="btnrow"><button class="btn ghost" id="relaytest">Test connection</button></div>
+      </div>
+      <div class="muted" id="aboutline">Phone-only edition — no server, data stays on this device.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const DEMO = new URLSearchParams(location.search).get('demo') === '1';
+
+/* ── local database (localStorage) ─────────────────────────────── */
+
+const LS_KEY = 'pfapp_v1';
+function freshDB() {
+  return {portfolios: [{id: 1, name: 'My Portfolio', positions: []}],
+          alerts: [], nextId: 2, nextAlertId: 1};
+}
+let DB = null;
+try { DB = JSON.parse(localStorage.getItem(LS_KEY)); } catch(e) {}
+if (!DB || !Array.isArray(DB.portfolios) || !DB.portfolios.length) DB = freshDB();
+function saveDB() { try { localStorage.setItem(LS_KEY, JSON.stringify(DB)); } catch(e) { toast('Storage full — export a backup'); } }
+
+const S = {
+  quotes: {}, indices: [], market: 'closed',
+  pf: +(localStorage.pf || DB.portfolios[0].id), mode: +(localStorage.mode || 0),
+  sort: localStorage.sort || 'manual', editing: false,
+  detailSym: null, range: localStorage.range || '1d',
+  chart: null, interval: +(localStorage.interval || 10000), timer: null,
+};
+const MODES = ['pct', 'chg', 'val'];
+const RANGES = ['1d','5d','1mo','6mo','ytd','1y','5y','max'];
+const RANGE_LABELS = {'1d':'1D','5d':'5D','1mo':'1M','6mo':'6M','ytd':'YTD','1y':'1Y','5y':'5Y','max':'MAX'};
+const INDICES = [['^GSPC','S&P 500'],['^DJI','Dow'],['^IXIC','Nasdaq']];
+
+/* ── formatting helpers ────────────────────────────────────────── */
+
+function fmtMoney(n, cur, digits) {
+  if (n == null || isNaN(n)) return '—';
+  try {
+    return new Intl.NumberFormat(undefined, {style:'currency', currency:cur||'USD',
+      minimumFractionDigits:digits??2, maximumFractionDigits:digits??2}).format(n);
+  } catch(e) { return (cur||'$') + n.toFixed(2); }
+}
+function fmtNum(n) {
+  if (n == null || isNaN(n)) return '—';
+  const a = Math.abs(n);
+  if (a >= 1e12) return (n/1e12).toFixed(2)+'T';
+  if (a >= 1e9)  return (n/1e9).toFixed(2)+'B';
+  if (a >= 1e6)  return (n/1e6).toFixed(2)+'M';
+  if (a >= 1e3)  return (n/1e3).toFixed(1)+'K';
+  return String(n);
+}
+function fmtPrice(n) {
+  if (n == null || isNaN(n)) return '—';
+  return n.toLocaleString(undefined, {minimumFractionDigits: n < 5 ? 3 : 2,
+                                      maximumFractionDigits: n < 5 ? 4 : 2});
+}
+function sign(n){ return n > 0 ? '+' : ''; }
+function ago(ts){
+  if (!ts) return '';
+  const s = Math.max(0, Date.now()/1000 - ts);
+  if (s < 90) return 'just now';
+  if (s < 3600) return Math.round(s/60) + 'm ago';
+  if (s < 86400) return Math.round(s/3600) + 'h ago';
+  return Math.round(s/86400) + 'd ago';
+}
+function esc(s){ return (s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function toast(msg, ms) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._h);
+  t._h = setTimeout(() => t.classList.remove('show'), ms || 2600);
+}
+
+/* ── market clock (US/Eastern via Intl) ────────────────────────── */
+
+function marketState() {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {timeZone:'America/New_York',
+      hour12:false, weekday:'short', hour:'numeric', minute:'numeric'}).formatToParts(new Date());
+    const get = t => (parts.find(p => p.type === t) || {}).value;
+    const wd = get('weekday');
+    if (wd === 'Sat' || wd === 'Sun') return 'closed';
+    const mins = (+get('hour') % 24) * 60 + +get('minute');
+    if (mins >= 240 && mins < 570)  return 'pre';
+    if (mins >= 570 && mins < 960)  return 'open';
+    if (mins >= 960 && mins < 1200) return 'post';
+  } catch(e) {}
+  return 'closed';
+}
+
+/* ── Yahoo data via public CORS relays ─────────────────────────── */
+
+const RELAYS = [
+  {name: 'allorigins',  build: u => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u)},
+  {name: 'corsproxy.io', build: u => 'https://corsproxy.io/?url=' + encodeURIComponent(u)},
+  {name: 'codetabs',    build: u => 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u)},
+];
+let relayIdx = Math.min(+(localStorage.relayIdx || 0), RELAYS.length - 1);
+let relayOK = null;  // name of last relay that worked
+
+function fetchTimeout(url, ms) {
+  if (typeof AbortSignal !== 'undefined' && AbortSignal.timeout)
+    return fetch(url, {signal: AbortSignal.timeout(ms)});
+  return fetch(url);
+}
+
+async function yahooJSON(url) {
+  const custom = localStorage.relayCustom;  // for tests / self-hosted relay
+  const relays = custom ? [{name:'custom', build: u => custom + encodeURIComponent(u)}] : RELAYS;
+  let lastErr = null;
+  for (let k = 0; k < relays.length; k++) {
+    const i = (relayIdx + k) % relays.length;
+    try {
+      const r = await fetchTimeout(relays[i].build(url), 14000);
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const d = await r.json();
+      relayIdx = i; localStorage.relayIdx = i; relayOK = relays[i].name;
+      return d;
+    } catch(e) { lastErr = e; }
+  }
+  throw lastErr || new Error('all data relays failed');
+}
+
+function finishQuote(q) {
+  const prev = q.prev_close, price = q.price;
+  if (prev) {
+    q.change = +(price - prev).toFixed(4);
+    q.change_pct = +((price - prev) / prev * 100).toFixed(2);
+  } else q.change = q.change_pct = null;
+  for (const kind of ['pre', 'post']) {
+    const p = q[kind + '_price'];
+    const base = kind === 'post' ? price : prev;
+    if (p && base) {
+      q[kind + '_change'] = +(p - base).toFixed(4);
+      q[kind + '_change_pct'] = +((p - base) / base * 100).toFixed(2);
+    } else q[kind + '_change'] = q[kind + '_change_pct'] = null;
+  }
+  return q;
+}
+
+function parseChartQuote(symbol, data) {
+  const r = data && data.chart && data.chart.result && data.chart.result[0];
+  if (!r) throw new Error('no data for ' + symbol);
+  const meta = r.meta || {};
+  let price = meta.regularMarketPrice;
+  const prev = meta.chartPreviousClose ?? meta.previousClose ?? null;
+  const ts = r.timestamp || [];
+  const q0 = (((r.indicators || {}).quote) || [])[0] || {};
+  const closes = q0.close || [], vols = q0.volume || [];
+  const reg = ((meta.currentTradingPeriod || {}).regular) || {};
+  let pre = null, post = null;
+  if (ts.length && closes.length && reg.start && reg.end) {
+    for (let i = 0; i < ts.length; i++) {
+      const c = closes[i];
+      if (c == null) continue;
+      if (ts[i] < reg.start) pre = c;
+      else if (ts[i] >= reg.end) post = c;
+      else if (price == null) price = c;
+    }
+  }
+  if (price == null) throw new Error('no price for ' + symbol);
+  let dayHigh = meta.regularMarketDayHigh, dayLow = meta.regularMarketDayLow;
+  let volume = meta.regularMarketVolume;
+  if ((dayHigh == null || dayLow == null) && ts.length && reg.start && reg.end) {
+    const rc = [];
+    for (let i = 0; i < ts.length; i++)
+      if (closes[i] != null && ts[i] >= reg.start && ts[i] < reg.end) rc.push(closes[i]);
+    if (rc.length) {
+      if (dayHigh == null) dayHigh = Math.max(...rc);
+      if (dayLow == null)  dayLow = Math.min(...rc);
+    }
+  }
+  if (volume == null && vols.length) volume = vols.reduce((a,b) => a + (b||0), 0);
+  return finishQuote({
+    symbol, name: meta.shortName || meta.longName || null,
+    currency: meta.currency || 'USD',
+    price: +(+price).toFixed(4), prev_close: prev != null ? +(+prev).toFixed(4) : null,
+    day_high: dayHigh != null ? +(+dayHigh).toFixed(4) : null,
+    day_low: dayLow != null ? +(+dayLow).toFixed(4) : null,
+    volume: volume || null,
+    week52_high: meta.fiftyTwoWeekHigh || null, week52_low: meta.fiftyTwoWeekLow || null,
+    pre_price: pre != null ? +(+pre).toFixed(4) : null,
+    post_price: post != null ? +(+post).toFixed(4) : null,
+    ts: Math.floor(Date.now()/1000),
+  });
+}
+
+const quoteCache = new Map();  // sym -> {exp, q}
+async function fetchQuote(symbol) {
+  const hit = quoteCache.get(symbol);
+  if (hit && Date.now() < hit.exp) return hit.q;
+  let q;
+  if (DEMO) q = demoQuote(symbol);
+  else q = parseChartQuote(symbol, await yahooJSON(
+    'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(symbol) +
+    '?range=1d&interval=1m&includePrePost=true'));
+  quoteCache.set(symbol, {exp: Date.now() + 10000, q});
+  return q;
+}
+
+async function fetchQuotes(symbols) {
+  const uniq = [...new Set(symbols)];
+  const out = {};
+  await Promise.all(uniq.map(async s => {
+    try { out[s] = await fetchQuote(s); }
+    catch(e) {
+      const stale = quoteCache.get(s);
+      out[s] = stale ? stale.q : {symbol: s, error: String(e.message || e)};
+    }
+  }));
+  return out;
+}
+
+const CHART_PARAMS = {
+  '1d':  ['1d','2m',true, 60e3], '5d': ['5d','15m',false,300e3], '1mo':['1mo','1h',false,900e3],
+  '6mo': ['6mo','1d',false,3600e3], 'ytd':['ytd','1d',false,3600e3], '1y':['1y','1d',false,3600e3],
+  '5y':  ['5y','1wk',false,3600e3], 'max':['max','1mo',false,3600e3],
+};
+const chartCache = new Map();
+async function fetchChart(symbol, rng) {
+  const key = symbol + ':' + rng;
+  const hit = chartCache.get(key);
+  const [yr, iv, pp, ttl] = CHART_PARAMS[rng];
+  if (hit && Date.now() < hit.exp) return hit.d;
+  let d;
+  if (DEMO) d = demoChart(symbol, rng);
+  else {
+    const raw = await yahooJSON('https://query1.finance.yahoo.com/v8/finance/chart/' +
+      encodeURIComponent(symbol) + `?range=${yr}&interval=${iv}&includePrePost=${pp}`);
+    const r = raw.chart.result[0], meta = r.meta || {};
+    const ts = r.timestamp || [], closes = ((r.indicators.quote || [])[0] || {}).close || [];
+    const points = [];
+    for (let i = 0; i < ts.length; i++)
+      if (closes[i] != null) points.push([ts[i], +closes[i].toFixed(4)]);
+    d = {symbol, range: rng, points,
+         prev_close: meta.chartPreviousClose ?? meta.previousClose ?? null,
+         currency: meta.currency || 'USD'};
+  }
+  chartCache.set(key, {exp: Date.now() + ttl, d});
+  return d;
+}
+
+async function searchSymbols(q) {
+  if (DEMO) return demoSearch(q);
+  const d = await yahooJSON('https://query2.finance.yahoo.com/v1/finance/search?q=' +
+    encodeURIComponent(q) + '&quotesCount=12&newsCount=0&listsCount=0');
+  return (d.quotes || []).filter(it => it.symbol).map(it => ({
+    symbol: it.symbol,
+    name: it.shortname || it.longname || it.symbol,
+    exchange: it.exchDisp || it.exchange || '',
+    type: it.typeDisp || it.quoteType || ''}));
+}
+
+async function fetchNews(symbol) {
+  if (DEMO) return demoNews(symbol);
+  try {
+    const d = await yahooJSON('https://query2.finance.yahoo.com/v1/finance/search?q=' +
+      encodeURIComponent(symbol) + '&quotesCount=0&newsCount=8&listsCount=0');
+    return (d.news || []).filter(n => n.title && n.link).map(n => ({
+      title: n.title, link: n.link, publisher: n.publisher || '',
+      ts: n.providerPublishTime || null}));
+  } catch(e) { return []; }
+}
+
+/* ── demo data (?demo=1) ───────────────────────────────────────── */
+
+function hashCode(s){ let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return Math.abs(h); }
+const DEMO_NAMES = {'AAPL':'Apple Inc.','MSFT':'Microsoft Corp.','GOOGL':'Alphabet Inc.','AMZN':'Amazon.com, Inc.',
+  'NVDA':'NVIDIA Corp.','META':'Meta Platforms','TSLA':'Tesla, Inc.','NFLX':'Netflix, Inc.','SPY':'SPDR S&P 500 ETF',
+  'QQQ':'Invesco QQQ Trust','^GSPC':'S&P 500','^DJI':'Dow Jones Industrial','^IXIC':'Nasdaq Composite'};
+const demoState = {};
+function demoBase(sym){
+  if (sym === '^GSPC') return 6820; if (sym === '^DJI') return 46210; if (sym === '^IXIC') return 22930;
+  return 15 + (hashCode(sym) % 4800) / 10;
+}
+function demoQuote(sym){
+  const base = demoBase(sym);
+  let st = demoState[sym];
+  if (!st) st = demoState[sym] = {price: base * (1 + ((hashCode(sym) >> 8) % 900 - 450) / 10000), prev: base};
+  st.price = Math.max(.5, st.price * (1 + (Math.random() - .495) * .0025));
+  const state = marketState();
+  return finishQuote({symbol: sym, name: DEMO_NAMES[sym] || sym, currency: 'USD',
+    price: +st.price.toFixed(2), prev_close: +st.prev.toFixed(2),
+    day_high: +(Math.max(st.price, st.prev) * 1.008).toFixed(2),
+    day_low: +(Math.min(st.price, st.prev) * .991).toFixed(2),
+    volume: 2e6 + hashCode(sym) % 9e7, week52_high: +(base * 1.34).toFixed(2), week52_low: +(base * .63).toFixed(2),
+    pre_price: state === 'pre' ? +(st.price * 1.001).toFixed(2) : null,
+    post_price: (state === 'post' || state === 'closed') ? +(st.price * 1.002).toFixed(2) : null,
+    ts: Math.floor(Date.now()/1000)});
+}
+function demoChart(sym, rng){
+  const n = {'1d':78,'5d':130,'1mo':150,'6mo':126,'ytd':130,'1y':252,'5y':260,'max':240}[rng];
+  const span = {'1d':6.5*3600,'5d':5*86400,'1mo':30*86400,'6mo':182*86400,'ytd':190*86400,
+                '1y':365*86400,'5y':5*365*86400,'max':12*365*86400}[rng];
+  const amp = {'1d':.015,'5d':.05,'1mo':.09,'6mo':.22,'ytd':.25,'1y':.35,'5y':1.4,'max':4}[rng];
+  const end = demoQuote(sym).price;
+  let seed = hashCode(sym + rng), rand = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  const walk = [0];
+  for (let i = 1; i < n; i++) walk.push(walk[i-1] + rand() * 2.02 - 1);
+  const spread = Math.max(...walk) - Math.min(...walk) || 1;
+  const now = Math.floor(Date.now()/1000);
+  const points = walk.map((w, i) =>
+    [now - Math.floor(span * (1 - i/(n-1))), +(end * (1 + (w - walk[n-1]) / spread * amp)).toFixed(2)]);
+  return {symbol: sym, range: rng, points, prev_close: demoState[sym].prev, currency: 'USD'};
+}
+function demoSearch(q){
+  q = q.toLowerCase();
+  return Object.entries(DEMO_NAMES).filter(([s]) => !s.startsWith('^'))
+    .filter(([s, n]) => s.toLowerCase().includes(q) || n.toLowerCase().includes(q))
+    .map(([s, n]) => ({symbol: s, name: n, exchange: 'NASDAQ', type: 'Equity'})).slice(0, 12);
+}
+function demoNews(sym){
+  const n = DEMO_NAMES[sym] || sym, now = Math.floor(Date.now()/1000);
+  return [{title: `${n} rises as analysts lift price targets`, link: 'https://finance.yahoo.com', publisher: 'Demo Wire', ts: now - 3600},
+          {title: `What to watch ahead of ${n} earnings`, link: 'https://finance.yahoo.com', publisher: 'Demo Journal', ts: now - 14400}];
+}
+
+/* ── local data operations ─────────────────────────────────────── */
+
+function curPf() { return DB.portfolios.find(p => p.id === S.pf) || DB.portfolios[0]; }
+
+function addPosition(pfId, symbol, name, shares, cost) {
+  const pf = DB.portfolios.find(p => p.id === pfId);
+  const existing = pf.positions.find(p => p.symbol === symbol);
+  if (existing) { existing.shares = shares; existing.cost = cost; if (name) existing.name = name; }
+  else pf.positions.push({id: DB.nextId++, symbol, name: name || null, shares, cost,
+                          added_at: Math.floor(Date.now()/1000)});
+  saveDB();
+}
+function updatePosition(sym, shares, cost) {
+  const pf = curPf();
+  const p = pf.positions.find(x => x.symbol === sym);
+  if (p) { p.shares = shares; p.cost = cost; }
+  else addPosition(pf.id, sym, (S.quotes[sym] || {}).name, shares, cost);
+  saveDB();
+}
+function deletePosition(id) {
+  for (const pf of DB.portfolios) pf.positions = pf.positions.filter(p => p.id !== id);
+  saveDB();
+}
+function checkAlerts() {
+  const fired = [];
+  for (const a of DB.alerts) {
+    if (!a.active) continue;
+    const q = S.quotes[a.symbol];
+    if (!q || q.error || q.price == null) continue;
+    if ((a.kind === 'above' && q.price >= a.threshold) ||
+        (a.kind === 'below' && q.price <= a.threshold)) {
+      a.active = 0; a.triggered_at = Math.floor(Date.now()/1000); a.triggered_price = q.price;
+      fired.push(a);
+    }
+  }
+  if (fired.length) saveDB();
+  return fired;
+}
+
+/* ── export / import (same file format as the server edition) ──── */
+
+function snapshot() {
+  return {app: 'tripwire-portfolio', version: 1, exported_at: Math.floor(Date.now()/1000),
+    portfolios: DB.portfolios.map((pf, i) => ({name: pf.name, sort_order: i,
+      positions: pf.positions.map((p, j) => ({symbol: p.symbol, name: p.name, shares: p.shares,
+        cost: p.cost, sort_order: j, added_at: p.added_at}))})),
+    alerts: DB.alerts.map(a => ({symbol: a.symbol, kind: a.kind, threshold: a.threshold,
+      active: a.active ? 1 : 0, created_at: a.created_at, triggered_at: a.triggered_at,
+      triggered_price: a.triggered_price}))};
+}
+function restoreSnapshot(data) {
+  if (!data || !Array.isArray(data.portfolios)) throw new Error('not a portfolio backup file');
+  const db = freshDB();
+  db.portfolios = [];
+  for (const pf of data.portfolios) {
+    const positions = [];
+    for (const p of pf.positions || []) {
+      if (!p.symbol) continue;
+      positions.push({id: db.nextId++, symbol: String(p.symbol).toUpperCase(), name: p.name || null,
+        shares: +p.shares || 0, cost: +p.cost || 0, added_at: p.added_at || Math.floor(Date.now()/1000)});
+    }
+    db.portfolios.push({id: db.nextId++, name: pf.name || 'Portfolio', positions});
+  }
+  if (!db.portfolios.length) db.portfolios.push({id: db.nextId++, name: 'My Portfolio', positions: []});
+  for (const a of data.alerts || []) {
+    if (!a.symbol || (a.kind !== 'above' && a.kind !== 'below')) continue;
+    db.alerts.push({id: db.nextAlertId++, symbol: String(a.symbol).toUpperCase(), kind: a.kind,
+      threshold: +a.threshold || 0, active: a.active == null ? 1 : (a.active ? 1 : 0),
+      created_at: a.created_at || null, triggered_at: a.triggered_at || null,
+      triggered_price: a.triggered_price || null});
+  }
+  DB = db; saveDB();
+  S.pf = DB.portfolios[0].id; localStorage.pf = S.pf;
+}
+
+$('bk_export').onclick = () => {
+  const blob = new Blob([JSON.stringify(snapshot(), null, 1)], {type: 'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'portfolio-backup-' + new Date().toISOString().slice(0,10) + '.json';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+};
+$('bk_import').onclick = () => $('bk_file').click();
+$('bk_file').onchange = async e => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  if (!confirm(`Replace everything with the contents of "${file.name}"?`)) return;
+  try {
+    restoreSnapshot(JSON.parse(await file.text()));
+    renderAll(); refresh();
+    toast('Imported ✓');
+  } catch(err) { toast('Import failed: ' + err.message, 5000); }
+};
+
+/* ── rendering ─────────────────────────────────────────────────── */
+
+function renderTabs() {
+  const pf = curPf();
+  $('pftabs').innerHTML = DB.portfolios.map(p =>
+    `<button class="pftab ${p.id===pf.id ? 'on':''}" data-id="${p.id}">${esc(p.name)}</button>`
+  ).join('') + `<button class="pftab" data-id="new">+ New</button>`;
+  $('pftabs').querySelectorAll('.pftab').forEach(b => b.onclick = () => {
+    if (b.dataset.id === 'new') {
+      const name = prompt('New portfolio name:');
+      if (!name) return;
+      DB.portfolios.push({id: DB.nextId++, name, positions: []});
+      saveDB();
+      S.pf = DB.portfolios[DB.portfolios.length-1].id;
+    } else S.pf = +b.dataset.id;
+    localStorage.pf = S.pf;
+    renderAll(); refresh();
+  });
+}
+
+function positionsSorted() {
+  const arr = [...curPf().positions];
+  const q = s => S.quotes[s] || {};
+  if (S.sort === 'symbol') arr.sort((a,b) => a.symbol.localeCompare(b.symbol));
+  else if (S.sort === 'pct') arr.sort((a,b) => (q(b.symbol).change_pct??-1e9) - (q(a.symbol).change_pct??-1e9));
+  else if (S.sort === 'value') arr.sort((a,b) =>
+    (b.shares*(q(b.symbol).price||0)) - (a.shares*(q(a.symbol).price||0)));
+  return arr;
+}
+
+function pillHTML(p, q) {
+  if (q.error) return `<span class="pill">…</span>`;
+  const up = (q.change ?? 0) >= 0;
+  const cls = q.change == null ? '' : (up ? 'up' : 'dn');
+  const mode = MODES[S.mode];
+  let txt;
+  if (mode === 'chg') txt = q.change == null ? '—' : sign(q.change) + q.change.toFixed(2);
+  else if (mode === 'val' && p.shares > 0) txt = fmtNum(p.shares * q.price);
+  else if (mode === 'val') txt = q.change_pct == null ? '—' : sign(q.change_pct) + q.change_pct.toFixed(2) + '%';
+  else txt = q.change_pct == null ? '—' : sign(q.change_pct) + q.change_pct.toFixed(2) + '%';
+  return `<span class="pill ${cls}">${txt}</span>`;
+}
+
+function extHTML(q, cls) {
+  if (S.market !== 'pre' && q.post_price && q.post_change_pct != null)
+    return `<div class="${cls}">After hours ${fmtPrice(q.post_price)} (${sign(q.post_change_pct)}${q.post_change_pct.toFixed(2)}%)</div>`;
+  if (S.market === 'pre' && q.pre_price && q.pre_change_pct != null)
+    return `<div class="${cls}">Pre-market ${fmtPrice(q.pre_price)} (${sign(q.pre_change_pct)}${q.pre_change_pct.toFixed(2)}%)</div>`;
+  return '';
+}
+
+function renderList() {
+  const arr = positionsSorted();
+  $('lcount').textContent = arr.length ? `${arr.length} symbol${arr.length>1?'s':''}` : '';
+  $('empty').style.display = arr.length ? 'none' : 'block';
+  $('editbtn').style.display = arr.length ? '' : 'none';
+  const old = {};
+  $('rows').querySelectorAll('.row').forEach(r => old[r.dataset.sym] = +r.dataset.price || 0);
+  $('rows').innerHTML = arr.map(p => {
+    const q = S.quotes[p.symbol] || {};
+    const holding = p.shares > 0;
+    const posline = holding
+      ? `<div class="rpos">${p.shares.toLocaleString()} sh · avg ${fmtPrice(p.cost)} · ${fmtMoney(p.shares*(q.price||0), q.currency)}</div>` : '';
+    return `<div class="row" data-sym="${p.symbol}" data-id="${p.id}" data-price="${q.price||''}">
+      <button class="rdel" data-del="${p.id}">−</button>
+      <div class="rleft">
+        <div class="rsym">${esc(p.symbol)}</div>
+        <div class="rname">${esc(p.name || q.name || '')}</div>
+        ${posline}
+      </div>
+      <div class="rright">
+        <div class="rprice">${q.error ? '<span class="spin"></span>' : fmtPrice(q.price)}</div>
+        ${pillHTML(p, q)}
+        ${extHTML(q, 'rext')}
+      </div>
+    </div>`;
+  }).join('');
+  $('rows').querySelectorAll('.row').forEach(r => {
+    const sym = r.dataset.sym, id = +r.dataset.id;
+    const prev = old[sym], now = +r.dataset.price || 0;
+    if (prev && now && prev !== now) r.classList.add(now > prev ? 'fup' : 'fdn');
+    r.onclick = e => {
+      if (e.target.closest('.rdel')) {
+        if (confirm(`Remove ${sym} from this portfolio?`)) { deletePosition(id); renderAll(); }
+        return;
+      }
+      if (e.target.closest('.pill')) { S.mode = (S.mode+1) % MODES.length; localStorage.mode = S.mode; renderList(); return; }
+      openDetail(sym);
+    };
+  });
+}
+
+function renderSummary() {
+  const holdings = curPf().positions.filter(p => p.shares > 0);
+  if (!holdings.length) { $('summary').style.display = 'none'; return; }
+  let val = 0, cost = 0, day = 0, priced = 0, cur = 'USD';
+  for (const p of holdings) {
+    const q = S.quotes[p.symbol];
+    cost += p.shares * p.cost;
+    if (q && q.price != null) {
+      val += p.shares * q.price;
+      if (q.prev_close) day += p.shares * (q.price - q.prev_close);
+      cur = q.currency || cur;
+      priced++;
+    } else val += p.shares * p.cost;
+  }
+  $('summary').style.display = '';
+  $('totval').textContent = priced ? fmtMoney(val, cur) : '…';
+  const tot = val - cost;
+  const set = (id, v, pctBase) => {
+    const el = $(id);
+    const pct = pctBase ? ` (${sign(v)}${(v/pctBase*100).toFixed(2)}%)` : '';
+    el.textContent = `${sign(v)}${fmtMoney(v, cur)}${pct}`;
+    el.style.color = v > 0 ? 'var(--green)' : v < 0 ? 'var(--red)' : 'var(--dim)';
+  };
+  set('daypl', day, val - day || 0);
+  set('totpl', tot, cost || 0);
+  $('costb').textContent = fmtMoney(cost, cur);
+}
+
+function renderIndices() {
+  $('indices').innerHTML = S.indices.map(q => {
+    if (!q || q.error) return '';
+    const up = (q.change_pct ?? 0) >= 0;
+    return `<div class="idx">
+      <div class="n">${esc(q.label)}</div>
+      <div class="p">${fmtPrice(q.price)}</div>
+      <div class="c" style="color:${up?'var(--green)':'var(--red)'}">${sign(q.change)}${(q.change??0).toFixed(2)} (${sign(q.change_pct)}${(q.change_pct??0).toFixed(2)}%)</div>
+    </div>`;
+  }).join('');
+}
+
+function renderMarket() {
+  const labels = {open:'Market open', pre:'Pre-market', post:'After hours', closed:'Market closed'};
+  $('mktdot').className = '';
+  $('mktdot').classList.add(S.market);
+  $('mktlabel').textContent = labels[S.market] || '';
+}
+
+function renderAll() { renderTabs(); renderSummary(); renderIndices(); renderList(); renderMarket(); }
+
+/* ── refresh loop ──────────────────────────────────────────────── */
+
+let refreshing = false;
+async function refresh() {
+  if (refreshing) return;
+  refreshing = true;
+  S.market = marketState();
+  try {
+    const syms = curPf().positions.map(p => p.symbol)
+      .concat(DB.alerts.filter(a => a.active).map(a => a.symbol))
+      .concat(INDICES.map(x => x[0]));
+    if (S.detailSym) syms.push(S.detailSym);
+    const quotes = await fetchQuotes(syms);
+    Object.assign(S.quotes, quotes);
+    S.indices = INDICES.map(([s, label]) => Object.assign({label}, quotes[s] || {error: 'n/a'}));
+    const anyOK = Object.values(quotes).some(q => !q.error);
+    renderSummary(); renderIndices(); renderList(); renderMarket();
+    if (S.detailSym) updateDetailPrice();
+    for (const f of checkAlerts()) fireAlert(f);
+    $('status').textContent = anyOK
+      ? 'Live · updated ' + new Date().toLocaleTimeString() + (DEMO ? ' · DEMO' : '')
+      : 'No data — check connection (Settings → Test connection)';
+  } catch(e) {
+    $('status').textContent = 'Update failed — retrying…';
+  } finally { refreshing = false; }
+}
+
+function schedule() {
+  clearInterval(S.timer);
+  S.timer = setInterval(() => { if (!document.hidden) refresh(); }, S.interval);
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
+
+/* ── alerts ────────────────────────────────────────────────────── */
+
+function fireAlert(a) {
+  const dir = a.kind === 'above' ? 'rose above' : 'fell below';
+  const msg = `${a.symbol} ${dir} ${fmtPrice(a.threshold)} — now ${fmtPrice(a.triggered_price)}`;
+  toast('🔔 ' + msg, 6000);
+  if ('Notification' in window && Notification.permission === 'granted') {
+    try { new Notification('Price alert: ' + a.symbol, {body: msg, icon: './icon-192.png'}); } catch(e){}
+  }
+  if (S.detailSym === a.symbol) renderAlerts();
+}
+function askNotify() {
+  if (!('Notification' in window)) { toast('Notifications not supported here'); return; }
+  Notification.requestPermission().then(p => toast(p === 'granted' ? 'Notifications enabled' : 'Notifications ' + p));
+}
+
+/* ── header buttons / settings ─────────────────────────────────── */
+
+$('editbtn').onclick = () => {
+  S.editing = !S.editing;
+  document.body.classList.toggle('editing', S.editing);
+  $('editbtn').textContent = S.editing ? 'Done' : 'Edit';
+};
+$('sortbtn').onclick = () => {
+  const order = ['manual','symbol','pct','value'];
+  const labels = {manual:'Added order', symbol:'Symbol A→Z', pct:'% change', value:'Market value'};
+  S.sort = order[(order.indexOf(S.sort)+1) % order.length];
+  localStorage.sort = S.sort;
+  toast('Sorted by: ' + labels[S.sort]);
+  renderList();
+};
+$('setbtn').onclick = () => {
+  $('s_interval').value = S.interval;
+  $('relaynote').textContent = DEMO
+    ? 'Demo mode — simulated quotes (remove ?demo=1 from the URL for live data).'
+    : 'Quotes come from Yahoo Finance through free public relays' +
+      (relayOK ? ` — currently using “${relayOK}”.` : ' — no successful fetch yet this session.');
+  openSheet('settings');
+};
+$('s_interval').onchange = e => { S.interval = +e.target.value; localStorage.interval = S.interval; schedule(); };
+$('relaytest').onclick = async () => {
+  $('relaytest').textContent = 'Testing…';
+  try {
+    quoteCache.delete('AAPL');
+    const q = await fetchQuote('AAPL');
+    $('relaynote').textContent = `Working ✓ — AAPL ${fmtPrice(q.price)} via “${relayOK || 'demo'}”.`;
+  } catch(e) {
+    $('relaynote').textContent = 'All relays failed: ' + e.message + ' — try again in a minute or on a different network.';
+  }
+  $('relaytest').textContent = 'Test connection';
+};
+
+function renamePf() {
+  const pf = curPf();
+  const name = prompt('Portfolio name:', pf.name);
+  if (!name) return;
+  pf.name = name; saveDB(); renderAll();
+}
+function deletePf() {
+  if (DB.portfolios.length <= 1) { toast("Can't delete the last portfolio"); return; }
+  const pf = curPf();
+  if (!confirm(`Delete portfolio "${pf.name}" and all its symbols?`)) return;
+  DB.portfolios = DB.portfolios.filter(p => p.id !== pf.id);
+  saveDB();
+  S.pf = DB.portfolios[0].id; localStorage.pf = S.pf;
+  closeSheet('settings'); renderAll(); refresh();
+}
+
+/* ── sheets ────────────────────────────────────────────────────── */
+
+function openSheet(id) { $(id).classList.add('open'); }
+function closeSheet(id) {
+  $(id).classList.remove('open');
+  if (id === 'detail') S.detailSym = null;
+}
+
+/* ── add symbol ────────────────────────────────────────────────── */
+
+function openAdd() {
+  openSheet('add');
+  $('results').innerHTML = '<div class="muted">Type a ticker (AAPL) or a company name.</div>';
+  $('q').value = '';
+  setTimeout(() => $('q').focus(), 320);
+}
+let qTimer = null;
+$('q').addEventListener('input', () => {
+  clearTimeout(qTimer);
+  const v = $('q').value.trim();
+  if (!v) { $('results').innerHTML = ''; return; }
+  qTimer = setTimeout(() => doSearch(v), 300);
+});
+async function doSearch(v) {
+  $('results').innerHTML = '<div class="muted"><span class="spin"></span></div>';
+  try {
+    const results = await searchSymbols(v);
+    if (!results.length) { $('results').innerHTML = '<div class="muted">No matches.</div>'; return; }
+    $('results').innerHTML = results.map((r,i) => `
+      <div class="srow" data-i="${i}">
+        <div class="sl"><div class="ss">${esc(r.symbol)}</div><div class="sn">${esc(r.name)}</div></div>
+        <div class="sx">${esc(r.exchange)}${r.type ? ' · ' + esc(r.type) : ''}</div>
+      </div>`).join('');
+    $('results').querySelectorAll('.srow').forEach(row => {
+      row.onclick = () => showAddForm(results[+row.dataset.i], row);
+    });
+  } catch(e) { $('results').innerHTML = '<div class="muted">Search failed: ' + esc(e.message) + '</div>'; }
+}
+function showAddForm(r, row) {
+  document.querySelectorAll('.addform').forEach(x => x.remove());
+  const f = document.createElement('div');
+  f.className = 'addform';
+  f.innerHTML = `
+    <div class="ttl">Add ${esc(r.symbol)} to "${esc(curPf().name)}"</div>
+    <div class="posgrid">
+      <label>Shares (optional)<input type="text" inputmode="decimal" placeholder="0" class="af-sh"></label>
+      <label>Avg cost / share<input type="text" inputmode="decimal" placeholder="0.00" class="af-c"></label>
+    </div>
+    <div class="btnrow">
+      <button class="btn ghost af-watch">Watch only</button>
+      <button class="btn primary af-add">Add</button>
+    </div>`;
+  row.after(f);
+  const add = watchOnly => {
+    const shares = watchOnly ? 0 : parseFloat(f.querySelector('.af-sh').value) || 0;
+    const cost = watchOnly ? 0 : parseFloat(f.querySelector('.af-c').value) || 0;
+    addPosition(curPf().id, r.symbol, r.name, shares, cost);
+    closeSheet('add'); renderAll(); refresh();
+    toast(`${r.symbol} added`);
+  };
+  f.querySelector('.af-add').onclick = () => add(false);
+  f.querySelector('.af-watch').onclick = () => add(true);
+}
+
+/* ── detail sheet ──────────────────────────────────────────────── */
+
+function findPosition(sym) { return curPf().positions.find(p => p.symbol === sym); }
+
+async function openDetail(sym) {
+  S.detailSym = sym;
+  $('d_sym').textContent = sym;
+  const p = findPosition(sym);
+  $('d_name').textContent = (p && p.name) || (S.quotes[sym]||{}).name || '';
+  $('p_shares').value = p && p.shares ? p.shares : '';
+  $('p_cost').value = p && p.cost ? p.cost : '';
+  $('statgrid').innerHTML = '<div class="muted"><span class="spin"></span></div>';
+  $('newslist').innerHTML = '<div class="muted"><span class="spin"></span></div>';
+  renderRangeTabs();
+  updateDetailPrice();
+  renderAlerts();
+  openSheet('detail');
+  loadChart();
+  try {
+    quoteCache.delete(sym);
+    const q = await fetchQuote(sym);
+    if (S.detailSym !== sym) return;
+    S.quotes[sym] = q;
+    updateDetailPrice();
+    renderStats(q);
+  } catch(e) { $('statgrid').innerHTML = '<div class="muted">' + esc(String(e.message||e)) + '</div>'; }
+  fetchNews(sym).then(news => { if (S.detailSym === sym) renderNews(news); });
+}
+
+function updateDetailPrice() {
+  const q = S.quotes[S.detailSym];
+  if (!q || q.error) return;
+  $('d_price').textContent = fmtPrice(q.price);
+  const up = (q.change ?? 0) >= 0;
+  $('d_chg').textContent = q.change == null ? '' :
+    `${sign(q.change)}${q.change.toFixed(2)} (${sign(q.change_pct)}${q.change_pct.toFixed(2)}%) today`;
+  $('d_chg').className = up ? 'up-t' : 'dn-t';
+  $('d_ext').innerHTML = extHTML(q, '');
+  const p = findPosition(S.detailSym);
+  if (p && p.shares > 0 && q.price != null) {
+    const val = p.shares * q.price, cost = p.shares * p.cost, gain = val - cost;
+    $('posmeta').innerHTML = `
+      <div class="sumcell" style="flex:1"><div class="k">Market value</div><div class="v">${fmtMoney(val, q.currency)}</div></div>
+      <div class="sumcell" style="flex:1"><div class="k">Gain/Loss</div>
+        <div class="v" style="color:${gain>=0?'var(--green)':'var(--red)'}">${sign(gain)}${fmtMoney(gain, q.currency)}${cost ? ` (${sign(gain)}${(gain/cost*100).toFixed(1)}%)` : ''}</div></div>`;
+  } else $('posmeta').innerHTML = '';
+}
+
+function renderStats(q) {
+  const rows = [
+    ['Prev close', fmtPrice(q.prev_close)],
+    ['Day high', fmtPrice(q.day_high)], ['Day low', fmtPrice(q.day_low)],
+    ['52-wk high', fmtPrice(q.week52_high)], ['52-wk low', fmtPrice(q.week52_low)],
+    ['Volume', fmtNum(q.volume)], ['Currency', q.currency || '—'],
+    ['As of', new Date(q.ts*1000).toLocaleTimeString()],
+  ];
+  $('statgrid').innerHTML = rows.map(r =>
+    `<div class="stat"><span class="k">${r[0]}</span><span class="v">${r[1]}</span></div>`).join('');
+}
+
+function renderNews(news) {
+  if (!news || !news.length) { $('newslist').innerHTML = '<div class="muted">No recent news.</div>'; return; }
+  $('newslist').innerHTML = news.map(n => `
+    <a class="newsrow" href="${esc(n.link)}" target="_blank" rel="noopener">
+      <div class="nt">${esc(n.title)}</div>
+      <div class="nm">${esc(n.publisher)}${n.ts ? ' · ' + ago(n.ts) : ''}</div>
+    </a>`).join('');
+}
+
+function renderAlerts() {
+  const sym = S.detailSym;
+  const list = DB.alerts.filter(a => a.symbol === sym);
+  $('alertlist').innerHTML = list.length ? list.map(a => `
+    <div class="alertrow">
+      <span class="k">${a.active ? '🔔' : '✅'} ${a.kind === 'above' ? 'Above' : 'Below'} ${fmtPrice(a.threshold)}
+        ${a.active ? '' : `<span style="color:var(--dim2)"> · fired at ${fmtPrice(a.triggered_price)}</span>`}</span>
+      <button class="del" data-a="${a.id}">Remove</button>
+    </div>`).join('') : '<div class="muted" style="padding:4px 0 0">No alerts for this symbol.</div>';
+  $('alertlist').querySelectorAll('.del').forEach(b => b.onclick = () => {
+    DB.alerts = DB.alerts.filter(a => a.id !== +b.dataset.a);
+    saveDB(); renderAlerts();
+  });
+}
+
+$('a_add').onclick = () => {
+  const thr = parseFloat($('a_thr').value);
+  if (!thr || thr <= 0) { toast('Enter an alert price'); return; }
+  DB.alerts.push({id: DB.nextAlertId++, symbol: S.detailSym, kind: $('a_kind').value,
+    threshold: thr, active: 1, created_at: Math.floor(Date.now()/1000),
+    triggered_at: null, triggered_price: null});
+  saveDB();
+  $('a_thr').value = '';
+  renderAlerts();
+  if ('Notification' in window && Notification.permission === 'default') askNotify();
+  toast('Alert set');
+};
+
+$('p_save').onclick = () => {
+  updatePosition(S.detailSym, parseFloat($('p_shares').value) || 0, parseFloat($('p_cost').value) || 0);
+  renderAll(); updateDetailPrice();
+  toast('Position saved');
+};
+
+/* ── chart ─────────────────────────────────────────────────────── */
+
+function renderRangeTabs() {
+  $('ranges').innerHTML = RANGES.map(r =>
+    `<button class="${r===S.range?'on':''}" data-r="${r}">${RANGE_LABELS[r]}</button>`).join('');
+  $('ranges').querySelectorAll('button').forEach(b => b.onclick = () => {
+    S.range = b.dataset.r; localStorage.range = S.range;
+    renderRangeTabs(); loadChart();
+  });
+}
+
+async function loadChart() {
+  const sym = S.detailSym, rng = S.range;
+  S.chart = null;
+  drawChart();
+  try {
+    const d = await fetchChart(sym, rng);
+    if (S.detailSym !== sym || S.range !== rng) return;
+    S.chart = d;
+    drawChart();
+  } catch(e) { S.chart = {points: []}; drawChart(); }
+}
+
+function drawChart(scrubX) {
+  const cv = $('chart');
+  const dpr = window.devicePixelRatio || 1;
+  const W = cv.clientWidth || cv.parentElement.clientWidth, H = 190;
+  cv.width = W * dpr; cv.height = H * dpr;
+  const ctx = cv.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+  const d = S.chart;
+  if (!d || !d.points || d.points.length < 2) {
+    ctx.fillStyle = '#5c6875'; ctx.font = '12px -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(d === null ? 'Loading…' : 'No chart data', W/2, H/2);
+    $('scrub').style.display = 'none';
+    return;
+  }
+  const pts = d.points;
+  const baseline = S.range === '1d' && d.prev_close ? d.prev_close : pts[0][1];
+  let lo = Math.min(...pts.map(p => p[1]), baseline);
+  let hi = Math.max(...pts.map(p => p[1]), baseline);
+  if (hi === lo) { hi += 1; lo -= 1; }
+  const pad = (hi - lo) * 0.08;
+  lo -= pad; hi += pad;
+  const t0 = pts[0][0], t1 = pts[pts.length-1][0];
+  const X = t => (t - t0) / (t1 - t0 || 1) * (W - 8) + 4;
+  const Y = v => H - 18 - (v - lo) / (hi - lo) * (H - 34);
+  const up = pts[pts.length-1][1] >= baseline;
+  const col = up ? '#22c55e' : '#ef4444';
+
+  ctx.strokeStyle = '#2c3648'; ctx.setLineDash([4,4]); ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(4, Y(baseline)); ctx.lineTo(W-4, Y(baseline)); ctx.stroke();
+  ctx.setLineDash([]);
+
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, up ? 'rgba(34,197,94,.28)' : 'rgba(239,68,68,.28)');
+  grad.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.beginPath();
+  ctx.moveTo(X(pts[0][0]), Y(pts[0][1]));
+  for (const p of pts) ctx.lineTo(X(p[0]), Y(p[1]));
+  ctx.lineTo(X(t1), H-2); ctx.lineTo(X(t0), H-2); ctx.closePath();
+  ctx.fillStyle = grad; ctx.fill();
+
+  ctx.beginPath();
+  ctx.moveTo(X(pts[0][0]), Y(pts[0][1]));
+  for (const p of pts) ctx.lineTo(X(p[0]), Y(p[1]));
+  ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.stroke();
+
+  ctx.fillStyle = '#5c6875'; ctx.font = '10.5px -apple-system, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText(fmtPrice(hi - pad), 6, 11);
+  ctx.fillText(fmtPrice(lo + pad), 6, H - 5);
+
+  const sc = $('scrub');
+  if (scrubX != null) {
+    let best = pts[0], bd = Infinity;
+    for (const p of pts) { const dd = Math.abs(X(p[0]) - scrubX); if (dd < bd) { bd = dd; best = p; } }
+    const x = X(best[0]), y = Y(best[1]);
+    ctx.strokeStyle = '#8b98a5'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, 4); ctx.lineTo(x, H-16); ctx.stroke();
+    ctx.beginPath(); ctx.arc(x, y, 3.5, 0, Math.PI*2); ctx.fillStyle = col; ctx.fill();
+    const dt = new Date(best[0]*1000);
+    const dstr = S.range === '1d'
+      ? dt.toLocaleTimeString(undefined, {hour:'numeric', minute:'2-digit'})
+      : dt.toLocaleDateString(undefined, {month:'short', day:'numeric', year:'2-digit'});
+    const chg = baseline ? ((best[1]-baseline)/baseline*100) : null;
+    sc.textContent = `${fmtPrice(best[1])}  ${chg!=null ? `(${sign(chg)}${chg.toFixed(2)}%)` : ''}  ${dstr}`;
+    sc.style.display = 'block';
+    const sw = sc.offsetWidth;
+    sc.style.left = Math.max(0, Math.min(W - sw, x - sw/2)) + 'px';
+  } else sc.style.display = 'none';
+}
+
+(function bindScrub() {
+  const cv = $('chart');
+  const pos = e => {
+    const r = cv.getBoundingClientRect();
+    const t = e.touches ? e.touches[0] : e;
+    return t.clientX - r.left;
+  };
+  const mv = e => { drawChart(pos(e)); if (e.cancelable && e.touches) e.preventDefault(); };
+  const end = () => drawChart();
+  cv.addEventListener('touchstart', mv, {passive:false});
+  cv.addEventListener('touchmove', mv, {passive:false});
+  cv.addEventListener('touchend', end);
+  cv.addEventListener('mousemove', mv);
+  cv.addEventListener('mouseleave', end);
+})();
+
+/* ── boot ──────────────────────────────────────────────────────── */
+
+if ('serviceWorker' in navigator && location.protocol === 'https:')
+  navigator.serviceWorker.register('./sw.js').catch(()=>{});
+
+renderAll();
+refresh();
+schedule();
+</script>
+</body></html>

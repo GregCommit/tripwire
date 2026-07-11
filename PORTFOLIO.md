@@ -31,6 +31,30 @@ set PORTFOLIO_DEMO=1        (Windows)     PORTFOLIO_DEMO=1 python portfolio.py  
 Demo mode seeds a sample portfolio and simulates ticking quotes, charts,
 search and news — useful for exploring the UI.
 
+## Phone-only edition (no server, no accounts) — `docs/`
+
+`docs/index.html` is a second, fully client-side build of the app for when
+you don't want to run or host *anything*: it keeps all data in the
+phone's browser storage and fetches Yahoo quotes directly from the phone
+through free public CORS relays (allorigins → corsproxy.io → codetabs,
+with automatic failover). No login, no server, no API key, no new account.
+
+**Enable it once (from any browser, phone included):** repo → *Settings →
+Pages → Source: Deploy from a branch → `main` + `/docs` → Save*. A minute
+later the app is live at `https://<user>.github.io/tripwire/` — open it on
+the phone and *Add to Home Screen*.
+
+Notes:
+- Data (portfolios, positions, alerts) lives **on the device**, private
+  by design. Use *Settings → Backup → Export file* now and then — the file
+  is interchangeable with the server edition's export format.
+- Quote requests travel via public relays (they see only ticker symbols,
+  never credentials). If one relay is down the app rotates to the next;
+  *Settings → Test connection* shows which one is active.
+- Statistics are limited to what Yahoo's public chart API provides (no
+  P/E/EPS — those need the authenticated API the server edition uses).
+- Add `?demo=1` to the URL for simulated data.
+
 ## Live data — how it connects
 
 There is **no API key to set up**. Any time the app runs *without*
