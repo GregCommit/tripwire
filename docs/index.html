@@ -187,6 +187,51 @@ body.editing .rdel{display:flex}
   border-radius:50%;animation:sp 1s linear infinite;vertical-align:-2px}
 @keyframes sp{to{transform:rotate(360deg)}}
 .muted{color:var(--dim);font-size:13px;text-align:center;padding:14px 0}
+
+/* v2: pull-to-refresh */
+#ptr{height:0;overflow:hidden;display:flex;align-items:flex-end;justify-content:center;
+  transition:height .2s;padding-bottom:0}
+#ptr.pulling{transition:none}
+#ptr .spin{margin-bottom:8px}
+
+/* v2: install hint */
+#insthint{display:none;align-items:center;gap:10px;margin:10px 16px 0;padding:10px 12px;
+  background:var(--card);border:1px solid var(--line);border-radius:12px;font-size:12.5px;color:var(--dim)}
+#insthint .ic{font-size:18px}
+#insthint b{color:var(--text)}
+#insthint .x{margin-left:auto;color:var(--dim2);font-size:15px;padding:2px 6px;flex-shrink:0}
+#insthint button.inst{background:var(--accent);color:#04110b;font-weight:700;border-radius:8px;
+  padding:6px 12px;font-size:12.5px;flex-shrink:0}
+
+/* v2: row sparklines + drag handle */
+.rspark{flex-shrink:0;width:62px;height:26px;margin:0 2px}
+body.editing .rspark{display:none}
+.rgrab{display:none;flex-shrink:0;color:var(--dim2);font-size:19px;padding:8px 2px 8px 10px;
+  touch-action:none;cursor:grab}
+body.editing .rgrab{display:block}
+.row.dragging{opacity:.45}
+.row.dragtarget{border-top:2px solid var(--accent)}
+
+/* v2: allocation bar */
+#alloc{display:flex;height:10px;border-radius:5px;overflow:hidden;margin-top:12px;gap:2px}
+#alloc i{display:block;height:100%;border-radius:2px}
+#alloclegend{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:7px;font-size:11px;color:var(--dim)}
+#alloclegend .dot{display:inline-block;width:7px;height:7px;border-radius:2px;margin-right:4px;vertical-align:0}
+
+/* v2: range bars in detail */
+.range{margin-bottom:12px}
+.range .rl{display:flex;justify-content:space-between;font-size:11.5px;color:var(--dim);margin-bottom:5px}
+.range .rl b{color:var(--text);font-weight:700;font-variant-numeric:tabular-nums}
+.range .track{position:relative;height:6px;border-radius:3px;
+  background:linear-gradient(90deg,var(--red-soft),var(--card2),var(--green-soft))}
+.range .track i{position:absolute;top:-3px;width:12px;height:12px;border-radius:50%;
+  background:var(--text);border:2.5px solid var(--bg);transform:translateX(-50%)}
+
+/* v2: quick-add chips */
+#popchips{display:flex;flex-wrap:wrap;gap:8px;padding:8px 0}
+.chip{padding:8px 14px;border-radius:16px;background:var(--card);border:1px solid var(--line);
+  font-size:13px;font-weight:700;color:var(--dim)}
+.chip:active{background:var(--card2)}
 </style></head>
 <body>
 <div id="appwrap">
@@ -200,6 +245,14 @@ body.editing .rdel{display:flex}
     <div id="pftabs"></div>
   </header>
 
+  <div id="ptr"><span class="spin"></span></div>
+
+  <div id="insthint">
+    <span class="ic">&#128241;</span>
+    <span id="insttext">Install this app: tap <b>Share</b> &rarr; <b>Add to Home Screen</b></span>
+    <button class="x" id="instclose">&#10005;</button>
+  </div>
+
   <div id="summary" style="display:none">
     <div class="lbl">Total value</div>
     <div id="totval">—</div>
@@ -208,6 +261,8 @@ body.editing .rdel{display:flex}
       <div class="sumcell"><div class="k">Total P/L</div><div class="v" id="totpl">—</div></div>
       <div class="sumcell"><div class="k">Cost basis</div><div class="v" id="costb">—</div></div>
     </div>
+    <div id="alloc"></div>
+    <div id="alloclegend"></div>
   </div>
 
   <div id="indices"></div>
@@ -338,7 +393,7 @@ body.editing .rdel{display:flex}
         <div class="bknote" id="relaynote"></div>
         <div class="btnrow"><button class="btn ghost" id="relaytest">Test connection</button></div>
       </div>
-      <div class="muted" id="aboutline">Phone-only edition — no server, data stays on this device.</div>
+      <div class="muted" id="aboutline">Phone-only edition v2 — no server, data stays on this device.</div>
     </div>
   </div>
 </div>
@@ -501,18 +556,20 @@ function parseChartQuote(symbol, data) {
     }
   }
   if (price == null) throw new Error('no price for ' + symbol);
-  let dayHigh = meta.regularMarketDayHigh, dayLow = meta.regularMarketDayLow;
-  let volume = meta.regularMarketVolume;
-  if ((dayHigh == null || dayLow == null) && ts.length && reg.start && reg.end) {
-    const rc = [];
+  const rc = [];
+  if (ts.length && reg.start && reg.end)
     for (let i = 0; i < ts.length; i++)
       if (closes[i] != null && ts[i] >= reg.start && ts[i] < reg.end) rc.push(closes[i]);
-    if (rc.length) {
-      if (dayHigh == null) dayHigh = Math.max(...rc);
-      if (dayLow == null)  dayLow = Math.min(...rc);
-    }
+  let dayHigh = meta.regularMarketDayHigh, dayLow = meta.regularMarketDayLow;
+  let volume = meta.regularMarketVolume;
+  if (rc.length) {
+    if (dayHigh == null) dayHigh = Math.max(...rc);
+    if (dayLow == null)  dayLow = Math.min(...rc);
   }
   if (volume == null && vols.length) volume = vols.reduce((a,b) => a + (b||0), 0);
+  // downsampled intraday series for the row sparkline — free, same response
+  const step = Math.max(1, Math.ceil(rc.length / 40));
+  const spark = rc.filter((_, i) => i % step === 0).map(v => +v.toFixed(4));
   return finishQuote({
     symbol, name: meta.shortName || meta.longName || null,
     currency: meta.currency || 'USD',
@@ -523,6 +580,7 @@ function parseChartQuote(symbol, data) {
     week52_high: meta.fiftyTwoWeekHigh || null, week52_low: meta.fiftyTwoWeekLow || null,
     pre_price: pre != null ? +(+pre).toFixed(4) : null,
     post_price: post != null ? +(+post).toFixed(4) : null,
+    spark: spark.length > 1 ? spark : null,
     ts: Math.floor(Date.now()/1000),
   });
 }
@@ -551,6 +609,26 @@ async function fetchQuotes(symbols) {
     }
   }));
   return out;
+}
+
+/* last-known quotes persist so the app opens instantly with real numbers */
+function persistQuotes() {
+  try {
+    const want = new Set(DB.portfolios.flatMap(p => p.positions.map(x => x.symbol))
+                         .concat(INDICES.map(x => x[0])));
+    const keep = {};
+    for (const [s, q] of Object.entries(S.quotes)) if (want.has(s) && !q.error) keep[s] = q;
+    localStorage.setItem('pfquotes', JSON.stringify(keep));
+  } catch(e) {}
+}
+function hydrateQuotes() {
+  try {
+    const cached = JSON.parse(localStorage.getItem('pfquotes') || 'null');
+    if (!cached || !Object.keys(cached).length) return false;
+    Object.assign(S.quotes, cached);
+    S.indices = INDICES.map(([s, label]) => Object.assign({label}, cached[s] || {error: 'n/a'}));
+    return true;
+  } catch(e) { return false; }
 }
 
 const CHART_PARAMS = {
@@ -618,8 +696,15 @@ function demoBase(sym){
 function demoQuote(sym){
   const base = demoBase(sym);
   let st = demoState[sym];
-  if (!st) st = demoState[sym] = {price: base * (1 + ((hashCode(sym) >> 8) % 900 - 450) / 10000), prev: base};
+  if (!st) {
+    st = demoState[sym] = {price: base * (1 + ((hashCode(sym) >> 8) % 900 - 450) / 10000), prev: base, spark: []};
+    let seed = hashCode(sym), rand = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+    let p = st.prev;
+    for (let i = 0; i < 38; i++) { p += (st.price - p) * .12 + p * (rand() - .5) * .004; st.spark.push(+p.toFixed(2)); }
+  }
   st.price = Math.max(.5, st.price * (1 + (Math.random() - .495) * .0025));
+  st.spark.push(+st.price.toFixed(2));
+  if (st.spark.length > 40) st.spark.shift();
   const state = marketState();
   return finishQuote({symbol: sym, name: DEMO_NAMES[sym] || sym, currency: 'USD',
     price: +st.price.toFixed(2), prev_close: +st.prev.toFixed(2),
@@ -628,7 +713,7 @@ function demoQuote(sym){
     volume: 2e6 + hashCode(sym) % 9e7, week52_high: +(base * 1.34).toFixed(2), week52_low: +(base * .63).toFixed(2),
     pre_price: state === 'pre' ? +(st.price * 1.001).toFixed(2) : null,
     post_price: (state === 'post' || state === 'closed') ? +(st.price * 1.002).toFixed(2) : null,
-    ts: Math.floor(Date.now()/1000)});
+    spark: st.spark.slice(), ts: Math.floor(Date.now()/1000)});
 }
 function demoChart(sym, rng){
   const n = {'1d':78,'5d':130,'1mo':150,'6mo':126,'ytd':130,'1y':252,'5y':260,'max':240}[rng];
@@ -804,6 +889,24 @@ function extHTML(q, cls) {
   return '';
 }
 
+function sparkSVG(q) {
+  const sp = q && q.spark;
+  if (!sp || sp.length < 2) return '<span class="rspark"></span>';
+  const base = q.prev_close;
+  let lo = Math.min(...sp), hi = Math.max(...sp);
+  if (base != null) { lo = Math.min(lo, base); hi = Math.max(hi, base); }
+  if (hi === lo) { hi += .5; lo -= .5; }
+  const W = 62, H = 26;
+  const X = i => +(i / (sp.length - 1) * (W - 2) + 1).toFixed(1);
+  const Y = v => +(H - 2 - (v - lo) / (hi - lo) * (H - 4)).toFixed(1);
+  const up = sp[sp.length-1] >= (base ?? sp[0]);
+  const col = up ? 'var(--green)' : 'var(--red)';
+  const pts = sp.map((v, i) => X(i) + ',' + Y(v)).join(' ');
+  const baseline = base != null
+    ? `<line x1="1" x2="${W-1}" y1="${Y(base)}" y2="${Y(base)}" stroke="#2c3648" stroke-dasharray="3 3" stroke-width="1"/>` : '';
+  return `<svg class="rspark" viewBox="0 0 ${W} ${H}" aria-hidden="true">${baseline}<polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
+}
+
 function renderList() {
   const arr = positionsSorted();
   $('lcount').textContent = arr.length ? `${arr.length} symbol${arr.length>1?'s':''}` : '';
@@ -823,11 +926,13 @@ function renderList() {
         <div class="rname">${esc(p.name || q.name || '')}</div>
         ${posline}
       </div>
+      ${sparkSVG(q)}
       <div class="rright">
         <div class="rprice">${q.error ? '<span class="spin"></span>' : fmtPrice(q.price)}</div>
         ${pillHTML(p, q)}
         ${extHTML(q, 'rext')}
       </div>
+      <div class="rgrab">&#8801;</div>
     </div>`;
   }).join('');
   $('rows').querySelectorAll('.row').forEach(r => {
@@ -835,14 +940,46 @@ function renderList() {
     const prev = old[sym], now = +r.dataset.price || 0;
     if (prev && now && prev !== now) r.classList.add(now > prev ? 'fup' : 'fdn');
     r.onclick = e => {
+      if (e.target.closest('.rgrab')) return;
       if (e.target.closest('.rdel')) {
         if (confirm(`Remove ${sym} from this portfolio?`)) { deletePosition(id); renderAll(); }
         return;
       }
       if (e.target.closest('.pill')) { S.mode = (S.mode+1) % MODES.length; localStorage.mode = S.mode; renderList(); return; }
-      openDetail(sym);
+      if (!S.editing) openDetail(sym);
     };
+    r.querySelector('.rgrab').addEventListener('pointerdown', e => startDrag(e, r));
   });
+}
+
+/* drag-to-reorder in Edit mode */
+function startDrag(e, row) {
+  e.preventDefault();
+  row.classList.add('dragging');
+  const container = $('rows');
+  const move = ev => {
+    const under = document.elementFromPoint(ev.clientX, ev.clientY);
+    const target = under && under.closest ? under.closest('.row') : null;
+    container.querySelectorAll('.dragtarget').forEach(x => x.classList.remove('dragtarget'));
+    if (!target || target === row) return;
+    const rect = target.getBoundingClientRect();
+    if (ev.clientY < rect.top + rect.height / 2) container.insertBefore(row, target);
+    else container.insertBefore(row, target.nextSibling);
+  };
+  const up = () => {
+    document.removeEventListener('pointermove', move);
+    document.removeEventListener('pointerup', up);
+    document.removeEventListener('pointercancel', up);
+    row.classList.remove('dragging');
+    const order = [...container.querySelectorAll('.row')].map(r => +r.dataset.id);
+    const pf = curPf();
+    pf.positions.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
+    S.sort = 'manual'; localStorage.sort = 'manual';
+    saveDB();
+  };
+  document.addEventListener('pointermove', move);
+  document.addEventListener('pointerup', up);
+  document.addEventListener('pointercancel', up);
 }
 
 function renderSummary() {
@@ -871,6 +1008,23 @@ function renderSummary() {
   set('daypl', day, val - day || 0);
   set('totpl', tot, cost || 0);
   $('costb').textContent = fmtMoney(cost, cur);
+  renderAlloc(holdings, val);
+}
+
+const ALLOC_COLORS = ['#34d399','#60a5fa','#f472b6','#fbbf24','#a78bfa','#2dd4bf','#fb923c','#94a3b8'];
+function renderAlloc(holdings, total) {
+  if (!total || holdings.length < 2) { $('alloc').innerHTML = ''; $('alloclegend').innerHTML = ''; return; }
+  const parts = holdings.map(p => {
+    const q = S.quotes[p.symbol];
+    return {sym: p.symbol, v: p.shares * ((q && q.price) || p.cost)};
+  }).sort((a, b) => b.v - a.v);
+  const top = parts.slice(0, 7);
+  const rest = parts.slice(7).reduce((a, x) => a + x.v, 0);
+  if (rest > 0) top.push({sym: 'Other', v: rest});
+  $('alloc').innerHTML = top.map((x, i) =>
+    `<i style="width:${Math.max(1.5, x.v/total*100)}%;background:${ALLOC_COLORS[i%8]}"></i>`).join('');
+  $('alloclegend').innerHTML = top.map((x, i) =>
+    `<span><span class="dot" style="background:${ALLOC_COLORS[i%8]}"></span>${esc(x.sym)} ${(x.v/total*100).toFixed(0)}%</span>`).join('');
 }
 
 function renderIndices() {
@@ -907,15 +1061,21 @@ async function refresh() {
       .concat(INDICES.map(x => x[0]));
     if (S.detailSym) syms.push(S.detailSym);
     const quotes = await fetchQuotes(syms);
-    Object.assign(S.quotes, quotes);
-    S.indices = INDICES.map(([s, label]) => Object.assign({label}, quotes[s] || {error: 'n/a'}));
+    // never let a failed fetch clobber a last-known-good quote
+    for (const [s, q] of Object.entries(quotes))
+      if (!q.error || !S.quotes[s] || S.quotes[s].error) S.quotes[s] = q;
+    S.indices = INDICES.map(([s, label]) => Object.assign({label}, S.quotes[s] || {error: 'n/a'}));
     const anyOK = Object.values(quotes).some(q => !q.error);
+    const anyShown = Object.values(S.quotes).some(q => q && !q.error);
     renderSummary(); renderIndices(); renderList(); renderMarket();
     if (S.detailSym) updateDetailPrice();
     for (const f of checkAlerts()) fireAlert(f);
+    if (anyOK) persistQuotes();
     $('status').textContent = anyOK
       ? 'Live · updated ' + new Date().toLocaleTimeString() + (DEMO ? ' · DEMO' : '')
-      : 'No data — check connection (Settings → Test connection)';
+      : anyShown
+        ? 'Offline — showing last known prices'
+        : 'No data — check connection (Settings → Test connection)';
   } catch(e) {
     $('status').textContent = 'Update failed — retrying…';
   } finally { refreshing = false; }
@@ -1005,9 +1165,15 @@ function closeSheet(id) {
 
 /* ── add symbol ────────────────────────────────────────────────── */
 
+const POPULAR = ['AAPL','MSFT','NVDA','TSLA','AMZN','GOOGL','META','NFLX','SPY','QQQ','BTC-USD','GC=F'];
 function openAdd() {
   openSheet('add');
-  $('results').innerHTML = '<div class="muted">Type a ticker (AAPL) or a company name.</div>';
+  $('results').innerHTML = '<div class="muted">Type a ticker (AAPL) or a company name.</div>' +
+    '<div id="popchips">' + POPULAR.map(s => `<button class="chip" data-s="${s}">${s}</button>`).join('') + '</div>';
+  $('results').querySelectorAll('.chip').forEach(c => c.onclick = () => {
+    $('q').value = c.dataset.s;
+    doSearch(c.dataset.s);
+  });
   $('q').value = '';
   setTimeout(() => $('q').focus(), 320);
 }
@@ -1107,16 +1273,27 @@ function updateDetailPrice() {
   } else $('posmeta').innerHTML = '';
 }
 
+function rangeBar(label, lo, hi, price) {
+  if (lo == null || hi == null || price == null || hi <= lo) return '';
+  const pos = Math.max(0, Math.min(100, (price - lo) / (hi - lo) * 100));
+  return `<div class="range">
+    <div class="rl"><span>${label}</span><b>${fmtPrice(lo)} – ${fmtPrice(hi)}</b></div>
+    <div class="track"><i style="left:${pos.toFixed(1)}%"></i></div>
+  </div>`;
+}
+
 function renderStats(q) {
   const rows = [
     ['Prev close', fmtPrice(q.prev_close)],
-    ['Day high', fmtPrice(q.day_high)], ['Day low', fmtPrice(q.day_low)],
-    ['52-wk high', fmtPrice(q.week52_high)], ['52-wk low', fmtPrice(q.week52_low)],
     ['Volume', fmtNum(q.volume)], ['Currency', q.currency || '—'],
     ['As of', new Date(q.ts*1000).toLocaleTimeString()],
   ];
-  $('statgrid').innerHTML = rows.map(r =>
-    `<div class="stat"><span class="k">${r[0]}</span><span class="v">${r[1]}</span></div>`).join('');
+  $('statgrid').innerHTML =
+    '<div style="grid-column:1/-1">' +
+    rangeBar('Day range', q.day_low, q.day_high, q.price) +
+    rangeBar('52-week range', q.week52_low, q.week52_high, q.price) +
+    '</div>' +
+    rows.map(r => `<div class="stat"><span class="k">${r[0]}</span><span class="v">${r[1]}</span></div>`).join('');
 }
 
 function renderNews(news) {
@@ -1273,12 +1450,68 @@ function drawChart(scrubX) {
   cv.addEventListener('mouseleave', end);
 })();
 
+/* ── pull-to-refresh ───────────────────────────────────────────── */
+
+(function bindPTR() {
+  let startY = null, pulling = false;
+  const ptr = $('ptr');
+  document.addEventListener('touchstart', e => {
+    if (window.scrollY <= 0 && !document.querySelector('.sheet.open'))
+      startY = e.touches[0].clientY;
+    else startY = null;
+  }, {passive: true});
+  document.addEventListener('touchmove', e => {
+    if (startY == null) return;
+    const dy = e.touches[0].clientY - startY;
+    if (dy > 8 && window.scrollY <= 0) {
+      pulling = true;
+      ptr.classList.add('pulling');
+      ptr.style.height = Math.min(dy / 2.2, 58) + 'px';
+    }
+  }, {passive: true});
+  document.addEventListener('touchend', async () => {
+    startY = null;
+    if (!pulling) return;
+    pulling = false;
+    ptr.classList.remove('pulling');
+    const armed = parseFloat(ptr.style.height) >= 44;
+    if (armed) {
+      ptr.style.height = '48px';
+      quoteCache.clear();
+      await refresh();
+    }
+    ptr.style.height = '0px';
+  });
+})();
+
+/* ── install hint (hidden once installed or dismissed) ─────────── */
+
+let deferredInstall = null;
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredInstall = e; showInstallHint(); });
+function isStandalone() {
+  return navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
+}
+function showInstallHint() {
+  if (isStandalone() || localStorage.hideInstall === '1') return;
+  if (deferredInstall) {
+    $('insttext').innerHTML = 'Install this as an app on your phone';
+    const b = document.createElement('button');
+    b.className = 'inst'; b.textContent = 'Install';
+    b.onclick = () => deferredInstall.prompt();
+    $('instclose').before(b);
+  }
+  $('insthint').style.display = 'flex';
+}
+$('instclose').onclick = () => { localStorage.hideInstall = '1'; $('insthint').style.display = 'none'; };
+
 /* ── boot ──────────────────────────────────────────────────────── */
 
 if ('serviceWorker' in navigator && location.protocol === 'https:')
   navigator.serviceWorker.register('./sw.js').catch(()=>{});
 
+if (hydrateQuotes()) $('status').textContent = 'Cached prices · updating…';
 renderAll();
+showInstallHint();
 refresh();
 schedule();
 </script>
