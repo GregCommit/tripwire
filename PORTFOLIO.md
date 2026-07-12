@@ -44,10 +44,16 @@ Pages → Source: Deploy from a branch → `main` + `/docs` → Save*. A minute
 later the app is live at `https://<user>.github.io/tripwire/` — open it on
 the phone and *Add to Home Screen*.
 
+The phone edition also has a full **transaction tracker** (v3): record
+buys, sells and dividends per symbol — average cost, realized vs
+unrealized P/L and dividend income are computed automatically, and your
+trades appear as B/S/D markers on the price chart, like My Stocks.
+
 Notes:
-- Data (portfolios, positions, alerts) lives **on the device**, private
-  by design. Use *Settings → Backup → Export file* now and then — the file
-  is interchangeable with the server edition's export format.
+- Data (portfolios, positions, transactions, alerts, notes) lives **on
+  the device**, private by design. Use *Settings → Backup → Export file*
+  now and then — the file is interchangeable with the server edition's
+  export format (transactions survive phone-edition roundtrips).
 - Quote requests travel via public relays (they see only ticker symbols,
   never credentials). If one relay is down the app rotates to the next;
   *Settings → Test connection* shows which one is active.

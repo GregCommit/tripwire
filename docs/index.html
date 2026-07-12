@@ -227,6 +227,24 @@ body.editing .rgrab{display:block}
 .range .track i{position:absolute;top:-3px;width:12px;height:12px;border-radius:50%;
   background:var(--text);border:2.5px solid var(--bg);transform:translateX(-50%)}
 
+/* v3: transactions */
+#posmeta{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+#posmeta:empty{display:none}
+.txrow{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line)}
+.txb{flex-shrink:0;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;font-size:11.5px;font-weight:800;color:#fff}
+.txb.buy{background:var(--green)} .txb.sell{background:var(--red)} .txb.div{background:var(--amber)}
+.txmid{flex:1;min-width:0}
+.txmid .t1x{font-size:13.5px;font-weight:600;font-variant-numeric:tabular-nums}
+.txmid .txd{font-size:11px;color:var(--dim2);margin-top:1px}
+.txamt{font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--dim)}
+.txrow .del{color:var(--red);font-size:13px;font-weight:700;padding:4px 6px}
+#notes{width:100%;min-height:70px;background:var(--card2);border:1px solid var(--line);
+  border-radius:10px;color:var(--text);font-size:14px;padding:10px;outline:none;resize:vertical;
+  font-family:inherit}
+#notes:focus{border-color:var(--accent)}
+input[type=date]{color-scheme:dark}
+
 /* v2: quick-add chips */
 #popchips{display:flex;flex-wrap:wrap;gap:8px;padding:8px 0}
 .chip{padding:8px 14px;border-radius:16px;background:var(--card);border:1px solid var(--line);
@@ -261,6 +279,7 @@ body.editing .rgrab{display:block}
       <div class="sumcell"><div class="k">Total P/L</div><div class="v" id="totpl">—</div></div>
       <div class="sumcell"><div class="k">Cost basis</div><div class="v" id="costb">—</div></div>
     </div>
+    <div class="sumrow" id="sumextra" style="display:none;margin-top:10px"></div>
     <div id="alloc"></div>
     <div id="alloclegend"></div>
   </div>
@@ -307,13 +326,28 @@ body.editing .rgrab{display:block}
       </div>
       <div id="ranges"></div>
       <div class="card-s" id="poscard">
-        <h3>Your position</h3>
-        <div class="posgrid">
-          <label>Shares<input id="p_shares" type="text" inputmode="decimal" placeholder="0"></label>
-          <label>Avg cost / share<input id="p_cost" type="text" inputmode="decimal" placeholder="0.00"></label>
-        </div>
-        <div class="btnrow"><button class="btn primary" id="p_save">Save position</button></div>
+        <h3>Position &amp; transactions</h3>
         <div id="posmeta"></div>
+        <div id="txlist"></div>
+        <div class="posgrid" style="margin-top:12px">
+          <label>Type
+            <select id="tx_type">
+              <option value="buy">Buy</option>
+              <option value="sell">Sell</option>
+              <option value="div">Dividend</option>
+            </select>
+          </label>
+          <label id="tx_sh_l">Shares<input id="tx_sh" type="text" inputmode="decimal" placeholder="0"></label>
+        </div>
+        <div class="posgrid">
+          <label id="tx_pr_l">Price / share<input id="tx_pr" type="text" inputmode="decimal" placeholder="0.00"></label>
+          <label>Date<input id="tx_date" type="date"></label>
+        </div>
+        <div class="btnrow"><button class="btn primary" id="tx_add">Add transaction</button></div>
+      </div>
+      <div class="card-s">
+        <h3>Notes</h3>
+        <textarea id="notes" placeholder="Your notes for this symbol&hellip;"></textarea>
       </div>
       <div class="card-s">
         <h3>Price alerts</h3>
@@ -393,7 +427,7 @@ body.editing .rgrab{display:block}
         <div class="bknote" id="relaynote"></div>
         <div class="btnrow"><button class="btn ghost" id="relaytest">Test connection</button></div>
       </div>
-      <div class="muted" id="aboutline">Phone-only edition v2 — no server, data stays on this device.</div>
+      <div class="muted" id="aboutline">Phone-only edition v3 — no server, data stays on this device.</div>
     </div>
   </div>
 </div>
@@ -413,7 +447,38 @@ function freshDB() {
 let DB = null;
 try { DB = JSON.parse(localStorage.getItem(LS_KEY)); } catch(e) {}
 if (!DB || !Array.isArray(DB.portfolios) || !DB.portfolios.length) DB = freshDB();
-function saveDB() { try { localStorage.setItem(LS_KEY, JSON.stringify(DB)); } catch(e) { toast('Storage full — export a backup'); } }
+function saveDB() { try { localStorage.setItem(LS_KEY, JSON.stringify(DB)); } catch(e) { try { toast('Storage full — export a backup'); } catch(_) {} } }
+
+/* transactions are the source of truth (average-cost method):
+   buys move avg cost, sells lock in realized P/L, dividends accrue as income */
+function recompute(p) {
+  let sh = 0, avg = 0, realized = 0, div = 0;
+  const txs = [...(p.txs || [])].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  for (const t of txs) {
+    const q = +t.shares || 0, pr = +t.price || 0;
+    if (t.type === 'buy' && q > 0) { avg = (sh * avg + q * pr) / (sh + q); sh += q; }
+    else if (t.type === 'sell' && q > 0) { const qq = Math.min(q, sh); realized += (pr - avg) * qq; sh -= qq; }
+    else if (t.type === 'div') div += pr;
+  }
+  p.shares = +sh.toFixed(6);
+  p.cost = +avg.toFixed(4);
+  p.realized = +realized.toFixed(2);
+  p.div = +div.toFixed(2);
+}
+function isoDay(epoch) { return new Date((epoch || Date.now()/1000) * 1000).toISOString().slice(0, 10); }
+
+/* migrate pre-transaction data: shares+cost become an initial buy */
+DB.nextTxId = DB.nextTxId || 1;
+for (const pf of DB.portfolios)
+  for (const p of pf.positions) {
+    if (!Array.isArray(p.txs)) {
+      p.txs = p.shares > 0
+        ? [{id: DB.nextTxId++, type: 'buy', date: isoDay(p.added_at), shares: p.shares, price: p.cost || 0}]
+        : [];
+    }
+    recompute(p);
+  }
+saveDB();
 
 const S = {
   quotes: {}, indices: [], market: 'closed',
@@ -748,17 +813,31 @@ function curPf() { return DB.portfolios.find(p => p.id === S.pf) || DB.portfolio
 
 function addPosition(pfId, symbol, name, shares, cost) {
   const pf = DB.portfolios.find(p => p.id === pfId);
-  const existing = pf.positions.find(p => p.symbol === symbol);
-  if (existing) { existing.shares = shares; existing.cost = cost; if (name) existing.name = name; }
-  else pf.positions.push({id: DB.nextId++, symbol, name: name || null, shares, cost,
-                          added_at: Math.floor(Date.now()/1000)});
+  let p = pf.positions.find(x => x.symbol === symbol);
+  if (!p) {
+    p = {id: DB.nextId++, symbol, name: name || null, shares: 0, cost: 0, txs: [],
+         added_at: Math.floor(Date.now()/1000)};
+    pf.positions.push(p);
+  } else if (name) p.name = name;
+  if (shares > 0)
+    p.txs.push({id: DB.nextTxId++, type: 'buy', date: isoDay(), shares, price: cost || 0});
+  recompute(p);
   saveDB();
 }
-function updatePosition(sym, shares, cost) {
-  const pf = curPf();
-  const p = pf.positions.find(x => x.symbol === sym);
-  if (p) { p.shares = shares; p.cost = cost; }
-  else addPosition(pf.id, sym, (S.quotes[sym] || {}).name, shares, cost);
+function addTx(sym, tx) {
+  let p = findPosition(sym);
+  if (!p) { addPosition(curPf().id, sym, (S.quotes[sym] || {}).name, 0, 0); p = findPosition(sym); }
+  tx.id = DB.nextTxId++;
+  p.txs.push(tx);
+  recompute(p);
+  saveDB();
+  return p;
+}
+function deleteTx(sym, txId) {
+  const p = findPosition(sym);
+  if (!p) return;
+  p.txs = p.txs.filter(t => t.id !== txId);
+  recompute(p);
   saveDB();
 }
 function deletePosition(id) {
@@ -784,10 +863,11 @@ function checkAlerts() {
 /* ── export / import (same file format as the server edition) ──── */
 
 function snapshot() {
-  return {app: 'tripwire-portfolio', version: 1, exported_at: Math.floor(Date.now()/1000),
+  return {app: 'tripwire-portfolio', version: 2, exported_at: Math.floor(Date.now()/1000),
     portfolios: DB.portfolios.map((pf, i) => ({name: pf.name, sort_order: i,
       positions: pf.positions.map((p, j) => ({symbol: p.symbol, name: p.name, shares: p.shares,
-        cost: p.cost, sort_order: j, added_at: p.added_at}))})),
+        cost: p.cost, sort_order: j, added_at: p.added_at, note: p.note || null,
+        txs: (p.txs || []).map(t => ({type: t.type, date: t.date, shares: t.shares, price: t.price}))}))})),
     alerts: DB.alerts.map(a => ({symbol: a.symbol, kind: a.kind, threshold: a.threshold,
       active: a.active ? 1 : 0, created_at: a.created_at, triggered_at: a.triggered_at,
       triggered_price: a.triggered_price}))};
@@ -800,8 +880,20 @@ function restoreSnapshot(data) {
     const positions = [];
     for (const p of pf.positions || []) {
       if (!p.symbol) continue;
-      positions.push({id: db.nextId++, symbol: String(p.symbol).toUpperCase(), name: p.name || null,
-        shares: +p.shares || 0, cost: +p.cost || 0, added_at: p.added_at || Math.floor(Date.now()/1000)});
+      db.nextTxId = db.nextTxId || 1;
+      let txs;
+      if (Array.isArray(p.txs))
+        txs = p.txs.filter(t => ['buy','sell','div'].includes(t.type))
+          .map(t => ({id: db.nextTxId++, type: t.type, date: t.date || isoDay(),
+                      shares: +t.shares || 0, price: +t.price || 0}));
+      else txs = (+p.shares > 0)  // older backups: synthesize the initial buy
+        ? [{id: db.nextTxId++, type: 'buy', date: isoDay(p.added_at), shares: +p.shares, price: +p.cost || 0}]
+        : [];
+      const np = {id: db.nextId++, symbol: String(p.symbol).toUpperCase(), name: p.name || null,
+        shares: 0, cost: 0, txs, note: p.note || null,
+        added_at: p.added_at || Math.floor(Date.now()/1000)};
+      recompute(np);
+      positions.push(np);
     }
     db.portfolios.push({id: db.nextId++, name: pf.name || 'Portfolio', positions});
   }
@@ -1008,6 +1100,16 @@ function renderSummary() {
   set('daypl', day, val - day || 0);
   set('totpl', tot, cost || 0);
   $('costb').textContent = fmtMoney(cost, cur);
+  // realized P/L + dividend income across all positions (incl. fully sold ones)
+  let realized = 0, div = 0;
+  for (const p of curPf().positions) { realized += p.realized || 0; div += p.div || 0; }
+  const extra = $('sumextra');
+  if (realized || div) {
+    extra.style.display = 'flex';
+    extra.innerHTML = `
+      <div class="sumcell"><div class="k">Realized P/L</div><div class="v" style="color:${realized>0?'var(--green)':realized<0?'var(--red)':'var(--dim)'}">${sign(realized)}${fmtMoney(realized, cur)}</div></div>
+      <div class="sumcell"><div class="k">Dividends</div><div class="v" style="color:${div>0?'var(--green)':'var(--dim)'}">${div?sign(div):''}${fmtMoney(div, cur)}</div></div>`;
+  } else { extra.style.display = 'none'; extra.innerHTML = ''; }
   renderAlloc(holdings, val);
 }
 
@@ -1234,8 +1336,10 @@ async function openDetail(sym) {
   $('d_sym').textContent = sym;
   const p = findPosition(sym);
   $('d_name').textContent = (p && p.name) || (S.quotes[sym]||{}).name || '';
-  $('p_shares').value = p && p.shares ? p.shares : '';
-  $('p_cost').value = p && p.cost ? p.cost : '';
+  $('tx_sh').value = ''; $('tx_pr').value = '';
+  $('tx_date').value = isoDay();
+  $('notes').value = (p && p.note) || '';
+  renderTxs();
   $('statgrid').innerHTML = '<div class="muted"><span class="spin"></span></div>';
   $('newslist').innerHTML = '<div class="muted"><span class="spin"></span></div>';
   renderRangeTabs();
@@ -1264,14 +1368,70 @@ function updateDetailPrice() {
   $('d_chg').className = up ? 'up-t' : 'dn-t';
   $('d_ext').innerHTML = extHTML(q, '');
   const p = findPosition(S.detailSym);
+  const cells = [];
   if (p && p.shares > 0 && q.price != null) {
     const val = p.shares * q.price, cost = p.shares * p.cost, gain = val - cost;
-    $('posmeta').innerHTML = `
-      <div class="sumcell" style="flex:1"><div class="k">Market value</div><div class="v">${fmtMoney(val, q.currency)}</div></div>
-      <div class="sumcell" style="flex:1"><div class="k">Gain/Loss</div>
-        <div class="v" style="color:${gain>=0?'var(--green)':'var(--red)'}">${sign(gain)}${fmtMoney(gain, q.currency)}${cost ? ` (${sign(gain)}${(gain/cost*100).toFixed(1)}%)` : ''}</div></div>`;
-  } else $('posmeta').innerHTML = '';
+    cells.push(`<div class="sumcell"><div class="k">${p.shares.toLocaleString()} sh · avg ${fmtPrice(p.cost)}</div><div class="v">${fmtMoney(val, q.currency)}</div></div>`);
+    cells.push(`<div class="sumcell"><div class="k">Unrealized</div>
+      <div class="v" style="color:${gain>=0?'var(--green)':'var(--red)'}">${sign(gain)}${fmtMoney(gain, q.currency)}${cost ? ` (${sign(gain)}${(gain/cost*100).toFixed(1)}%)` : ''}</div></div>`);
+  }
+  if (p && p.realized)
+    cells.push(`<div class="sumcell"><div class="k">Realized P/L</div><div class="v" style="color:${p.realized>=0?'var(--green)':'var(--red)'}">${sign(p.realized)}${fmtMoney(p.realized, q.currency)}</div></div>`);
+  if (p && p.div)
+    cells.push(`<div class="sumcell"><div class="k">Dividends</div><div class="v" style="color:var(--green)">+${fmtMoney(p.div, q.currency)}</div></div>`);
+  $('posmeta').innerHTML = cells.join('');
 }
+
+function renderTxs() {
+  const p = findPosition(S.detailSym);
+  const txs = p ? [...(p.txs || [])].sort((a, b) => (b.date || '').localeCompare(a.date || '') || b.id - a.id) : [];
+  const cur = (S.quotes[S.detailSym] || {}).currency;
+  $('txlist').innerHTML = txs.length ? txs.map(t => {
+    const label = t.type === 'div'
+      ? `Dividend received`
+      : `${t.type === 'buy' ? 'Bought' : 'Sold'} ${(+t.shares).toLocaleString()} sh @ ${fmtPrice(+t.price)}`;
+    const amt = t.type === 'div' ? +t.price : t.shares * t.price;
+    return `<div class="txrow">
+      <span class="txb ${t.type}">${t.type === 'buy' ? 'B' : t.type === 'sell' ? 'S' : 'D'}</span>
+      <div class="txmid"><div class="t1x">${label}</div><div class="txd">${esc(t.date || '')}</div></div>
+      <div class="txamt">${fmtMoney(amt, cur)}</div>
+      <button class="del" data-t="${t.id}">&#10005;</button>
+    </div>`;
+  }).join('') : '<div class="muted" style="padding:4px 0">No transactions yet — add your first buy below.</div>';
+  $('txlist').querySelectorAll('.del').forEach(b => b.onclick = () => {
+    deleteTx(S.detailSym, +b.dataset.t);
+    renderTxs(); renderAll(); updateDetailPrice(); drawChart();
+  });
+}
+
+$('tx_type').onchange = () => {
+  const div = $('tx_type').value === 'div';
+  $('tx_sh_l').style.display = div ? 'none' : '';
+  $('tx_pr_l').firstChild.textContent = div ? 'Total amount' : 'Price / share';
+};
+
+$('tx_add').onclick = () => {
+  const type = $('tx_type').value;
+  const shares = parseFloat($('tx_sh').value) || 0;
+  const price = parseFloat($('tx_pr').value) || 0;
+  const date = $('tx_date').value || isoDay();
+  if (type !== 'div' && shares <= 0) { toast('Enter the number of shares'); return; }
+  if (price <= 0) { toast(type === 'div' ? 'Enter the dividend amount' : 'Enter the price'); return; }
+  const p = findPosition(S.detailSym);
+  if (type === 'sell' && p && shares > p.shares) { toast(`You only hold ${p.shares.toLocaleString()} shares`); return; }
+  addTx(S.detailSym, {type, date, shares: type === 'div' ? 0 : shares, price});
+  $('tx_sh').value = ''; $('tx_pr').value = '';
+  renderTxs(); renderAll(); updateDetailPrice(); drawChart();
+  toast(type === 'buy' ? 'Buy recorded' : type === 'sell' ? 'Sell recorded' : 'Dividend recorded');
+};
+
+$('notes').addEventListener('change', () => {
+  const p = findPosition(S.detailSym);
+  if (!p) { if ($('notes').value.trim()) { addPosition(curPf().id, S.detailSym, null, 0, 0); } else return; }
+  const pos = findPosition(S.detailSym);
+  pos.note = $('notes').value.trim() || null;
+  saveDB();
+});
 
 function rangeBar(label, lo, hi, price) {
   if (lo == null || hi == null || price == null || hi <= lo) return '';
@@ -1331,12 +1491,6 @@ $('a_add').onclick = () => {
   renderAlerts();
   if ('Notification' in window && Notification.permission === 'default') askNotify();
   toast('Alert set');
-};
-
-$('p_save').onclick = () => {
-  updatePosition(S.detailSym, parseFloat($('p_shares').value) || 0, parseFloat($('p_cost').value) || 0);
-  renderAll(); updateDetailPrice();
-  toast('Position saved');
 };
 
 /* ── chart ─────────────────────────────────────────────────────── */
@@ -1413,6 +1567,24 @@ function drawChart(scrubX) {
   ctx.textAlign = 'left';
   ctx.fillText(fmtPrice(hi - pad), 6, 11);
   ctx.fillText(fmtPrice(lo + pad), 6, H - 5);
+
+  // buy/sell/dividend markers at their trade date + price, like My Stocks
+  const txs = (findPosition(S.detailSym) || {}).txs || [];
+  for (const tx of txs) {
+    const t = Date.parse((tx.date || '') + 'T16:00:00') / 1000;
+    if (!isFinite(t) || t < t0 - 43200 || t > t1 + 43200) continue;
+    const x = Math.max(10, Math.min(W - 10, X(t)));
+    const y = tx.type === 'div' ? H - 26
+            : Y(Math.max(lo, Math.min(hi, +tx.price || baseline)));
+    const mcol = tx.type === 'buy' ? '#22c55e' : tx.type === 'sell' ? '#ef4444' : '#f59e0b';
+    ctx.beginPath(); ctx.arc(x, y, 7.5, 0, Math.PI * 2);
+    ctx.fillStyle = mcol; ctx.fill();
+    ctx.lineWidth = 1.5; ctx.strokeStyle = '#0b0f14'; ctx.stroke();
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 9px -apple-system, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(tx.type === 'buy' ? 'B' : tx.type === 'sell' ? 'S' : 'D', x, y + .5);
+    ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+  }
 
   const sc = $('scrub');
   if (scrubX != null) {
