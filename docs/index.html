@@ -409,6 +409,10 @@ input[type=date]{color-scheme:dark}
         <button class="btn danger" style="flex:none;padding:8px 14px" onclick="deletePf()">Delete</button></div>
       <div class="setrow"><span class="k">Notifications for alerts</span>
         <button class="btn ghost" style="flex:none;padding:8px 14px" onclick="askNotify()">Enable</button></div>
+      <div class="setrow"><span class="k">Send alerts to Discord/email</span>
+        <button class="btn ghost" style="flex:none;padding:8px 14px" onclick="openWebhookSheet()">Setup</button></div>
+      <div class="setrow"><span class="k">View alert history</span>
+        <button class="btn ghost" style="flex:none;padding:8px 14px" onclick="showAlertHistory()">History</button></div>
 
       <div class="card-s">
         <h3>Backup</h3>
@@ -428,6 +432,33 @@ input[type=date]{color-scheme:dark}
         <div class="btnrow"><button class="btn ghost" id="relaytest">Test connection</button></div>
       </div>
       <div class="muted" id="aboutline">Phone-only edition v3 — no server, data stays on this device.</div>
+    </div>
+  </div>
+  <div class="sheet" id="webhook">
+    <div class="shead"><div class="t1">Alert notifications</div>
+      <button class="xbtn" onclick="closeSheet('webhook')">&#10005;</button></div>
+    <div class="body">
+      <div class="card-s">
+        <h3>Send alerts to Discord</h3>
+        <div class="bknote">Create a free Discord server, right-click a channel, Integrations → Webhooks → New Webhook → Copy Webhook URL, then paste it below. Alerts will post automatically.</div>
+        <input type="text" id="webhook_url" placeholder="https://discordapp.com/api/webhooks/..." style="width:100%;padding:8px;margin:10px 0;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--text);font-size:13px;font-family:monospace;box-sizing:border-box;">
+        <div class="btnrow">
+          <button class="btn ghost" onclick="saveWebhook()">Save</button>
+          <button class="btn ghost" onclick="testWebhook()">Test</button>
+          <button class="btn danger" onclick="clearWebhook()">Clear</button>
+        </div>
+      </div>
+      <div class="card-s">
+        <h3>Alternative: Email via Formspree</h3>
+        <div class="bknote">Create a free Formspree form at formspree.io, get your endpoint URL (looks like https://formspree.io/f/...), and paste it below. Alerts will be emailed to you.</div>
+        <input type="text" id="formspree_url" placeholder="https://formspree.io/f/XXXXX" style="width:100%;padding:8px;margin:10px 0;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--text);font-size:13px;font-family:monospace;box-sizing:border-box;">
+        <input type="email" id="formspree_email" placeholder="your@email.com" style="width:100%;padding:8px;margin:10px 0;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--text);font-size:13px;box-sizing:border-box;">
+        <div class="btnrow">
+          <button class="btn ghost" onclick="saveFormspree()">Save</button>
+          <button class="btn ghost" onclick="testFormspree()">Test</button>
+          <button class="btn danger" onclick="clearFormspree()">Clear</button>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -1194,15 +1225,141 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) refr
 function fireAlert(a) {
   const dir = a.kind === 'above' ? 'rose above' : 'fell below';
   const msg = `${a.symbol} ${dir} ${fmtPrice(a.threshold)} — now ${fmtPrice(a.triggered_price)}`;
+
+  // Log to alert history
+  const histKey = 'pfapp_alert_history';
+  let hist = [];
+  try { hist = JSON.parse(localStorage.getItem(histKey) || '[]'); } catch(e) {}
+  hist.unshift({sym: a.symbol, msg, ts: Date.now()});
+  hist = hist.slice(0, 50);  // keep last 50
+  try { localStorage.setItem(histKey, JSON.stringify(hist)); } catch(e) {}
+
+  // Browser notification
   toast('🔔 ' + msg, 6000);
   if ('Notification' in window && Notification.permission === 'granted') {
-    try { new Notification('Price alert: ' + a.symbol, {body: msg, icon: './icon-192.png'}); } catch(e){}
+    try {
+      new Notification('Price alert: ' + a.symbol, {
+        body: msg,
+        icon: './icon-192.png',
+        badge: './icon-192.png',
+        tag: 'alert-' + a.id,
+        requireInteraction: true  // persist on iOS
+      });
+    } catch(e){}
   }
+
+  // Webhook notification if configured (Discord)
+  const webhookUrl = localStorage.alertWebhook;
+  if (webhookUrl) {
+    fetch(webhookUrl, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({content: `📈 Price Alert: ${msg}`})
+    }).catch(() => {});
+  }
+
+  // Email notification if configured (Formspree)
+  const formspreeUrl = localStorage.formspreeUrl;
+  const formspreeEmail = localStorage.formspreeEmail;
+  if (formspreeUrl && formspreeEmail) {
+    const fd = new FormData();
+    fd.append('email', formspreeEmail);
+    fd.append('subject', `Price Alert: ${a.symbol}`);
+    fd.append('message', msg);
+    fetch(formspreeUrl, {method: 'POST', body: fd}).catch(() => {});
+  }
+
   if (S.detailSym === a.symbol) renderAlerts();
 }
+
 function askNotify() {
   if (!('Notification' in window)) { toast('Notifications not supported here'); return; }
   Notification.requestPermission().then(p => toast(p === 'granted' ? 'Notifications enabled' : 'Notifications ' + p));
+}
+
+function saveWebhook() {
+  const url = $('webhook_url').value.trim();
+  if (!url.includes('discord')) { toast('Paste a Discord webhook URL'); return; }
+  localStorage.alertWebhook = url;
+  toast('Discord webhook saved');
+}
+
+function testWebhook() {
+  const url = localStorage.alertWebhook;
+  if (!url) { toast('No webhook configured'); return; }
+  fetch(url, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({content: '✅ Test alert from Portfolio app'})
+  }).then(() => toast('Test alert sent to Discord')).catch(() => toast('Failed to send — check webhook URL'));
+}
+
+function clearWebhook() {
+  if (confirm('Remove Discord webhook?')) {
+    delete localStorage.alertWebhook;
+    $('webhook_url').value = '';
+    toast('Webhook cleared');
+  }
+}
+
+function saveFormspree() {
+  const url = $('formspree_url').value.trim();
+  const email = $('formspree_email').value.trim();
+  if (!url || !email) { toast('Enter both Formspree URL and email'); return; }
+  if (!url.includes('formspree')) { toast('Paste a Formspree endpoint URL'); return; }
+  localStorage.formspreeUrl = url;
+  localStorage.formspreeEmail = email;
+  toast('Formspree config saved');
+}
+
+function testFormspree() {
+  const url = localStorage.formspreeUrl;
+  const email = localStorage.formspreeEmail;
+  if (!url || !email) { toast('Configure Formspree first'); return; }
+  const fd = new FormData();
+  fd.append('email', email);
+  fd.append('subject', '✅ Test: Portfolio App');
+  fd.append('message', 'Test alert from Portfolio app');
+  fetch(url, {method: 'POST', body: fd})
+    .then(() => toast('Test email sent'))
+    .catch(() => toast('Failed — check Formspree setup'));
+}
+
+function clearFormspree() {
+  if (confirm('Remove Formspree config?')) {
+    delete localStorage.formspreeUrl;
+    delete localStorage.formspreeEmail;
+    $('formspree_url').value = '';
+    $('formspree_email').value = '';
+    toast('Formspree cleared');
+  }
+}
+
+function openWebhookSheet() {
+  $('webhook_url').value = localStorage.alertWebhook || '';
+  $('formspree_url').value = localStorage.formspreeUrl || '';
+  $('formspree_email').value = localStorage.formspreeEmail || '';
+  openSheet('webhook');
+}
+
+function showAlertHistory() {
+  const histKey = 'pfapp_alert_history';
+  let hist = [];
+  try { hist = JSON.parse(localStorage.getItem(histKey) || '[]'); } catch(e) {}
+
+  if (!hist.length) {
+    alert('No alert history yet — price alerts will appear here when they trigger.');
+    return;
+  }
+
+  let html = '<div style="padding:0;"><div style="padding:16px;border-bottom:1px solid var(--line)"><h3 style="margin:0">Recent alerts</h3></div>';
+  for (const h of hist) {
+    const time = new Date(h.ts).toLocaleTimeString();
+    html += `<div style="padding:12px 16px;border-bottom:1px solid var(--line);font-size:14px"><div style="font-weight:600;color:var(--accent)">${h.sym}</div><div style="color:var(--dim);margin-top:4px;font-size:13px">${h.msg}</div><div style="color:var(--dim2);font-size:12px;margin-top:2px">${time}</div></div>`;
+  }
+  html += '</div>';
+  const w = window.open('', 'alertHist', 'width=320,height=500');
+  w.document.body.innerHTML = `<style>body{background:#0b0f14;color:#e6edf3;font-family:-apple-system,BlinkMacSystemFont,sans-serif;margin:0;padding:0}</style>${html}`;
 }
 
 /* ── header buttons / settings ─────────────────────────────────── */
