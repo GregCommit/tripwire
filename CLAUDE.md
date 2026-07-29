@@ -2,183 +2,180 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project Overview
+## ⚠️ This repo contains TWO separate apps
 
-**Tripwire Portfolio** is a mobile stock portfolio tracker app modeled after the classic "My Stocks" app. It tracks watchlists and holdings with real-time Yahoo Finance quotes, pre/post-market prices, charts, key statistics, news, and price alerts.
+Despite living in one folder and sharing the "Tripwire" name and Yahoo Finance
+data, these are **two independent applications** with different codebases,
+databases, ports, and purposes. Don't confuse them.
 
-The project has **two independent implementations**:
+| | **App A — Tripwire Watcher** | **App B — Tripwire Portfolio** |
+|---|---|---|
+| Purpose | Rule-based **signal/alert engine** — watches a list and flags unusual behavior | **Portfolio tracker** — holdings, transactions, P/L |
+| Files | `app.py` + `backtest.py` | `portfolio.py` (server) + `docs/index.html` (phone PWA) |
+| Port | **5000** | **5010** (server) / GitHub Pages (phone) |
+| DB | `~/.tripwire_v3/state.db` | `~/.tripwire_portfolio/portfolio.db` / browser `localStorage` |
+| Password env | `TRIPWIRE_PASSWORD` | `PORTFOLIO_PASSWORD` |
+| Docs | `BACKTESTING.md` | `PORTFOLIO.md` |
+| User calls it | "the stock watcher" | "the portfolio / transaction tracker" |
 
-1. **Server edition** (`portfolio.py`): Single-file Flask app with SQLite database. Runs on port 5010 with user authentication. Recommended for persistent cloud deployment (Render, Heroku).
+The card UI with **"HIGH VOL"** / **"Earnings in 7d"** badges and per-stock
+signal triggers is **App A** (`app.py`). The card UI with holdings, sparklines,
+and buy/sell markers is **App B** (`docs/index.html`).
 
-2. **Phone-only edition** (`/docs/index.html`): Pure client-side PWA deployed to GitHub Pages. All data lives in browser localStorage. No server, no login, no API keys. Recommended for users who want zero infrastructure.
+---
 
-Both editions are fully functional and compatible (can export/import each other's data formats).
+## App A — Tripwire Watcher (`app.py`, `backtest.py`)
 
-## Architecture & Technical Decisions
+A Flask app (single file, ~3900 lines, port 5000) that watches a user-defined
+list of tickers and fires **signals** when a stock does something statistically
+unusual *by its own historical standards*. Backtest-calibrated thresholds.
 
-### Why Two Editions?
+### Core concept: rules, triggers, categories
 
-The phone-only edition (`/docs`) was added after the server edition because it's more practical: users want to run the app on their phone without keeping a laptop on. The phone edition handles 90% of use cases and requires zero backend infrastructure.
+- Every watched symbol is evaluated against the **same 7 rules** on each scan
+  (`evaluate_rules()`, ~line 955):
+  1. **Volatility** — today's move vs its own N-day average move
+  2. **Support / Resistance** — price breaks beyond the prior N-day high/low band
+  3. **Consecutive down days** — *context-only* (see `CONTEXT_ONLY_RULES`); alerts
+     only when a losing streak *resolves* upward
+  4. **Volume spike** — today's volume vs N-day average
+  5. **Gap** — open vs prior close
+  6. **RSI** — overbought/oversold
+  7. **MA crossover** — golden/death cross (disabled by default)
 
-### Data Layer
+- A **"trigger"** is not a property a ticker *has* — it's a **live event**: a rule
+  is only "triggered" when its condition is met *right now*. A quiet stock shows no
+  trigger because nothing is firing, not because it lacks rules. This is the single
+  most common point of user confusion.
 
-**Server edition**: SQLite database at `~/.tripwire_portfolio/portfolio.db` with tables for portfolios, positions, transactions, alerts, and settings.
+- Each rule needs a minimum amount of price history; when a ticker is too new the
+  rule reports **"Insufficient history"** and sits out (watch for this on
+  recently-listed tickers — e.g. the HIGH-VOL support/resistance rule looks back
+  120 days).
 
-**Phone edition**: All data in `localStorage` under key `pfapp_v1`. Serialized as JSON. Supports export/import to JSON files (compatible with server edition).
+- **Volatility categories** (`VALID_CATEGORIES = high_vol | mod_vol | low_vol`)
+  select *which threshold set* applies to a symbol. Stored per-symbol in the
+  `stocks` table; the "HIGH VOL" badge on the card is this category, **not** a
+  fired signal. `DEFAULT_RULES` holds the backtest-tuned thresholds per category;
+  `INFO_RULES` holds looser thresholds used only for the informational "activity"
+  tier. Per-symbol overrides live in `rule_params`; a `sensitivity` preset shifts a
+  category's thresholds conservative↔sensitive (`_apply_sensitivity`).
 
-**Transaction tracking** (v3, both editions): Uses average-cost accounting method. Transactions are the source of truth; positions are computed from them on load:
-- Buy: adjusts average cost, adds shares
-- Sell: locks in realized P/L, removes shares (prevents oversell)
-- Dividend: adds to dividend income without affecting shares
+### Backtest calibration (`backtest.py`)
 
-Migration from pre-transaction data: old `shares + cost` fields automatically converted to an initial buy transaction on first load.
+Standalone event-study backtester over ~5 years of daily data. It answers *which
+rules predict 1–5 day moves and at what thresholds*, then writes:
+- `backtest_results/recommended_params.json` — per-ticker recommended thresholds
+- `backtest_results/rule_stats.json` — per-symbol/per-rule evidence, surfaced in the
+  UI as confidence hints (`RULE_STATS`, `_rule_stats_for`)
 
-### Quote Data (No API Keys)
+It **re-implements the rule math vectorized** (does NOT import `app.py`, which would
+boot Flask + monitor threads) and has a `parity` command to verify its math matches
+`evaluate_rules()`. See `BACKTESTING.md`. Key commands:
+`python backtest.py fetch|parity|grid|combo|select|report|apply|undo`.
 
-Both editions use **public Yahoo Finance APIs** without authentication:
-- Chart endpoint: `/v8/finance/chart/{symbol}?range=1d|5d|1mo|6mo|ytd|1y|5y|max`
-- Search endpoint: `/v1/finance/search?q={query}`
+### Scan loop, signals, notifications
 
-**Phone edition**: Fetches through public CORS relays (allorigins, corsproxy.io, codetabs) with automatic failover. Relay index stored in `localStorage` so the app remembers which one worked last.
+- `monitor_loop()` (background daemon thread, started at import) calls `run_check()`
+  on an interval that depends on `market_phase()` (open/closed).
+- `run_check()` → for each stock: `fetch_quote` → `get_history(days=400)` →
+  `get_params` → `evaluate_rules` → log triggered rules as alerts.
+- `compute_signal()` combines rules into an ensemble; `STRONG_SIGNALS`
+  (`STRONG BUY`, `STRONG BOUNCE WATCH`) gate push notifications when
+  `notify_strong_only` is set.
+- **Notification channels**: email (SMTP, `_send_email`), WhatsApp via CallMeBot
+  (`_send_whatsapp`), and a once-a-day **digest** (`build_daily_digest`) that
+  replaces instant pushes when enabled.
+- **Claude integration** (`ANTHROPIC_API_KEY`): `synthesize_news()` writes a short
+  plain-English "why did it move" note for triggered alerts by summarizing fetched
+  news; there's also a chat feature (`chat_messages` table) with tool-calling over
+  the watchlist.
 
-**Server edition**: Direct access to `yfinance` library (Python wrapper around Yahoo's public APIs).
+### Key API (`@login_required`)
 
-Quote caching: 10-second cache in both editions to avoid hammering relays. Stale-on-error fallback preserves last-known quotes if fetch fails.
+`/api/stocks` is the main read — returns every symbol with its full `rules` array
+(each rule's `triggered`, `message`, `actual_value`, `threshold`, `signal`), plus
+`alert` (any rule currently firing = the card's trigger), category, price,
+`earnings_in_days`, and `info_events`. **To inspect why a symbol is quiet, read its
+`rules[]` here** — each `message` says `OK`, `ALERT`, `Insufficient history`, or
+`Rule disabled`. Other routes: `/api/check` (force scan), `/api/stocks/add|remove`,
+`/api/stock/<sym>/category|params|sensitivity`, `/api/recalibrate/*`, `/api/alerts*`.
 
-### Alert System (v4)
+### Data model (`~/.tripwire_v3/state.db`)
 
-Alerts are price threshold triggers ("above $X" or "below $X") checked on every quote refresh (~10 seconds). When triggered, they fire once and flip `active: 0`.
+Tables: `stocks` (symbol, category, active), `prices`, `alerts` (symbol, rule_type,
+message, price, timestamp), `rule_params` (per-symbol overrides), `settings`,
+`chat_messages`.
 
-**Multi-channel notifications**:
-1. Browser Notification API (persistent on iOS with `requireInteraction: true`)
-2. Discord webhook (POST to user's webhook URL; instant push notification to Discord)
-3. Formspree email (POST form data to Formspree endpoint for email delivery)
+### Run it
 
-Alerts logged to `pfapp_alert_history` in localStorage (last 50 kept). User can view history in "Alert history" view.
-
-## File Structure
-
-```
-tripwire/
-├── CLAUDE.md                 # This file
-├── PORTFOLIO.md              # User-facing documentation
-├── portfolio.py              # Server edition: Flask app (single file, ~1500 lines)
-├── portfolio.db              # (Created at runtime) Server SQLite database
-├── run_portfolio.bat         # Windows launcher + Cloudflare tunnel
-├── Procfile                  # For cloud deployment (gunicorn)
-├── render.yaml               # Render.com deployment config
-│
-└── docs/                     # Phone-only PWA (GitHub Pages)
-    ├── index.html            # Single-file app (5000+ lines, includes CSS + JS)
-    ├── sw.js                 # Service worker for caching (v3 shell versioning)
-    ├── manifest.webmanifest  # PWA metadata
-    ├── icon-192.png          # 192x192 icon
-    ├── icon-512.png          # 512x512 icon
-    └── apple-touch-icon.png  # iOS home screen icon (180x180)
-```
-
-## Key Code Sections (Phone Edition)
-
-The phone edition is a single ~5000-line HTML file with inlined CSS and JavaScript. Key logical sections:
-
-- **Lines 1-437**: HTML skeleton (header, tabs, sheets for detail/add/settings/webhook config)
-- **Lines 24-400**: CSS (dark theme variables, flexbox layout, animations)
-- **Lines 440-500**: Initialization (localStorage load, state object `S`, database `DB`)
-- **Lines 452-481**: Transaction accounting (`recompute()` function, average-cost logic)
-- **Lines 536-551**: Market state detection (US/Eastern timezone, market hours)
-- **Lines 553-584**: Yahoo quote fetching via CORS relays with failover
-- **Lines 847-861**: `checkAlerts()` - alert triggering logic
-- **Lines 1192-1350**: Alert firing, notification, history, and webhook integration
-- **Lines 1374-1500**: Detail view rendering (chart, stats, transactions, alerts)
-- **Lines 1600-1800**: Portfolio/position CRUD operations
-- **Lines 1900+**: Settings, export/import, search
-
-## Development Workflow
-
-### Testing the Phone Edition
-
-**Demo mode** (no internet required):
 ```bash
-# macOS/Linux
-PORTFOLIO_DEMO=1 python3 -m http.server 5555  # Serves docs/ folder
-# Open http://localhost:5555/?demo=1
-
-# Or for live testing with mock relay:
-python mock_relay.py &  # Serves canned Yahoo responses on port 5099
+pip install -r requirements.txt
+TRIPWIRE_PASSWORD=... python app.py        # http://localhost:5000
 ```
+`run.bat` / `run_tunnel.bat` launch it on Windows (+ Cloudflare tunnel); see
+`REMOTE_ACCESS.md`. Env: `TRIPWIRE_PASSWORD`, `TRIPWIRE_SECRET_KEY`,
+`ANTHROPIC_API_KEY` (news synthesis + chat).
 
-**With real quotes** (requires internet):
-```bash
-python3 -m http.server 5555  # Serves docs/ folder on port 5555
-# Open http://localhost:5555 (no ?demo=1)
-```
+---
 
-The app hydrates instantly from localStorage (you see cached data immediately) and fetches fresh quotes in background.
+## App B — Tripwire Portfolio (`portfolio.py`, `docs/index.html`)
 
-### Testing the Server Edition
+A "My Stocks"-style portfolio tracker with watchlists, holdings, transactions,
+charts, and price alerts. Two editions that share a JSON data format:
+
+1. **Server edition** (`portfolio.py`): single-file Flask + SQLite, port 5010,
+   password login, optional GitHub Gist cloud backup. Uses `yfinance` directly, so
+   it can show richer stats (P/E, EPS, beta) the phone edition can't.
+2. **Phone-only edition** (`docs/index.html`): pure client-side PWA on GitHub Pages,
+   all data in `localStorage` (`pfapp_v1`), quotes fetched through public CORS
+   relays (allorigins → corsproxy.io → codetabs, with failover). No server/login.
+
+### Transaction tracking (v3, both editions)
+
+Average-cost accounting; **transactions are the source of truth**, positions are
+computed from them (`recompute()`): buys move avg cost, sells lock in realized P/L
+(oversell blocked), dividends accrue as income. Old `shares+cost` data migrates to
+an initial buy on first load. Trades render as B/S/D markers on the chart.
+
+### Alerts (phone edition)
+
+Price threshold triggers checked every ~10s refresh; fire once then flip inactive.
+Delivered via Browser Notification API (+ `requireInteraction` for iOS), optional
+**Discord webhook**, and optional **Formspree email**; history kept in
+`pfapp_alert_history` (last 50). All alert config is per-device in `localStorage`.
+
+### Run it
 
 ```bash
 pip install flask yfinance
-PORTFOLIO_DEMO=1 python portfolio.py      # Demo mode (simulated quotes)
-python portfolio.py                        # Live mode (real Yahoo data)
-# Open http://localhost:5010 with password "tripwire"
+PORTFOLIO_DEMO=1 python portfolio.py       # simulated data, no internet
+python portfolio.py                        # live; http://localhost:5010, pw "tripwire"
+# Phone edition:
+python3 -m http.server 5555                # serves docs/ ; open /?demo=1 for mock data
 ```
+Deploy: phone edition auto-deploys to GitHub Pages from `/docs` on push to `main`
+(`https://gregcommit.github.io/tripwire/`); server edition via `render.yaml` /
+`Procfile`. See `PORTFOLIO.md`. Env: `PORTFOLIO_PASSWORD`, `PORTFOLIO_PORT`,
+`PORTFOLIO_DEMO`, `PORTFOLIO_GIST_TOKEN`/`PORTFOLIO_GIST_ID`, `PORTFOLIO_SECRET_KEY`.
 
-### Common Test Scenarios
+---
 
-1. **Add a position**: Search ticker → Add symbol → Enter shares & cost → Refresh to see live quote
-2. **Create an alert**: Detail view → Add alert → Wait for price threshold to trigger
-3. **Transaction**: Detail view → New transaction → Record buy/sell/dividend → Chart shows B/S/D markers
-4. **Export/import**: Settings → Export → (share file) → another instance → Import → verify data
-5. **Alert notifications**: Create alert → enable Discord webhook → wait for trigger → check Discord channel
+## Testing without internet
 
-## Deployment
+Both apps rely on Yahoo Finance, which is **firewalled in the Claude Code sandbox**
+(yfinance / relay calls return a 403 proxy error). To exercise logic here:
+- App B phone edition: `mock_relay.py` serves canned Yahoo JSON; or `?demo=1`.
+- App B server / App A: `PORTFOLIO_DEMO=1` (App B) simulates quotes. App A has no
+  demo mode — its rule math can be checked offline via `backtest.py` against cached
+  data.
 
-**Phone edition** (GitHub Pages, automatic):
-- Hosted at `https://gregcommit.github.io/tripwire/` 
-- Deploy by pushing changes to `main` branch (GitHub Actions auto-deploys `/docs` folder)
-- Accessed via PWA: open on phone → Add to Home Screen
+## Conventions
 
-**Server edition** (Render free tier, recommended):
-- Create account at render.com
-- Connect this repo as Blueprint
-- Set `PORTFOLIO_PASSWORD` env var
-- Optional: set `PORTFOLIO_GIST_TOKEN` + `PORTFOLIO_GIST_ID` for cloud backup to GitHub Gist
-
-## Key Environment Variables
-
-| Var | Default | Used By | Purpose |
-|-----|---------|---------|---------|
-| `PORTFOLIO_DEMO` | unset | Both | `1` = use simulated data (no internet) |
-| `PORTFOLIO_PASSWORD` | `tripwire` | Server only | Login password |
-| `PORTFOLIO_PORT` | `5010` | Server only | HTTP port |
-| `PORTFOLIO_GIST_TOKEN` | unset | Server only | GitHub token (gist scope) for auto-backup |
-| `PORTFOLIO_GIST_ID` | unset | Server only | Gist ID to auto-restore from on boot |
-| `PORTFOLIO_SECRET_KEY` | dev value | Server only | Flask session secret (set on cloud hosts) |
-
-## Important Behavioral Notes
-
-1. **Quote caching**: Quotes are cached for ~10 seconds per symbol to avoid hammering public relays. Last-known quotes are preserved on network error.
-
-2. **Alert one-fire behavior**: Once an alert triggers, `active` flips to 0 and it won't fire again until re-enabled by the user. This prevents spam.
-
-3. **Market hours detection**: Uses `Intl.DateTimeFormat` with `America/New_York` timezone to detect pre/open/post/closed market state. No dependency on system timezone.
-
-4. **Transaction ordering**: Transactions are sorted by date before recomputing positions. Out-of-order dates can produce incorrect cost basis.
-
-5. **Service worker caching (v3)**: Phone edition caches shell assets (HTML, manifest, icons) but always fetches Yahoo quotes from network (with fallback to cache). This ensures fresh data while remaining offline-capable.
-
-6. **No persistent server state**: Server edition stores only portfolios/positions/alerts in SQLite. Quotes are fetched fresh on every request (not cached server-side) to ensure liveness.
-
-## Browser Support
-
-- **Phone edition**: iOS Safari 12+, Chrome/Firefox on Android (all modern versions)
-- **Server edition**: Any browser that can reach the server
-
-## Notes for Contributors
-
-- The phone edition is intentionally a single file to simplify offline capabilities and GitHub Pages deployment. Keep it that way.
-- Both editions must maintain compatible data export/import formats (JSON schema for portfolios/positions/alerts/transactions).
-- Always test chart data parsing with real and simulated Yahoo responses (see `mock_relay.py`).
-- When adding features, test in both demo mode (no internet) and live mode (real quotes).
-- Alerts should work across phone/server editions transparently.
+- The phone edition (`docs/index.html`) is intentionally a **single self-contained
+  file** (inlined CSS/JS) for offline capability and GitHub Pages. Keep it that way.
+- App B's two editions must keep a **compatible JSON export/import format**.
+- App A's `backtest.py` must stay **import-free of `app.py`**; keep the two rule
+  implementations in sync and use `python backtest.py parity` to verify.
+- Both apps default to a weak password (`tripwire`) — never expose either to the
+  internet without setting the real password env var (+ a tunnel, not open ports).
