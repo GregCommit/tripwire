@@ -1060,6 +1060,8 @@ def set_decision(ids, decision):
     with get_db() as conn:
         conn.executemany("UPDATE alerts SET decision=?, decision_ts=? WHERE id=?",
                          [(decision, int(time.time()) if decision else None, i) for i in ids])
+        if decision:   # deciding on a signal also means you've seen its alerts
+            conn.executemany("UPDATE alerts SET ack=1 WHERE id=?", [(i,) for i in ids])
         conn.commit()
 
 def _evidence_plain(sym, rule_type):
@@ -1586,6 +1588,10 @@ def run_check(symbols=None):
             # below for this symbol/cycle shares the same STRONG-only notification gate.
             ensemble_signal = compute_signal(rules)
             symbol_is_strong = ensemble_signal in STRONG_SIGNALS
+            # The rules that voted, stored on every alert of this cycle: a rule still in cooldown
+            # isn't re-logged, so the event's own alerts don't always show everything that agreed.
+            votes = [{"rule_type": r["rule_type"], "signal": r.get("signal")} for r in rules
+                     if r.get("triggered") and not r.get("disabled") and _rule_weight(r["rule_type"]) > 0]
             near_earnings = _is_near_earnings(sym)
             # Context-only rules are shown on the card but never alert/notify/synthesize; rules
             # still in cooldown were already logged recently.
@@ -1622,6 +1628,7 @@ def run_check(symbols=None):
                     "near_earnings":  near_earnings,
                     "strong":         symbol_is_strong,
                     "ensemble":       ensemble_signal,
+                    "votes":          votes,
                     "move_pct":       round(move_pct, 2),
                     "bear_regime_caveat": _bear_regime_caveat(rule.get("signal")) or None,
                 })
@@ -3277,6 +3284,28 @@ input,select{outline:none}
 
 /* Compact per-card rule status: one small chip per rule instead of a tall labeled list. */
 .card-signal-row{margin-top:8px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+/* A tile with an open signal wears the signal's colour, so it matches its banner row at a glance */
+.stock-card.sig-open.buy{border:2px solid #10B98199;padding:11px 13px}
+.stock-card.sig-open.watch{border:2px solid #F59E0B99;padding:11px 13px}
+.stock-card.sig-open.decided{border-style:dashed}
+.stock-card .sig-badge{font-size:12.5px;padding:2px 8px;letter-spacing:.3px}
+.card-sig-meta{font-size:12px;color:#9CA3AF;font-weight:600}
+.card-sig-meta.due{color:#FCD34D}
+.lean-pill{display:inline-block;font-size:11px;font-weight:700;border-radius:6px;padding:1px 7px;margin-top:6px;border:1px dashed}
+.lean-pill.buy{color:#6EE7B7;border-color:#10B98144}
+.lean-pill.watch{color:#FCD34D;border-color:#F59E0B44}
+.dec-state{font-size:12px;font-weight:700;border-radius:8px;padding:4px 9px}
+.dec-state.acted{color:#34D399;background:#05966918}
+.dec-state.passed{color:#9CA3AF;background:#37415133}
+.alerts-sec{font-size:13px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:#9CA3AF;margin:18px 0 8px}
+.alerts-sec:first-child{margin-top:0}
+.sig-card{border-width:2px;scroll-margin-top:130px}
+.sig-card.buy{border-color:#10B98166}
+.sig-card.watch{border-color:#F59E0B66}
+.sig-card .today-item{border-top:none;padding:12px 18px}
+.sig-card-why{padding:0 18px 12px;font-size:13px;color:#D1D5DB}
+.sig-card.flash{box-shadow:0 0 0 3px #93C5FD88;transition:box-shadow .3s}
+.alert-group-latest{font-size:12px;color:#6B7280}
 .rule-chips{margin-top:8px;display:flex;flex-wrap:wrap;gap:4px}
 .rule-chip{font-size:10px;font-weight:700;letter-spacing:.2px;border-radius:5px;padding:2px 6px;border:1px solid transparent;white-space:nowrap}
 .rule-chip.ok{color:#10B981;background:#10B9810F;border-color:#10B98122}
@@ -3413,6 +3442,8 @@ input,select{outline:none}
 .sig-buy{background:#10B98112;color:#10B981;border:1px solid #10B98133}
 .sig-sell{background:#F59E0B12;color:#F59E0B;border:1px solid #F59E0B33}
 .sig-neutral{background:#37415112;color:#6B7280;border:1px solid #37415144}
+/* one rule's direction — deliberately smaller than a signal badge */
+.sig-badge.rule-dir{font-size:12px;padding:1px 7px;letter-spacing:.3px}
 .card-signal{margin:8px 0 4px 0}
 .group-signal{margin-left:auto;margin-right:8px}
 
@@ -4110,23 +4141,27 @@ function signalBadge(sig){
 }
 
 function ruleSigBadge(signal){
-  if(!signal||signal==='NEUTRAL') return '<span class="sig-badge sig-neutral">NEUTRAL</span>';
-  if(signal==='BUY') return '<span class="sig-badge sig-buy">▲ BUY</span>';
-  if(signal==='SELL') return '<span class="sig-badge sig-sell">⚠ BOUNCE WATCH</span>';
+  if(!signal||signal==='NEUTRAL') return '<span class="sig-badge rule-dir sig-neutral">NEUTRAL</span>';
+  if(signal==='BUY') return '<span class="sig-badge rule-dir sig-buy">▲ BUY</span>';
+  if(signal==='SELL') return '<span class="sig-badge rule-dir sig-sell">⚠ BOUNCE WATCH</span>';
   return '';
 }
 
 // ── Stock grid ────────────────────────────────────────────────────────────────
 function renderGrid(){
   const grid=document.getElementById('stock-grid');
-  const alertCount=stocks.filter(s=>s.alert).length;
-  document.getElementById('tab-alerts-btn').textContent='Alerts'+(alertCount>0?' ('+alertCount+')':'');
+  // The tab count is the banner's count: signals waiting for your call
+  const needCount=needsCall().length;
+  document.getElementById('tab-alerts-btn').textContent='Alerts'+(needCount>0?' ('+needCount+')':'');
+  const openBySym=openSignalBySymbol();
 
   grid.innerHTML=stocks.map(s=>{
     const pctCls=s.pct>0?'up':s.pct<0?'dn':'muted';
     const sign=s.pct>0?'+':'';
     const selCls=selectedSym===s.symbol?' selected':'';
-    const alertCls=s.alert?' alert':'';
+    const ev=openBySym[s.symbol];
+    // signal colours are reserved for signals; a single rule triggering doesn't recolour the tile
+    const alertCls=ev?` sig-open ${ev.buy?'buy':'watch'}${ev.decision?' decided':''}`:'';
     const triggered=(s.rules||[]).filter(r=>r.triggered&&!r.disabled&&!CONTEXT_ONLY_RULES[r.rule_type]);
 
     const sig=computeSignal(s.rules);
@@ -4143,16 +4178,16 @@ function renderGrid(){
         const tip=ctx?(r.label||r.rule_type)+' (context only — does not alert)':(r.label||r.rule_type);
         return `<span class="rule-chip ${cls}" title="${escAttr(tip)}">${shortRuleLabel(r.rule_type)}</span>`;
       }).join('');
+      // "now" = the latest check; the open signal above it may be from an earlier day
       const hdr=triggered.length>0
-        ? `<div class="card-status-hdr" style="color:#F59E0B">⚠ ${triggered.length} triggered</div>`
-        : `<div class="card-status-hdr" style="color:#10B981">✓ All rules OK</div>`;
-      const sigHTML=sig?`<div class="card-signal-row">${signalBadge(sig)}</div>`:'';
-      rulesHTML=`${hdr}${sigHTML}<div class="rule-chips">${chips}</div>`;
+        ? `<div class="card-status-hdr" style="color:#F59E0B">⚠ ${triggered.length} triggered now</div>`
+        : `<div class="card-status-hdr" style="color:#10B981">✓ Quiet now</div>`;
+      rulesHTML=`${hdr}${liveReadingHTML(sig,ev)}<div class="rule-chips">${chips}</div>`;
     }
 
     return `<div class="stock-card${selCls}${alertCls}" onclick="selectStock('${s.symbol}')">
       ${(!guestMode||s.guest_added)?`<button class="remove-btn" onclick="removeStock('${s.symbol}',event)">✕</button>`:''}
-      ${s.alert?'<div class="alert-dot"></div>':''}
+      ${ev&&!ev.decision?'<div class="alert-dot" title="Needs your call"></div>':''}
       <div class="card-top">
         <span class="stock-symbol">${s.symbol}${s.guest_added?'<span class="guest-tag" title="Added by a guest — shown here, but never emails or WhatsApps the owner">guest</span>':''}</span>
         <span class="stock-cat">${(s.category||'').replace('_vol',' vol')}</span>
@@ -4168,6 +4203,7 @@ function renderGrid(){
         </div>
         <div class="stock-time">${s.date} ${s.time}</div>
         ${earningsChip(s)}
+        ${signalStripHTML(ev)}
         ${rulesHTML}
         ${infoEventsLineHTML(s)}
       `:`<div class="stock-err">${s.error||'Loading...'}</div>`}
@@ -4188,27 +4224,119 @@ function toggleDetailMode(){
   renderGrid();
 }
 
-// STRONG signal events from the alert log: alerts from one symbol's check cycle share
-// event_id; older alerts (before grouping) fall back to one event per symbol per day.
+// ── Signals: ONE definition shared by the banner, the stock tiles, the detail panel and the
+// Alerts tab, so they can never disagree. A signal is a STRONG ensemble reading (2+ core rules
+// agreeing) in the alert log. All STRONG alerts for one stock, one day and one direction are one
+// signal (a rule firing later that day while still STRONG doesn't create a second one); the
+// stock's other alerts that day are its supporting evidence. A signal stays open for
+// ACTION_WINDOW_TRADING_DAYS trading days; it needs you until you mark "I acted" / "I passed".
+const RULE_TITLE={volatility:'Unusual Move',support_resistance:'S/R Breach',consecutive_down:'Consec. Down',volume:'Volume Spike',gap:'Opening Gap',rsi:'RSI Extreme',ma_cross:'MA Crossover'};
+function alertDay(a){ return String(a.time).slice(0,10); }
 function signalEvents(){
-  const map={};
+  if(signalEvents._src===alerts) return signalEvents._cache;
+  const map={}, byDay={};
   for(const a of alerts){
     const d=alertDetailOf(a);
     if(!d.strong) continue;
-    const key=a.event_id!=null?'e'+a.event_id:'d'+a.symbol+':'+String(a.time).slice(0,10);
+    const known=d.ensemble&&d.ensemble.startsWith('STRONG')?d.ensemble:null;
+    const key=a.symbol+'|'+alertDay(a)+'|'+(known?(known.includes('BUY')?'buy':'watch'):'?');
     let ev=map[key];
-    if(!ev) ev=map[key]={symbol:a.symbol,ts:a.ts,ids:[],rules:[],sigs:[],label:d.ensemble||null,decision:null};
-    ev.ids.push(a.id); ev.rules.push(a.rule_type); ev.sigs.push(d.signal);
+    if(!ev) ev=map[key]={key:key.replace(/[^A-Za-z0-9]/g,'-'),symbol:a.symbol,day:alertDay(a),ts:a.ts,ids:[],
+                         strongAlerts:[],alerts:[],label:known,decision:null,voteSet:{}};
+    ev.ids.push(a.id); ev.strongAlerts.push(a); ev.alerts.push(a);
     ev.ts=Math.min(ev.ts,a.ts);
     if(a.decision) ev.decision=a.decision;
+    for(const v of (d.votes||[])) ev.voteSet[v.rule_type]=v.signal;
   }
-  return Object.values(map).map(ev=>{
-    if(!ev.label||!ev.label.startsWith('STRONG')){
-      const up=ev.sigs.filter(s=>s==='BUY').length>=ev.sigs.filter(s=>s==='SELL').length;
-      ev.label='STRONG '+(up?'BUY':'BOUNCE WATCH');
+  const evs=Object.values(map);
+  for(const ev of evs){
+    if(!ev.label){   // alerts from before the label was stored: infer the direction
+      const sigs=ev.strongAlerts.map(a=>alertDetailOf(a).signal);
+      ev.label='STRONG '+(sigs.filter(s=>s==='BUY').length>=sigs.filter(s=>s==='SELL').length?'BUY':'BOUNCE WATCH');
     }
-    return ev;
-  });
+    ev.buy=ev.label.includes('BUY');
+    (byDay[ev.symbol+'|'+ev.day]=byDay[ev.symbol+'|'+ev.day]||[]).push(ev);
+  }
+  // the stock's other alerts that day are the evidence (attached to the matching direction)
+  for(const a of alerts){
+    const d=alertDetailOf(a);
+    if(d.strong) continue;
+    const cands=byDay[a.symbol+'|'+alertDay(a)];
+    if(!cands) continue;
+    const ev=cands.find(e=>e.buy===(d.signal==='BUY'))||cands[0];
+    ev.alerts.push(a);
+  }
+  for(const ev of evs){
+    ev.alerts.sort((x,y)=>x.ts-y.ts);
+    const want=ev.buy?'BUY':'SELL';
+    if(!Object.keys(ev.voteSet).length)   // older alerts didn't store their votes
+      for(const a of ev.alerts){ const s=alertDetailOf(a).signal; if(s===want&&ruleWeight(a)>0) ev.voteSet[a.rule_type]=s; }
+    ev.votes=Object.keys(ev.voteSet).filter(rt=>ev.voteSet[rt]===want);
+    ev.rules=ev.votes.length?ev.votes:ev.alerts.map(a=>a.rule_type);
+  }
+  signalEvents._src=alerts; signalEvents._cache=evs;
+  return evs;
+}
+// open = still inside its action window; ordered like the banner: needing a call first (most urgent first)
+function openSignals(){
+  const open=signalEvents().filter(e=>isWithinActionWindow(e.ts));
+  return open.filter(e=>!e.decision).sort((a,b)=>a.ts-b.ts).concat(open.filter(e=>e.decision).sort((a,b)=>b.ts-a.ts));
+}
+function needsCall(){ return openSignals().filter(e=>!e.decision); }
+function openSignalBySymbol(){
+  const m={};
+  for(const e of openSignals()) if(!m[e.symbol]||e.ts>m[e.symbol].ts) m[e.symbol]=e;
+  return m;
+}
+function strongBadgeHTML(ev){ return `<span class="sig-badge ${ev.buy?'sig-strong-buy':'sig-strong-sell'}">${ev.label}</span>`; }
+function decisionHTML(ev){
+  const ids=ev.ids.join(',');
+  if(ev.decision){
+    const st=ev.decision==='acted'?'<span class="dec-state acted">✓ You acted</span>':'<span class="dec-state passed">You passed</span>';
+    return `<span class="today-actions">${st}${guestMode?'':` <a class="today-more" href="javascript:void(0)" onclick="markDecision('${ids}',null)">undo</a>`}</span>`;
+  }
+  if(guestMode) return '';
+  return `<span class="today-actions"><button class="dec-btn acted" onclick="markDecision('${ids}','acted')">I acted</button><button class="dec-btn passed" onclick="markDecision('${ids}','passed')">I passed</button></span>`;
+}
+// The same row in the banner and on top of each Alerts-tab signal card
+function signalRowHTML(ev,where){
+  const why=where==='banner'?` · <a class="today-more" href="javascript:void(0)" onclick="showSignal('${ev.key}')">Why? ›</a>`:'';
+  return `<div class="today-item">
+    <span class="today-sym" onclick="goToStock('${ev.symbol}')">${ev.symbol}</span>
+    ${strongBadgeHTML(ev)}
+    <span class="today-meta">fired ${fmtFired(ev.ts)} · act by ${actByDate(ev.ts)}${eventEdge(ev.symbol,ev.rules)}${why}</span>
+    ${decisionHTML(ev)}
+  </div>`;
+}
+function goToStock(sym){
+  if(document.getElementById('pane-stocks').style.display==='none') switchTab('stocks',tabBtn('stocks'));
+  if(selectedSym!==sym) selectStock(sym);
+  const card=[...document.querySelectorAll('.stock-card .stock-symbol')].find(x=>x.textContent.trim().startsWith(sym));
+  if(card) card.closest('.stock-card').scrollIntoView({block:'center',behavior:'smooth'});
+}
+// The open signal on a tile / detail panel: the banner's badge, plus its deadline or your decision
+function signalStripHTML(ev){
+  if(!ev) return '';
+  const meta=ev.decision==='acted'?'✓ you acted':ev.decision==='passed'?'you passed':`act by ${actByDate(ev.ts)}`;
+  return `<div class="card-signal-row">${strongBadgeHTML(ev)}<span class="card-sig-meta${ev.decision?'':' due'}">${meta}</span></div>`;
+}
+// What the rules say at the latest check. Only a STRONG reading gets a full badge; a lean from a
+// single rule is a small tag so it can't be mistaken for a signal.
+function liveReadingHTML(sig,ev){
+  if(!sig||sig.label==='PENDING') return '';
+  if(sig.label.startsWith('STRONG')){
+    if(ev&&ev.label===sig.label) return '';   // the open signal already says it
+    return `<div class="card-signal-row">${signalBadge(sig)}<span class="card-sig-meta">at the latest check</span></div>`;
+  }
+  const buy=sig.label==='TRENDING BUY';
+  return `<span class="lean-pill ${buy?'buy':'watch'}" title="Only one core rule points this way — not a signal">leaning ${buy?'buy':'bounce watch'} · not confirmed</span>`;
+}
+function showSignal(key){
+  switchTab('alerts',tabBtn('alerts'));
+  const el=document.getElementById('sig-'+key);
+  if(!el) return;
+  el.scrollIntoView({block:'start',behavior:'smooth'});
+  el.classList.add('flash'); setTimeout(()=>el.classList.remove('flash'),1600);
 }
 function actByDate(ts){
   const d=new Date(ts*1000); let n=ACTION_WINDOW_TRADING_DAYS;
@@ -4224,7 +4352,8 @@ function eventEdge(sym,rules){
 async function markDecision(ids,decision){
   await postJSON('/api/decision',{ids:String(ids).split(',').map(Number),decision});
   showToast(decision==='acted'?'Marked: you acted. The follow-up in ~5 trading days will show how it went.'
-                              :'Marked: you passed. The follow-up in ~5 trading days will show how it went.',4500);
+          :decision==='passed'?'Marked: you passed. The follow-up in ~5 trading days will show how it went.'
+          :'Decision cleared — the signal needs your call again.',4500);
   await loadAll();
   if(document.getElementById('pane-analytics').style.display!=='none') loadAnalytics();
 }
@@ -4242,20 +4371,11 @@ function renderTriage(){
     }
     if((s.info_events||[]).length) infoCount++;
   }
-  const needs=signalEvents().filter(e=>!e.decision&&isWithinActionWindow(e.ts)).sort((a,b)=>a.ts-b.ts);
+  const needs=needsCall();
   let html;
   if(needs.length){
     html=`<div class="today-head needs">⚡ ${needs.length} signal${needs.length>1?'s need':' needs'} you — act by ${actByDate(needs[0].ts)}</div>`+
-      needs.map(e=>{
-        const buy=e.label.includes('BUY');
-        const ids=e.ids.join(',');
-        return `<div class="today-item">
-          <span class="today-sym" onclick="selectStock('${e.symbol}')">${e.symbol}</span>
-          <span class="sig-badge ${buy?'sig-strong-buy':'sig-strong-sell'}">${e.label}</span>
-          <span class="today-meta">fired ${fmtFired(e.ts)} · act by ${actByDate(e.ts)}${eventEdge(e.symbol,e.rules)}</span>
-          ${guestMode?'':`<span class="today-actions"><button class="dec-btn acted" onclick="markDecision('${ids}','acted')">I acted</button><button class="dec-btn passed" onclick="markDecision('${ids}','passed')">I passed</button></span>`}
-        </div>`;
-      }).join('');
+      needs.map(e=>signalRowHTML(e,'banner')).join('');
   }else{
     html=`<div class="today-head calm">✓ Nothing needs you today</div>`;
   }
@@ -4370,8 +4490,9 @@ function renderDetail(s){
     <div id="detail-header">
       <div>
         <div id="detail-title">${s.symbol} <span style="font-size:13px;color:#6B7280;font-weight:400">${(s.category||'').replace('_vol',' vol')}</span></div>
-        <div id="detail-meta">Updated ${s.date} ${s.time}${s.alert?' · <span style="color:#F59E0B">⚠ Alert active</span>':''}</div>
-        ${signalBadge(computeSignal(s.rules))}
+        <div id="detail-meta">Updated ${s.date} ${s.time}${s.alert?' · <span style="color:#F59E0B">⚠ Rule triggered now</span>':''}</div>
+        ${signalStripHTML(openSignalBySymbol()[s.symbol])}
+        ${liveReadingHTML(computeSignal(s.rules),openSignalBySymbol()[s.symbol])}
       </div>
       <button id="btn-close" onclick="selectStock('${s.symbol}')">✕ Close</button>
     </div>
@@ -4653,111 +4774,111 @@ function actionWindowChipHTML(ts){
   return `<span class="window-chip window-open">window: ${left}d left</span>`;
 }
 
+function alertEntryHTML(a,inSignal,hideNews){
+  let detail={};
+  try{ if(a.detail) detail=JSON.parse(a.detail); }catch(e){}
+  const unit=a.rule_type==='volatility'?'%':a.rule_type==='consecutive_down'?' days':'';
+  const detailVals=[];
+  if(detail.actual_value!=null) detailVals.push(`<div class="alert-detail-val"><span>Actual</span><span>${detail.actual_value}${unit}</span></div>`);
+  if(detail.threshold!=null)    detailVals.push(`<div class="alert-detail-val"><span>Threshold</span><span>${detail.threshold}${unit}</span></div>`);
+  if(detail.avg_daily_vol!=null) detailVals.push(`<div class="alert-detail-val"><span>Avg Daily Vol</span><span>${detail.avg_daily_vol}%</span></div>`);
+  if(detail.support!=null)       detailVals.push(`<div class="alert-detail-val"><span>Support</span><span>$${detail.support}</span></div>`);
+  if(detail.resistance!=null)    detailVals.push(`<div class="alert-detail-val"><span>Resistance</span><span>$${detail.resistance}</span></div>`);
+  if(detail.direction)           detailVals.push(`<div class="alert-detail-val"><span>Direction</span><span>${detail.direction}</span></div>`);
+  const ruleLabel=RULE_TITLE[a.rule_type]||a.rule_type.replace(/_/g,' ');
+  const alertSig=detail.signal?ruleSigBadge(detail.signal):'';
+  const ctx=(RULE_SIGNAL_WEIGHT[a.rule_type]??1)===0?'<span class="window-chip window-closed" title="Shown for context — this rule does not count toward signals">context only</span>':'';
+  // inside a signal card the card header carries the deadline; in the history only past signals get a chip
+  const windowChip=inSignal?'':(detail.strong&&!isWithinActionWindow(a.ts)?actionWindowChipHTML(a.ts):'');
+  const dim=!inSignal&&a.ack;
+  return `<div class="alert-entry${!inSignal&&!isWithinActionWindow(a.ts)?' window-expired':''}" style="${dim?'opacity:.5':''}">
+    <div class="alert-entry-header">
+      <span class="alert-entry-time">${a.time}</span>
+      <span class="alert-entry-rule">${ruleLabel}</span>
+      ${alertSig}${ctx}
+      ${windowChip}
+      ${detail.near_earnings?'<span class="earnings-chip soon" style="margin-top:0">📅 earnings-driven?</span>':''}
+      ${dim?'<span style="font-size:15px;color:#10B981">✓ ack</span>':''}
+      <span class="alert-entry-price">Price: $${a.price}</span>
+    </div>
+    <div class="alert-entry-msg">${a.message}</div>
+    ${detail.description?`<div class="alert-entry-detail">${detail.description}</div>`:''}
+    ${detailVals.length>0?`<div class="alert-detail-vals">${detailVals.join('')}</div>`:''}
+    ${detail.rationale?`<div class="alert-rationale">${detail.rationale}</div>`:''}
+    ${evidenceLineHTML(a.symbol,a.rule_type)}
+    ${detail.bear_regime_caveat?`<div class="bear-caveat">🐻 ${detail.bear_regime_caveat}</div>`:''}
+    ${detail.news_synthesis&&!hideNews?`<div class="news-synthesis"><div class="news-synthesis-label">📰 News Synthesis</div><div class="news-synthesis-text">${detail.news_synthesis}</div></div>`:''}
+  </div>`;
+}
+
+// One card per open signal — the banner's row on top, the alerts that make it up below.
+// The same news synthesis is shared by every alert of a check, so it is shown once.
+function signalCardHTML(ev){
+  const agree=ev.votes.length
+    ? `${ev.votes.length} core rule${ev.votes.length>1?'s':''} agreed: ${ev.votes.map(rt=>RULE_TITLE[rt]||rt).join(' · ')}`
+    : '';
+  let newsShown=false;   // one news synthesis per signal (older alerts each had their own copy)
+  const entries=ev.alerts.map(a=>{
+    const hide=newsShown; if(alertDetailOf(a).news_synthesis) newsShown=true;
+    return alertEntryHTML(a,true,hide);
+  }).join('');
+  return `<div class="alert-group sig-card ${ev.buy?'buy':'watch'}" id="sig-${ev.key}">
+    ${signalRowHTML(ev,'alerts')}
+    ${agree?`<div class="sig-card-why">${agree}</div>`:''}
+    <div class="alert-entries open">${entries}</div>
+  </div>`;
+}
+
 function renderAlerts(){
   const el=document.getElementById('alert-pane');
   if(!alerts||alerts.length===0){
     el.innerHTML='<div class="no-alerts">No alerts yet — run a check to evaluate your watchlist.</div>';
     return;
   }
+  // 1. Open signals: the same list, in the same order, as the banner on the Stocks tab
+  const open=openSignals();
+  const inCards=new Set(open.flatMap(e=>e.alerts.map(a=>a.id)));
+  let html=`<div class="alerts-sec">Signals · last ${ACTION_WINDOW_TRADING_DAYS} trading days</div>`;
+  html+=open.length?open.map(signalCardHTML).join('')
+    :'<div class="no-alerts" style="padding:14px">✓ No open signals — nothing needs your call.</div>';
 
-  // Group by symbol, preserve insertion order (already sorted by time DESC)
-  const groups={};
-  const order=[];
-  alerts.forEach(a=>{
+  // 2. Everything else, by stock, newest first, collapsed: single-rule alerts and past signals
+  const groups={}, order=[];
+  for(const a of alerts){
+    if(inCards.has(a.id)) continue;
     if(!groups[a.symbol]){groups[a.symbol]=[];order.push(a.symbol);}
     groups[a.symbol].push(a);
-  });
-
-  el.innerHTML=order.map(sym=>{
-    const entries=groups[sym];
-    const isOpen=alertGroupOpen[sym]!==false;  // default open
-    const html=entries.map(a=>{
-      let detail={};
-      try{ if(a.detail) detail=JSON.parse(a.detail); }catch(e){}
-
-      const detailVals=[];
-      if(detail.actual_value!=null){
-        const unit=a.rule_type==='volatility'?'%':a.rule_type==='consecutive_down'?' days':'';
-        detailVals.push(`<div class="alert-detail-val"><span>Actual</span><span>${detail.actual_value}${unit}</span></div>`);
-      }
-      if(detail.threshold!=null){
-        const unit=a.rule_type==='volatility'?'%':a.rule_type==='consecutive_down'?' days':'';
-        detailVals.push(`<div class="alert-detail-val"><span>Threshold</span><span>${detail.threshold}${unit}</span></div>`);
-      }
-      if(detail.avg_daily_vol!=null) detailVals.push(`<div class="alert-detail-val"><span>Avg Daily Vol</span><span>${detail.avg_daily_vol}%</span></div>`);
-      if(detail.support!=null)       detailVals.push(`<div class="alert-detail-val"><span>Support</span><span>$${detail.support}</span></div>`);
-      if(detail.resistance!=null)    detailVals.push(`<div class="alert-detail-val"><span>Resistance</span><span>$${detail.resistance}</span></div>`);
-      if(detail.direction)           detailVals.push(`<div class="alert-detail-val"><span>Direction</span><span>${detail.direction}</span></div>`);
-
-      const ruleLabel={volatility:'Unusual Move',support_resistance:'S/R Breach',consecutive_down:'Consec. Down',volume:'Volume Spike',gap:'Opening Gap',rsi:'RSI Extreme',ma_cross:'MA Crossover'}[a.rule_type]||a.rule_type.replace(/_/g,' ');
-      const alertSig=detail.signal?ruleSigBadge(detail.signal):'';
-
-      return `<div class="alert-entry${isWithinActionWindow(a.ts)?'':' window-expired'}" style="${a.ack?'opacity:.5':''}">
-        <div class="alert-entry-header">
-          <span class="alert-entry-time">${a.time}</span>
-          <span class="alert-entry-rule">${ruleLabel}</span>
-          ${alertSig}
-          ${actionWindowChipHTML(a.ts)}
-          ${detail.near_earnings?'<span class="earnings-chip soon" style="margin-top:0">📅 earnings-driven?</span>':''}
-          ${a.ack?'<span style="font-size:15px;color:#10B981">✓ ack</span>':''}
-          <span class="alert-entry-price">Price: $${a.price}</span>
+  }
+  if(order.length){
+    html+=`<div class="alerts-sec">Rule activity &amp; history</div>
+      <div class="set-hint" style="margin:-4px 0 10px">Single-rule alerts are context, not signals — it takes 2+ core rules agreeing to make one. Past signals appear here once their ${ACTION_WINDOW_TRADING_DAYS}-day window closes.</div>`;
+    html+=order.map(sym=>{
+      const entries=groups[sym];
+      const isOpen=alertGroupOpen[sym]===true;   // collapsed unless you opened it
+      const unacked=entries.filter(a=>!a.ack).length;
+      const last=entries[0];
+      const s=stocks.find(x=>x.symbol===sym);
+      return `<div class="alert-group">
+        <div class="alert-group-hdr" onclick="toggleAlertGroup('${sym}')">
+          <span class="alert-group-sym">${sym}</span>
+          <span class="alert-group-cnt">${entries.length} alert${entries.length>1?'s':''}</span>
+          <span class="alert-group-cat">${s?(s.category||'').replace('_vol',' vol'):''}</span>
+          <span class="alert-group-latest">latest ${fmtFired(last.ts)} · ${RULE_TITLE[last.rule_type]||last.rule_type}</span>
+          ${unacked>0?`<button class="btn-reset" style="padding:3px 10px;font-size:17px;margin-right:6px" onclick="ackSymbol(event,'${sym}')">✓ Ack</button>`:''}
+          <span class="alert-group-chevron ${isOpen?'open':''}" id="ag-chev-${sym}">▼</span>
         </div>
-        <div class="alert-entry-msg">${a.message}</div>
-        ${detail.description?`<div class="alert-entry-detail">${detail.description}</div>`:''}
-        ${detailVals.length>0?`<div class="alert-detail-vals">${detailVals.join('')}</div>`:''}
-        ${detail.rationale?`<div class="alert-rationale">${detail.rationale}</div>`:''}
-        ${evidenceLineHTML(a.symbol,a.rule_type)}
-        ${detail.bear_regime_caveat?`<div class="bear-caveat">🐻 ${detail.bear_regime_caveat}</div>`:''}
-        ${detail.news_synthesis?`<div class="news-synthesis"><div class="news-synthesis-label">📰 News Synthesis</div><div class="news-synthesis-text">${detail.news_synthesis}</div></div>`:''}
+        <div class="alert-entries ${isOpen?'open':''}" id="ag-entries-${sym}">
+          ${isOpen?entries.map(a=>alertEntryHTML(a,false)).join(''):''}
+        </div>
       </div>`;
     }).join('');
-
-    // Compute group signal from alerts in this group STILL INSIDE the action window (same
-    // evidence-based weights as computeSignal). Alerts older than the calibrated window are
-    // excluded from both the vote tally and the badge — otherwise a "STRONG BOUNCE WATCH"
-    // badge could be built from weeks-old alerts, directly contradicting the banner above it.
-    const inWindowEntries=entries.filter(a=>isWithinActionWindow(a.ts));
-    const groupSigs=inWindowEntries.map(a=>{let d={};try{if(a.detail)d=JSON.parse(a.detail);}catch(e){}return d.signal?{signal:d.signal,rule_type:a.rule_type}:null;}).filter(Boolean).filter(g=>(RULE_SIGNAL_WEIGHT[g.rule_type]??1)>0);
-    const gBuys=groupSigs.filter(g=>g.signal==='BUY').reduce((s,g)=>s+(RULE_SIGNAL_WEIGHT[g.rule_type]??1),0);
-    const gSells=groupSigs.filter(g=>g.signal==='SELL').reduce((s,g)=>s+(RULE_SIGNAL_WEIGHT[g.rule_type]??1),0);
-    const gTotal=gBuys+gSells;
-    let groupSig=null;
-    if(gTotal>=2&&gBuys/gTotal>=2/3) groupSig={label:'STRONG BUY',cls:'sig-strong-buy'};
-    else if(gTotal>=2&&gSells/gTotal>=2/3) groupSig={label:'STRONG BOUNCE WATCH',cls:'sig-strong-sell'};
-    else if(gBuys>gSells) groupSig={label:'TRENDING BUY',cls:'sig-trending-buy'};
-    else if(gSells>gBuys) groupSig={label:'BOUNCE WATCH',cls:'sig-trending-sell'};
-    else if(gTotal>0) groupSig={label:'PENDING',cls:'sig-pending'};
-
-    const unacked=entries.filter(a=>!a.ack).length;
-    return `<div class="alert-group">
-      <div class="alert-group-hdr" onclick="toggleAlertGroup('${sym}')">
-        <span class="alert-group-sym">${sym}</span>
-        <span class="alert-group-cnt">${entries.length} alert${entries.length>1?'s':''}</span>
-        <span class="alert-group-cat" id="ag-cat-${sym}"></span>
-        ${groupSig?`<span class="sig-badge ${groupSig.cls} group-signal">${groupSig.label}</span>`:''}
-        ${unacked>0?`<button class="btn-reset" style="padding:3px 10px;font-size:17px;margin-right:6px" onclick="ackSymbol(event,'${sym}')">✓ Ack</button>`:''}
-        <span class="alert-group-chevron ${isOpen?'open':''}" id="ag-chev-${sym}">▼</span>
-      </div>
-      <div class="alert-entries ${isOpen?'open':''}" id="ag-entries-${sym}">
-        ${html}
-      </div>
-    </div>`;
-  }).join('');
-
-  // Fill in category labels from stocks data
-  order.forEach(sym=>{
-    const s=stocks.find(x=>x.symbol===sym);
-    const el=document.getElementById('ag-cat-'+sym);
-    if(el&&s) el.textContent=(s.category||'').replace('_vol',' vol');
-  });
+  }
+  el.innerHTML=html;
 }
 
 function toggleAlertGroup(sym){
-  alertGroupOpen[sym] = !(alertGroupOpen[sym]!==false);
-  const entries=document.getElementById('ag-entries-'+sym);
-  const chev=document.getElementById('ag-chev-'+sym);
-  if(entries) entries.className='alert-entries'+(alertGroupOpen[sym]?' open':'');
-  if(chev) chev.className='alert-group-chevron'+(alertGroupOpen[sym]?' open':'');
+  alertGroupOpen[sym]=!(alertGroupOpen[sym]===true);
+  renderAlerts();
 }
 
 async function ackSymbol(e,sym){ e.stopPropagation(); await postJSON('/api/alerts/ack',{symbol:sym}); loadAll(); }
