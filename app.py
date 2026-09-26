@@ -5,7 +5,7 @@ Run:  python app.py
 Open: http://localhost:5000
 """
 
-import sqlite3, threading, time, json, os, logging, csv, io, smtplib, urllib.parse, urllib.request, subprocess, sys, hmac, secrets
+import sqlite3, threading, time, json, os, logging, csv, io, smtplib, urllib.parse, urllib.request, subprocess, sys, hmac, secrets, hashlib
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from html import escape as h_esc
@@ -21,6 +21,7 @@ except Exception:
 from flask import Flask, jsonify, request, Response, session, redirect, url_for, stream_with_context
 from flask_cors import CORS
 import yfinance as yf
+import portfolio_sim
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("tripwire")
@@ -92,6 +93,17 @@ def init_db():
                 vid TEXT, ip TEXT, device TEXT, detail TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_access_ts ON access_log(ts);
+            CREATE TABLE IF NOT EXISTS sim_daily (
+                date TEXT PRIMARY KEY, start TEXT,
+                strategy REAL, untouched REAL, spy REAL
+            );
+            CREATE TABLE IF NOT EXISTS sim_backtest_runs (
+                id INTEGER PRIMARY KEY, ts INTEGER, start_date TEXT, end_date TEXT,
+                strategy_end REAL, untouched_end REAL, spy_end REAL,
+                strategy_cagr REAL, untouched_cagr REAL, spy_cagr REAL,
+                fair_strategy_pct REAL, fair_untouched_pct REAL, fair_spy_pct REAL,
+                fingerprint TEXT
+            );
             CREATE INDEX IF NOT EXISTS idx_prices_symbol_ts ON prices(symbol, timestamp);
             CREATE INDEX IF NOT EXISTS idx_alerts_symbol_rule_ts ON alerts(symbol, rule_type, timestamp);
         """)
@@ -1781,6 +1793,7 @@ GUEST_ACTION_NAMES = [
     ("/api/alerts/clear", "Clear alert history"),
     ("/api/recalibrate", "Recalibrate"),
     ("/api/decision", "Mark acted/passed"),
+    ("/api/portfolio-sim", "Restart live portfolio test"),
     ("/sensitivity", "Change sensitivity"),
     ("/params/reset", "Reset rules"),
     ("/params", "Edit rules"),
@@ -2338,6 +2351,8 @@ def _run_backtest(args, phase):
     finally:
         RECAL_STATE["running"] = False
         RECAL_STATE["phase"] = "done"
+    if RECAL_STATE["rc"] == 0 and (refresh or args in (["apply"], ["undo"])):
+        portfolio_build_async()   # new data or new live thresholds -> redo the backtest portfolio
 
 PARAM_NAMES = {
     "volatility_multiplier": "unusual-move threshold (× normal daily move)",
@@ -2389,6 +2404,196 @@ def _send_recal_email(diff):
     _send_email(subject, text, html)
 
 threading.Thread(target=auto_recal_loop, daemon=True).start()
+
+# ── Portfolio test: $1,000 following the app's STRONG signals (rulebook in portfolio_sim.py) ──
+PORTFOLIO_JSON = Path(__file__).parent / "backtest_results" / "portfolio_backtest.json"
+LIVE_PARAMS_JSON = Path(__file__).parent / "backtest_results" / "live_params.json"
+PF_STATE = {"building": False, "error": None}
+_pf_lock = threading.Lock()
+_live_pf_cache = {"ts": 0.0, "data": None}
+
+def _owner_stocks():
+    return [s for s in get_stocks() if s.get("added_by") != "guest"]
+
+def _live_params_snapshot():
+    return {s["symbol"]: {"category": s["category"], "params": get_params(s["symbol"], s["category"])}
+            for s in _owner_stocks()}
+
+def _fingerprint(snap):
+    return hashlib.sha1(json.dumps(snap, sort_keys=True).encode()).hexdigest()[:16]
+
+def backtest_portfolio_stale():
+    """The backtest portfolio must reflect the thresholds live right now; any change to a stock's
+    rules, sensitivity or the watchlist changes the fingerprint and triggers a rebuild."""
+    return not PORTFOLIO_JSON.exists() or get_setting("sim_bt_fingerprint", "") != _fingerprint(_live_params_snapshot())
+
+def build_backtest_portfolio():
+    with _pf_lock:
+        if PF_STATE["building"] or RECAL_STATE["running"]:
+            return False
+        PF_STATE["building"] = True
+    try:
+        snap = _live_params_snapshot()
+        LIVE_PARAMS_JSON.parent.mkdir(parents=True, exist_ok=True)
+        LIVE_PARAMS_JSON.write_text(json.dumps(snap), encoding="utf-8")
+        proc = subprocess.run([sys.executable, str(BACKTEST_PY), "portfolio"], cwd=str(BACKTEST_PY.parent),
+                              capture_output=True, text=True, timeout=900)
+        if proc.returncode != 0:
+            PF_STATE["error"] = ((proc.stderr or "") + (proc.stdout or ""))[-600:]
+            log.warning("portfolio backtest failed: %s", PF_STATE["error"])
+            return False
+        PF_STATE["error"] = None
+        fp = _fingerprint(snap)
+        set_setting("sim_bt_fingerprint", fp)
+        res = json.loads(PORTFOLIO_JSON.read_text(encoding="utf-8"))
+        s, f = res["summary"], res.get("fair_summary") or {}
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO sim_backtest_runs (ts,start_date,end_date,strategy_end,untouched_end,spy_end,strategy_cagr,"
+                "untouched_cagr,spy_cagr,fair_strategy_pct,fair_untouched_pct,fair_spy_pct,fingerprint) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (int(time.time()), res["start_date"], res["end_date"], s["strategy"]["end"], s["untouched"]["end"],
+                 s["spy"]["end"], s["strategy"]["cagr_pct"], s["untouched"]["cagr_pct"], s["spy"]["cagr_pct"],
+                 f.get("strategy", {}).get("total_pct"), f.get("untouched", {}).get("total_pct"),
+                 f.get("spy", {}).get("total_pct"), fp))
+            conn.commit()
+        return True
+    except Exception as e:
+        PF_STATE["error"] = str(e)
+        log.warning("portfolio backtest failed: %s", e)
+        return False
+    finally:
+        PF_STATE["building"] = False
+
+def portfolio_build_async():
+    threading.Thread(target=build_backtest_portfolio, daemon=True).start()
+
+def _sim_bars(sym, start):
+    def fetch():
+        h = yf.Ticker(sym).history(start=start, auto_adjust=True)
+        if h is None or h.empty:
+            return {}
+        return {ts.strftime("%Y-%m-%d"): (float(r["Open"]), float(r["Close"]))
+                for ts, r in h.iterrows() if r["Close"] == r["Close"] and r["Open"] == r["Open"]}
+    try:
+        return yf_cached(f"simbars:{sym}:{start}", 1800, fetch) or {}
+    except Exception:
+        return {}
+
+def _live_sim_start():
+    start = get_setting("sim_live_start", "")
+    if not start:
+        start = datetime.now().strftime("%Y-%m-%d")
+        set_setting("sim_live_start", start)
+        set_setting("sim_live_symbols", json.dumps([s["symbol"] for s in _owner_stocks()]))
+    try:
+        syms = json.loads(get_setting("sim_live_symbols", "[]") or "[]")
+    except Exception:
+        syms = []
+    return start, syms
+
+def _live_signals(start):
+    """STRONG events the app actually logged after the start day, one per event, at the alert price."""
+    ts0 = int(datetime.strptime(start, "%Y-%m-%d").timestamp()) + 86400
+    with get_db() as conn:
+        rows = [dict(r) for r in conn.execute(
+            "SELECT * FROM alerts WHERE timestamp >= ? ORDER BY timestamp, id", (ts0,))]
+    groups = {}
+    for r in rows:
+        groups.setdefault(r.get("event_id") or r["id"], []).append(r)
+    out = []
+    for rs in groups.values():
+        r0 = rs[0]
+        if not any(_detail_of(r).get("strong") for r in rs) or is_guest_stock(r0["symbol"]) or not r0["price"]:
+            continue
+        out.append({"date": datetime.fromtimestamp(r0["timestamp"]).strftime("%Y-%m-%d"), "sym": r0["symbol"],
+                    "label": _event_label(rs), "price": float(r0["price"]), "order": r0["timestamp"]})
+    return out
+
+def compute_live_portfolio(force=False):
+    if not force and _live_pf_cache["data"] is not None and time.time() - _live_pf_cache["ts"] < 600:
+        return _live_pf_cache["data"]
+    start, syms = _live_sim_start()
+    signals = _live_signals(start)
+    spy = {d: c for d, (o, c) in _sim_bars("SPY", start).items()}
+    calendar = sorted(d for d in spy if d >= start)
+    data = {"start": start, "symbols": syms, "signals_seen": len(signals)}
+    if calendar:
+        # A signal logged on a weekend/holiday (e.g. a Saturday check of Friday's bars) belongs to
+        # the last trading day before it; its price is no longer tradable, so it buys at the next open.
+        days = set(calendar)
+        bars = {s: _sim_bars(s, start) for s in sorted(set(syms) | {g["sym"] for g in signals})}
+        # (A weekday after the last bar is just today before its bar exists — left as is.)
+        for g in signals:
+            d = g["date"]
+            if d in days or (d > calendar[-1] and datetime.strptime(d, "%Y-%m-%d").weekday() < 5):
+                continue
+            prior = [x for x in calendar if x < d]
+            if prior:
+                g["date"], g["price"] = prior[-1], None
+            else:   # logged before the test's first trading day: its first chance is that day's open
+                first_open = (bars.get(g["sym"], {}).get(calendar[0]) or (None,))[0]
+                g["date"], g["price"] = calendar[0], first_open
+        res = portfolio_sim.simulate(bars, spy, calendar, syms, signals)
+        if res:
+            data.update(res)
+            with get_db() as conn:
+                conn.executemany("INSERT OR REPLACE INTO sim_daily (date,start,strategy,untouched,spy) VALUES (?,?,?,?,?)",
+                                 [(e["date"], start, e["strategy"], e["untouched"], e["spy"]) for e in res["equity"]])
+                conn.commit()
+    _live_pf_cache.update(ts=time.time(), data=data)
+    return data
+
+def portfolio_loop():
+    """Keeps both sides current: rebuilds the backtest portfolio whenever the live thresholds or
+    watchlist change, and stores the live portfolio's values each evening after the US close."""
+    time.sleep(240)
+    _live_sim_start()   # the live test starts the first day this runs
+    while True:
+        try:
+            if backtest_portfolio_stale():
+                build_backtest_portfolio()
+            now = datetime.now()
+            today = now.strftime("%Y-%m-%d")
+            if (now.hour, now.minute) >= (22, 30) and get_setting("sim_live_snapshot", "") != today:
+                compute_live_portfolio(force=True)
+                set_setting("sim_live_snapshot", today)
+                log.info("portfolio test: stored live snapshot for %s", today)
+        except Exception as e:
+            log.warning("portfolio_loop error: %s", e)
+        time.sleep(900)
+
+threading.Thread(target=portfolio_loop, daemon=True).start()
+
+@app.route("/api/portfolio-sim")
+@login_required
+def api_portfolio_sim():
+    bt = None
+    if PORTFOLIO_JSON.exists():
+        try:
+            bt = json.loads(PORTFOLIO_JSON.read_text(encoding="utf-8"))
+        except Exception:
+            bt = None
+    stale = backtest_portfolio_stale()
+    if stale and not PF_STATE["building"]:
+        portfolio_build_async()
+    with get_db() as conn:
+        runs = [dict(r) for r in conn.execute(
+            "SELECT ts,strategy_cagr,untouched_cagr,spy_cagr FROM sim_backtest_runs ORDER BY id DESC LIMIT 8")]
+    return jsonify({"backtest": bt, "backtest_updating": bool(stale or PF_STATE["building"]),
+                    "backtest_error": PF_STATE["error"], "backtest_runs": runs,
+                    "live": compute_live_portfolio()})
+
+@app.route("/api/portfolio-sim/restart", methods=["POST"])
+@login_required
+def api_portfolio_sim_restart():
+    today = datetime.now().strftime("%Y-%m-%d")
+    set_setting("sim_live_start", today)
+    set_setting("sim_live_symbols", json.dumps([s["symbol"] for s in _owner_stocks()]))
+    with get_db() as conn:
+        conn.execute("DELETE FROM sim_daily"); conn.commit()
+    _live_pf_cache.update(ts=0.0, data=None)
+    return jsonify({"success": True, "start": today})
 
 def _recal_diff():
     """Preview: which live thresholds/enables would change if the latest recommendation applied."""
@@ -3271,6 +3476,30 @@ button:disabled{opacity:.45;cursor:not-allowed}
 
 /* Analytics tab */
 #pane-analytics{padding-bottom:60px}
+#pane-portfolio{padding-bottom:60px}
+.pf-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+@media (max-width:900px){ .pf-grid{grid-template-columns:1fr} }
+.pf-col{background:#12151F;border:1px solid #1E2235;border-radius:12px;padding:18px 20px;min-width:0}
+.pf-kind{font-size:12px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:#9CA3AF}
+.pf-period{font-size:13px;color:#6B7280;margin:2px 0 12px}
+.pf-big{font-size:26px;font-weight:800;line-height:1.2}
+.pf-sub{font-size:14px;margin:4px 0 14px}
+.pf-rows{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:10px}
+.pf-rows td{padding:6px 4px;border-bottom:1px solid #1E223588}
+.pf-rows td.r{text-align:right;white-space:nowrap}
+.pf-dot{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:middle}
+.pf-verdict{border-radius:10px;padding:10px 12px;font-size:14px;font-weight:600;margin:6px 0 12px}
+.pf-verdict.good{background:#05966918;color:#34D399;border:1px solid #05966955}
+.pf-verdict.bad{background:#DC262618;color:#F87171;border:1px solid #DC262655}
+.pf-verdict.flat{background:#37415133;color:#D1D5DB;border:1px solid #374151}
+.pf-fair{font-size:12px;color:#BFDBFE;background:#3B82F612;border:1px solid #3B82F644;border-radius:8px;padding:8px 10px;margin-bottom:12px}
+.pf-chart svg{width:100%;height:auto;display:block}
+.pf-legend{font-size:11px;color:#9CA3AF;margin:4px 0 12px}
+.pf-movers{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:8px 0}
+.pf-movers h4{font-size:11px;color:#9CA3AF;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px}
+.pf-movers div div{font-size:13px;padding:2px 0}
+.pf-col details summary{cursor:pointer;color:#93C5FD;font-size:12px;margin:8px 0}
+.pf-note{font-size:12px;color:#6B7280;margin-top:10px;line-height:1.5}
 
 /* Glossary */
 #pane-glossary{max-width:820px;padding-bottom:80px}
@@ -3373,6 +3602,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
   <button class="tab" onclick="switchTab('alerts',this)" id="tab-alerts-btn">Alerts</button>
   <button class="tab" onclick="switchTab('assistant',this)">🤖 Assistant</button>
   <button class="tab" onclick="switchTab('analytics',this)">📊 Performance</button>
+  <button class="tab" onclick="switchTab('portfolio',this)">💼 Portfolio test</button>
   <button class="tab" onclick="switchTab('settings',this)">Settings</button>
   <button class="tab" onclick="switchTab('glossary',this)" id="tab-glossary-btn">📖 Glossary</button>
 </div>
@@ -3423,6 +3653,8 @@ button:disabled{opacity:.45;cursor:not-allowed}
   </div>
 
   <div id="pane-analytics" style="display:none"></div>
+
+  <div id="pane-portfolio" style="display:none"></div>
 
   <div id="pane-settings" style="display:none"></div>
 
@@ -3559,7 +3791,8 @@ function track(text){
   if(!guestMode) return;
   fetch('/api/track',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({d:text}),keepalive:true}).catch(()=>{});
 }
-const TAB_NAMES={stocks:'Stocks',alerts:'Alerts',assistant:'AI Assistant',analytics:'Performance',settings:'Settings',glossary:'Glossary'};
+const TAB_NAMES={stocks:'Stocks',alerts:'Alerts',assistant:'AI Assistant',analytics:'Performance',portfolio:'Portfolio test',settings:'Settings',glossary:'Glossary'};
+function tabBtn(name){ return [...document.querySelectorAll('.tab')].find(b=>(b.getAttribute('onclick')||'').includes("'"+name+"'")); }
 
 let aiEnabled=false, guestMode=false, guestAiLeft=null, guestAiLimit=5, maxAlertId=0, notifPrimed=false, appSettings={};
 function renderChatQuota(){
@@ -3611,10 +3844,7 @@ function handleStartParams(){
   startParamsHandled=true;
   const p=new URLSearchParams(location.search);
   const tab=p.get('tab'), sym=(p.get('stock')||'').toUpperCase();
-  if(tab&&TAB_NAMES[tab]){
-    const btn=[...document.querySelectorAll('.tab')].find(b=>(b.getAttribute('onclick')||'').includes("'"+tab+"'"));
-    switchTab(tab,btn);
-  }
+  if(tab&&TAB_NAMES[tab]) switchTab(tab,tabBtn(tab));
   if(sym&&stocks.some(s=>s.symbol===sym)&&selectedSym!==sym) selectStock(sym);
   if(tab||sym) history.replaceState(null,'','/');
 }
@@ -3733,12 +3963,13 @@ function switchTab(name,btn){
   track('Opened tab: '+(TAB_NAMES[name]||name));
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   if(btn) btn.classList.add('active');
-  ['stocks','alerts','assistant','analytics','settings','glossary'].forEach(n=>{
+  ['stocks','alerts','assistant','analytics','portfolio','settings','glossary'].forEach(n=>{
     const el=document.getElementById('pane-'+n);
     if(el) el.style.display=(n===name)?'':'none';
   });
   if(name==='settings') loadSettings();
   if(name==='analytics') loadAnalytics();
+  if(name==='portfolio') loadPortfolio();
   if(name==='assistant') loadChatHistory();
   if(name==='glossary') renderGlossary();
 }
@@ -3794,6 +4025,8 @@ const GLOSSARY=[
   ['alert','Alert','A rule "fires" (alerts) when its condition crosses the configured threshold — e.g. today\'s move exceeds the volatility threshold. Every alert is logged to the Alerts tab; whether it also sends a push/email/WhatsApp depends on your notification settings.'],
   ['strong','STRONG signal','When at least two independent rules agree on the same direction (a two-thirds majority of the voting rules), Tripwire escalates to a <b>STRONG BUY</b> or <b>STRONG BOUNCE WATCH</b>. STRONG signals carried the strongest backtested edge (~+1.9% over 5 days, 61% hit) and are what outbound notifications default to. Only the four rules with a proven edge vote (volatility, support/resistance, volume, RSI); gap, consecutive-down and MA-cross still alert individually but don\'t vote.'],
   ['bounce','Bounce watch','What used to be a "SELL" signal. Backtesting this watchlist found that downside triggers (a gap down, an oversold RSI, a support break) were historically followed by a <b>rebound within a few days</b>, not a continued decline — so a downside signal is framed as a "bounce watch" (a possible dip-buy setup) rather than a sell. This is calibrated on a bull-heavy period; in a sustained bear market the bounce tendency weakens.'],
+  ['cagr','Per year (CAGR)','The steady yearly growth rate that would turn the starting value into the end value. +13%/yr for 5 years roughly doubles money. Shown only after 90 days, because annualising a few weeks exaggerates wildly.'],
+  ['never-traded','Never traded','The Portfolio test\'s reference line: the same $1,000 split equally across the same stocks and simply held. The gap between "following the app" and this line is what the app\'s signals add or cost, separate from how good the stock picks themselves were.'],
   ['backtested','Backtested','Every threshold in Tripwire was chosen by replaying ~5 years of daily prices and measuring what actually happened after each trigger (see the Backtesting doc). The "Backtested: +x% over 5d" line on a rule is that rule\'s measured historical edge, not a guess.'],
   ['excess','Excess return (vs SPY)','A rule\'s forward return with the S&P 500 (SPY) subtracted over the same window, so the rule isn\'t credited for a move that was really just the whole market rising. +2% excess means the stock beat SPY by 2 points over the measured days.'],
   ['hitrate','Hit rate','The percent of a rule\'s historical triggers where the signal was "right" (a positive signal-direction excess return). 55–62% is typical for the strong rules — an edge, not a crystal ball.'],
@@ -4756,7 +4989,7 @@ async function loadAnalytics(){
   if(d.calibration){
     const c=d.calibration;
     if(c.drifting){
-      calibHTML=`<div class="perf-drift">⚠ Live hit rate (${c.live_hit}%) is tracking below the backtested ${c.bt_hit}% — the market may have shifted. Consider <a class="gloss-link" href="javascript:void(0)" onclick="switchTab('settings',document.querySelectorAll('.tab')[4]);setTimeout(()=>document.getElementById('btn-recal-run')&&document.getElementById('btn-recal-run').scrollIntoView({block:'center'}),300);return false;">recalibrating</a>.</div>`;
+      calibHTML=`<div class="perf-drift">⚠ Live hit rate (${c.live_hit}%) is tracking below the backtested ${c.bt_hit}% — the market may have shifted. Consider <a class="gloss-link" href="javascript:void(0)" onclick="switchTab('settings',tabBtn('settings'));setTimeout(()=>document.getElementById('btn-recal-run')&&document.getElementById('btn-recal-run').scrollIntoView({block:'center'}),300);return false;">recalibrating</a>.</div>`;
     }else{
       calibHTML=`<div class="perf-ok">✓ Live hit rate (${c.live_hit}%) is in line with the backtested ${c.bt_hit}% — calibration looks healthy.</div>`;
     }
@@ -4831,6 +5064,118 @@ async function loadAnalytics(){
   pane.innerHTML=`<h2 class="perf-title">📊 Performance</h2>
     <div class="set-hint" style="margin:-6px 0 14px">How Tripwire's own signals actually played out — the app scoring itself on forward data. One move that tripped several rules counts as one signal.${pend?' '+d.outcomes_pending+' alert'+(d.outcomes_pending>1?'s':'')+' still maturing.':''}</div>
     ${headlineHTML}${calibHTML}${moneyCard}${decisionsCard}${recentCard}${stockCard}${ruleCard}`;
+}
+
+// ── Portfolio test tab ────────────────────────────────────────────────────────
+const PF_LINES=[['strategy','Following the app','#F59E0B',''],['untouched','Same stocks, never traded','#93C5FD','6 5'],['spy','S&P 500','#6B7280','2 4']];
+let pfPoll=null;
+const usd=v=>(v<0?'−':'')+'$'+Math.abs(Math.round(v)).toLocaleString('en-US');
+const pctS=v=>v==null?'—':(v>=0?'+':'')+v.toFixed(1)+'%';
+function fmtDay(d){ return new Date(d+'T12:00:00').toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}); }
+
+async function loadPortfolio(){
+  let d;
+  try{ d=await fetchJSON('/api/portfolio-sim'); }catch(e){ return; }
+  const pane=document.getElementById('pane-portfolio');
+  if(!pane||pane.style.display==='none') return;
+  pane.innerHTML=`<h2 class="perf-title">💼 Portfolio test</h2>
+    <div class="set-hint" style="margin:-6px 0 14px">What would $1,000 have done if you followed every STRONG signal? It starts split equally across your watchlist. Each signal moves 10% of the portfolio into that stock for 5 trading days, taken from the other stocks and returned to them afterwards. The comparison with <b>the same stocks, never traded</b> shows what the app's rules add on top of your stock picks; the S&P 500 shows the market.</div>
+    <div class="pf-grid">${pfColumn('backtest',d)}${pfColumn('live',d)}</div>
+    <div class="pf-note">Rules: at most 10 signal slices at once (more are skipped); a repeat signal on a boosted stock extends it; 0.1% trading cost on every buy and sell; no new money, no borrowing, no short selling; prices include dividends. Backtest buys at the next day's open, live at the alert price. Before taxes. Past results don't guarantee future ones.</div>`;
+  clearTimeout(pfPoll);
+  if(d.backtest_updating) pfPoll=setTimeout(loadPortfolio,8000);
+}
+
+function pfColumn(kind,d){
+  const r=kind==='backtest'?d.backtest:d.live;
+  const title=kind==='backtest'?'Backtest — last 5 years':'Live — from today on';
+  if(kind==='backtest'&&(!r||d.backtest_updating)){
+    const why=d.backtest_error?`Couldn't build it: ${escapeHTML(d.backtest_error.slice(-200))}`
+      :(r?'Updating for your latest rule changes…':'Building the 5-year simulation with your current rules… (about 10 seconds)');
+    if(!r||d.backtest_error) return `<div class="pf-col"><div class="pf-kind">${title}</div><div class="pf-period">${why}</div></div>`;
+  }
+  if(kind==='live'&&(!r||!r.summary)){
+    return `<div class="pf-col"><div class="pf-kind">${title}</div>
+      <div class="pf-period">Started ${r?fmtDay(r.start):'today'}</div>
+      <div class="pf-big">$1,000</div>
+      <div class="pf-sub muted">Values appear after the first market close. The first trade appears when the next STRONG signal fires.</div>
+      ${pfRestartLink()}</div>`;
+  }
+  const s=r.summary, st=s.strategy, un=s.untouched, sp=s.spy;
+  const clr=st.change>0.5?'#10B981':st.change<-0.5?'#EF4444':'#D1D5DB';
+  const arrow=st.change>0.5?'▲':st.change<-0.5?'▼':'■';
+  const perYear=st.cagr_pct!=null;
+  const diff=perYear?+(st.cagr_pct-un.cagr_pct).toFixed(1):+(st.total_pct-un.total_pct).toFixed(1);
+  const unit=perYear?' pts per year':' pts so far';
+  const verdictCls=Math.abs(diff)<0.25?'flat':diff>0?'good':'bad';
+  const verdict=Math.abs(diff)<0.25?`The signals made no real difference compared with never trading (${diff>=0?'+':''}${diff}${unit}).`
+    :diff>0?`The signals added +${diff}${unit} compared with never trading these stocks.`
+    :`The signals cost ${Math.abs(diff)}${unit} compared with never trading these stocks.`;
+  const row=(key,label,color,x)=>`<tr><td><span class="pf-dot" style="background:${color}"></span>${label}</td>
+    <td class="r"><b>${usd(x.end)}</b></td><td class="r ${x.total_pct>=0?'up':'dn'}">${pctS(x.total_pct)}</td>
+    <td class="r muted">${x.cagr_pct!=null?pctS(x.cagr_pct)+'/yr':''}</td></tr>`;
+  const rows=PF_LINES.map(([k,l,c])=>row(k,l,c,s[k])).join('');
+  let fair='';
+  if(kind==='backtest'&&r.fair_summary){
+    const f=r.fair_summary;
+    fair=`<div class="pf-fair">From ${fmtDay(r.fair_from)} (right of the dotted line) the rules were never tuned on the data — the fairest test: app ${pctS(f.strategy.total_pct)} · never traded ${pctS(f.untouched.total_pct)} · S&P 500 ${pctS(f.spy.total_pct)}.</div>`;
+  }
+  const nTrades=r.trades_total!=null?r.trades_total:(r.trades||[]).length;
+  const counts=`<div class="set-hint">${nTrades} signal trade${nTrades===1?'':'s'} completed · ${(r.open_slices||[]).length} open now · ${(r.skipped||[]).length} skipped</div>`;
+  const ps=(r.per_stock||[]).filter(p=>p.total_pnl!==0||p.slices);
+  const mv=p=>`<div><b>${p.sym}</b> <span class="${p.total_pnl>=0?'up':'dn'}">${p.total_pnl>=0?'+':''}${usd(p.total_pnl)}</span></div>`;
+  const movers=ps.length?`<div class="pf-movers"><div><h4>Biggest gainers</h4>${ps.slice(0,3).filter(p=>p.total_pnl>0).map(mv).join('')||'<div class="muted">—</div>'}</div>
+    <div><h4>Biggest losers</h4>${ps.slice(-3).reverse().filter(p=>p.total_pnl<0).map(mv).join('')||'<div class="muted">none lost money</div>'}</div></div>`:'';
+  const table=ps.length?`<details><summary>All stocks</summary><table class="outcome-table"><thead><tr><th style="text-align:left">Stock</th><th>Held, untouched</th><th>Signal trades</th><th>From signals</th><th>Total</th></tr></thead><tbody>${
+    ps.map(p=>`<tr><td style="text-align:left">${p.sym}</td><td>${p.untouched_pct!=null?pctS(p.untouched_pct):'<span class="muted">not held</span>'}</td><td>${p.slices}</td>
+      <td class="${p.slice_pnl>=0?'up':'dn'}">${p.slice_pnl>=0?'+':''}${usd(p.slice_pnl)}</td><td class="${p.total_pnl>=0?'up':'dn'}">${p.total_pnl>=0?'+':''}${usd(p.total_pnl)}</td></tr>`).join('')
+    }</tbody></table><div class="set-hint" style="margin-top:6px">"From signals" = profit or loss of that stock's 10% signal slices. "Total" also includes the stock's starting holding.</div></details>`:'';
+  let history='';
+  if(kind==='backtest'&&(d.backtest_runs||[]).length>1){
+    history=`<details><summary>Earlier backtest runs</summary>${d.backtest_runs.map(x=>`<div class="set-hint">${fmtStamp(x.ts).slice(0,10)}: app ${pctS(x.strategy_cagr)}/yr · never traded ${pctS(x.untouched_cagr)}/yr · S&P 500 ${pctS(x.spy_cagr)}/yr</div>`).join('')}</details>`;
+  }
+  const period=kind==='backtest'?`${fmtDay(r.start_date)} → ${fmtDay(r.end_date)} · same rules as today${d.backtest_updating?' · updating…':''}`
+    :`Since ${fmtDay(r.start_date)} · ${s.strategy.cagr_pct==null?'per-year figures appear after 90 days':''}`;
+  return `<div class="pf-col">
+    <div class="pf-kind">${title}</div><div class="pf-period">${period}</div>
+    <div class="pf-big" style="color:${clr}">$1,000 → ${usd(st.end)} ${arrow}</div>
+    <div class="pf-sub"><span style="color:${clr}">${st.change>=0?'+':''}${usd(st.change)} · ${pctS(st.total_pct)}</span>${perYear?` · ${pctS(st.cagr_pct)} per year`:''} <span class="muted">· worst drop ${st.worst_drop_pct}%</span></div>
+    <table class="pf-rows">${rows}</table>
+    <div class="pf-verdict ${verdictCls}">${verdict}</div>
+    ${fair}
+    <div class="pf-chart">${multiLineSVG(r.equity||[],kind==='backtest'?r.fair_from:null)}</div>
+    <div class="pf-legend">${PF_LINES.map(([k,l,c])=>`<span class="pf-dot" style="background:${c}"></span>${l}`).join(' &nbsp; ')}</div>
+    ${counts}${movers}${table}${history}${kind==='live'?pfRestartLink():''}
+  </div>`;
+}
+
+function pfRestartLink(){
+  if(guestMode) return '';
+  return `<div class="set-hint" style="margin-top:10px"><a href="javascript:void(0)" class="today-more" onclick="restartLiveTest()">Restart the live test from today</a> — e.g. after applying new thresholds.</div>`;
+}
+async function restartLiveTest(){
+  if(!confirm('Restart the live portfolio test from today? Its history so far is cleared.')) return;
+  await postJSON('/api/portfolio-sim/restart',{});
+  showToast('Live test restarted from today.');
+  loadPortfolio();
+}
+
+function multiLineSVG(eq,markerDate){
+  if(eq.length<2) return '<div class="set-hint">Not enough days yet for a chart.</div>';
+  const W=760,H=240,pT=12,pB=26,pL=58,pR=10, plotW=W-pL-pR, plotH=H-pT-pB;
+  const vals=eq.flatMap(e=>[e.strategy,e.untouched,e.spy]);
+  const lo=Math.min(...vals), hi=Math.max(...vals), span=(hi-lo)||1;
+  const x=i=>pL+(i/(eq.length-1))*plotW, y=v=>pT+plotH-((v-lo)/span)*plotH;
+  const grid=[0,0.5,1].map(f=>{const v=lo+span*f;return `<line x1="${pL}" x2="${W-pR}" y1="${y(v)}" y2="${y(v)}" stroke="#1E2235"/><text x="${pL-6}" y="${y(v)+4}" text-anchor="end" font-size="11" fill="#6B7280">${usd(v)}</text>`;}).join('');
+  const base=lo<=1000&&hi>=1000?`<line x1="${pL}" x2="${W-pR}" y1="${y(1000)}" y2="${y(1000)}" stroke="#374151" stroke-dasharray="3 3"/>`:'';
+  const lines=[...PF_LINES].reverse().map(([k,,c,dash])=>`<polyline fill="none" stroke="${c}" stroke-width="${k==='strategy'?2.4:1.6}" ${dash?`stroke-dasharray="${dash}"`:''} points="${eq.map((e,i)=>x(i).toFixed(1)+','+y(e[k]).toFixed(1)).join(' ')}"/>`).join('');
+  let marker='';
+  if(markerDate){
+    const mi=eq.findIndex(e=>e.date>=markerDate);
+    if(mi>0) marker=`<line x1="${x(mi)}" x2="${x(mi)}" y1="${pT}" y2="${pT+plotH}" stroke="#93C5FD" stroke-dasharray="2 3"/><text x="${x(mi)+4}" y="${pT+10}" font-size="10" fill="#93C5FD">not tuned on →</text>`;
+  }
+  const xl=[0,Math.floor((eq.length-1)/2),eq.length-1].map((i,j)=>`<text x="${x(i)}" y="${H-6}" font-size="11" fill="#6B7280" text-anchor="${['start','middle','end'][j]}">${fmtDay(eq[i].date)}</text>`).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Portfolio value over time">${grid}${base}${marker}${lines}${xl}</svg>`;
 }
 
 // ── Assistant tab ─────────────────────────────────────────────────────────────

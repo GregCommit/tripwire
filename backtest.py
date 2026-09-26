@@ -1076,11 +1076,88 @@ def build_report(years):
 # CLI
 # ─────────────────────────────────────────────────────────────────────────────
 
+# ─────────────────────────────────────────────────────────────────────────────
+# PORTFOLIO TEST — $1,000 following the app's STRONG signals over the backtest window
+# ─────────────────────────────────────────────────────────────────────────────
+# Uses the thresholds live in the app (written by app.py as live_params.json, already resolved
+# for sensitivity level and overrides) and the same same-day core-four vote as the app's
+# compute_signal(), then runs the shared rulebook in portfolio_sim.py.
+
+LIVE_PARAMS_PATH = RESULTS_DIR / "live_params.json"
+PORTFOLIO_OUT = RESULTS_DIR / "portfolio_backtest.json"
+ENABLE_FLAG = {"volatility": "enable_volatility", "support_resistance": "enable_support_resistance",
+               "consecutive_down": "use_consecutive", "volume": "enable_volume", "gap": "enable_gap",
+               "rsi": "enable_rsi", "ma_cross": "enable_ma"}
+
+def _portfolio_params():
+    if LIVE_PARAMS_PATH.exists():
+        return json.loads(LIVE_PARAMS_PATH.read_text(encoding="utf-8")), "live"
+    log("[warn] live_params.json not found — using category defaults (run from the app for live thresholds)")
+    return {s: {"category": c, "params": CATEGORY_DEFAULTS.get(c, CATEGORY_DEFAULTS["high_vol"])}
+            for s, c in get_watchlist().items()}, "defaults"
+
+def strong_labels(df, params, cache):
+    """Per-day ensemble label, mirroring app.py compute_signal(): enabled rules with vote weight 1
+    (LIVE_RULE_WEIGHT), same-day triggers, STRONG when >= 2 votes and >= 2/3 agree."""
+    n = len(df)
+    buys = np.zeros(n); sells = np.zeros(n)
+    for rule in RULE_TYPES:
+        w = LIVE_RULE_WEIGHT.get(rule, 1)
+        if not w or params.get(ENABLE_FLAG[rule], True) is False:
+            continue
+        trig, sig = run_rule(rule, df, params, cache)
+        t = trig.to_numpy(dtype=bool); s = sig.to_numpy()
+        buys += w * (t & (s == "BUY")); sells += w * (t & (s == "SELL"))
+    tot = buys + sells
+    with np.errstate(invalid="ignore", divide="ignore"):
+        sb = (tot >= 2) & (buys / np.where(tot > 0, tot, 1) >= 2 / 3)
+        ss = (tot >= 2) & (sells / np.where(tot > 0, tot, 1) >= 2 / 3)
+    return np.where(sb, "STRONG BUY", np.where(ss, "STRONG BOUNCE WATCH", ""))
+
+def run_portfolio(years):
+    sys.path.insert(0, str(HERE))
+    import portfolio_sim
+    data = load_frames(years)
+    live, source = _portfolio_params()
+    spy_df = trim_history(data[BENCHMARK], years)
+    calendar = [d.strftime("%Y-%m-%d") for d in spy_df.index[eval_start_index(spy_df, years):]]
+    start = calendar[0]
+    spy = {d.strftime("%Y-%m-%d"): float(c) for d, c in zip(spy_df.index, spy_df["close"]) if d.strftime("%Y-%m-%d") >= start}
+    bars, signals, missing = {}, [], []
+    for sym, info in sorted(live.items()):
+        if sym not in data:
+            missing.append(sym); continue
+        df = trim_history(data[sym], years)
+        labels = strong_labels(df, info["params"], ticker_cache(df))
+        dates = [d.strftime("%Y-%m-%d") for d in df.index]
+        bars[sym] = {d: (float(o), float(c)) for d, o, c in zip(dates, df["open"], df["close"]) if d >= start}
+        signals += [{"date": d, "sym": sym, "label": lab, "price": None}
+                    for d, lab in zip(dates, labels) if lab and d >= start]
+    res = portfolio_sim.simulate(bars, spy, calendar, list(bars), signals)
+    fair_from = calendar[int(len(calendar) * (1 - OOS_FRAC))]
+    res["fair_from"] = fair_from
+    res["fair_summary"] = portfolio_sim.summarize(res["equity"], res["start_value"], from_date=fair_from)
+    res["signal_days"] = len(signals)
+    res["trades_total"] = len(res["trades"])
+    res["trades"] = res["trades"][-60:]
+    eq = res["equity"]
+    keep = {0, len(eq) - 1} | {i for i, e in enumerate(eq) if e["date"] == fair_from} | set(range(0, len(eq), 5))
+    res["equity"] = [e for i, e in enumerate(eq) if i in keep]
+    res.update({"generated": datetime.now().strftime("%Y-%m-%d %H:%M"), "years": years,
+                "params_source": source, "missing_data": missing})
+    PORTFOLIO_OUT.write_text(json.dumps(res), encoding="utf-8")
+    s = res["summary"]
+    log(f"Portfolio test {res['start_date']} -> {res['end_date']}: app ${s['strategy']['end']} | "
+        f"never traded ${s['untouched']['end']} | S&P 500 ${s['spy']['end']} | "
+        f"{res['trades_total']} slices, {len(res['skipped'])} skipped, {res['extended']} extensions")
+    log(f"Portfolio -> {PORTFOLIO_OUT}")
+    return res
+
 def main():
     global MIN_N
     ap = argparse.ArgumentParser(description="Tripwire rule backtester")
     ap.add_argument("cmd", nargs="?", default="all",
-                    choices=["all","fetch","parity","grid","combo","combo-weighted","weight-check","select","report","apply","undo"])
+                    choices=["all","fetch","parity","grid","combo","combo-weighted","weight-check","select","report","apply","undo","portfolio"])
     ap.add_argument("--refresh", action="store_true", help="re-download price data")
     ap.add_argument("--years", type=int, default=DEFAULT_YEARS)
     ap.add_argument("--min-n", type=int, default=MIN_N)
@@ -1093,6 +1170,8 @@ def main():
             return
     if args.cmd == "parity":
         ok = run_parity(args.years); sys.exit(0 if ok else 1)
+    if args.cmd == "portfolio":
+        run_portfolio(args.years); return
     if args.cmd in ("all", "grid"):
         run_grid(args.years)
         if args.cmd == "grid": return

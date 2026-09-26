@@ -230,6 +230,33 @@ The v6 dashboard release turns several backtest findings into product behavior:
 - **Daily digest** — an optional once-a-day summary (email + WhatsApp) that replaces
   instant pings, matching the 1–5 day signal horizon.
 
+## Portfolio test (the "💼 Portfolio test" tab)
+
+Two simulated $1,000 portfolios answer "what would following every STRONG signal have done?":
+the **backtest** side replays the last 5 years with the thresholds live in the app right now,
+and the **live** side starts the day it is first run and follows the STRONG events the app
+actually logs. Both use the same rulebook in `portfolio_sim.py`:
+
+- Start fully invested, split equally across the owner's watchlist (stocks that trade on day 1).
+- Each STRONG signal (BUY or BOUNCE WATCH) moves 10% of the portfolio into that stock, funded by
+  trimming the other base holdings in proportion to their size; after 5 trading days the slice
+  is sold and returned the same way. A repeat signal extends an open slice; max 10 open slices.
+- 0.1% cost on every buy and sell; backtest buys at the next day's open, live at the alert price.
+- Slices are kept separate from base holdings, so a stock bought only through signals goes back
+  to zero when its slice closes (an earlier draft let money leak into such stocks permanently,
+  which inflated the result by ~$1,800 over 5 years).
+
+Each side also shows the same $1,000 **never traded** in the same stocks and in the S&P 500.
+The gap between "following the app" and "never traded" is what the rules add, separate from
+how good the stock picks were. The backtest marks the last 30% of the window, which `select()`
+did not tune on, and reports that stretch separately.
+
+`python backtest.py portfolio` rebuilds `backtest_results/portfolio_backtest.json` from
+`backtest_results/live_params.json` (the app writes the exact live thresholds there). The app
+rebuilds it automatically whenever the live thresholds or watchlist change, after a
+recalibration run/apply/undo, and records each build in `sim_backtest_runs`; the live side's
+daily values are stored in `sim_daily` every evening after the US close.
+
 ## v7: every signal is judged by whether the stock beats the market
 
 Downside triggers were relabeled "BOUNCE WATCH" because they were historically followed by a
