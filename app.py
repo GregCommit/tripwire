@@ -3927,11 +3927,9 @@ def dashboard():
     return Response(DASHBOARD, mimetype="text/html")
 
 if __name__ == "__main__":
-    import webbrowser
     print("\n" + "="*60)
     print("  Tripwire v4 starting...")
     print("  Dashboard: http://localhost:5000")
     print("  Press Ctrl+C to stop")
     print("="*60 + "\n")
-    threading.Timer(1.5, lambda: webbrowser.open("http://localhost:5000")).start()
-    app.run(port=5000, use_reloader=False)
+    app.run(host="0.0.0.0", port=5000, use_reloader=False)
