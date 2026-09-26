@@ -8,6 +8,7 @@ Open: http://localhost:5000
 import sqlite3, threading, time, json, os, logging, csv, io, smtplib, urllib.parse, urllib.request, subprocess, sys, hmac, secrets
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
+from html import escape as h_esc
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from functools import wraps
@@ -99,6 +100,11 @@ def init_db():
             ("alerts", "ack", "INTEGER DEFAULT 0"),
             ("prices", "volume", "REAL"),
             ("stocks", "added_by", "TEXT"),           # 'guest' for tickers added via guest login
+            # Signal events: alerts logged for one symbol in one check cycle share event_id
+            ("alerts", "event_id", "INTEGER"),
+            ("alerts", "decision", "TEXT"),           # 'acted' | 'passed' (owner's own call)
+            ("alerts", "decision_ts", "INTEGER"),
+            ("alerts", "followup_sent", "INTEGER"),   # 1 once the 5-day follow-up was emailed
             # Outcome tracking: filled in ~5 trading days after each alert (see resolve_outcomes)
             ("alerts", "outcome_ret", "REAL"),        # stock return since alert price, %
             ("alerts", "outcome_excess", "REAL"),     # signal-direction excess vs SPY, %
@@ -154,6 +160,7 @@ SETTINGS_DEFAULTS = {
     # Daily digest: when on, instant push/email/WhatsApp is suppressed and a single
     # once-a-day summary is sent at digest_hour (local time) instead.
     "daily_digest_enabled":          "0",
+    "auto_recal_enabled":            "1",
     "digest_hour":                   "8",
     "ai_synthesis_model":            "claude-sonnet-4-6",
     "ai_assistant_model":            "claude-opus-4-8",
@@ -567,6 +574,31 @@ threading.Thread(target=refresh_extended_loop, daemon=True).start()
 # OUTCOME TRACKING — score each alert ~5 trading days later (self-audit vs backtest)
 # ─────────────────────────────────────────────────────────────────────────────
 OUTCOME_HORIZON_DAYS = 5   # trading days after the alert to measure
+# Every signal is judged by whether the stock then beats the market: BUY is a momentum call and a
+# BOUNCE WATCH (downside trigger) is a rebound call. Must match SIGNAL_DIR in backtest.py.
+SIGNAL_DIR = {"BUY": 1.0, "SELL": 1.0}
+
+def _rescore_bounce_watch_once():
+    """Outcomes scored before SIGNAL_DIR treated BOUNCE WATCH as a rebound call stored the
+    opposite sign for SELL-signal alerts; flip them once so history matches current scoring."""
+    if get_setting("bounce_rescored", "") == "1":
+        return
+    with get_db() as conn:
+        rows = conn.execute("SELECT id, detail, outcome_excess FROM alerts WHERE outcome_excess IS NOT NULL").fetchall()
+        n = 0
+        for r in rows:
+            try:
+                sig = (json.loads(r["detail"]) or {}).get("signal") if r["detail"] else None
+            except Exception:
+                sig = None
+            if sig == "SELL":
+                ex = -r["outcome_excess"]
+                conn.execute("UPDATE alerts SET outcome_excess=?, outcome_correct=? WHERE id=?",
+                             (ex, 1 if ex > 0 else 0, r["id"]))
+                n += 1
+        conn.commit()
+    set_setting("bounce_rescored", "1")
+    log.info("Re-scored %d BOUNCE WATCH outcomes as rebound calls", n)
 
 def _daily_close_series(symbol):
     """Cached {date -> close} from yfinance for outcome scoring (13mo of daily bars)."""
@@ -599,8 +631,7 @@ def resolve_outcomes():
             detail = json.loads(r["detail"]) if r["detail"] else {}
         except Exception:
             detail = {}
-        signal = detail.get("signal")
-        sdir = 1.0 if signal == "BUY" else -1.0 if signal == "SELL" else None
+        sdir = SIGNAL_DIR.get(detail.get("signal"))
         series = _daily_close_series(r["symbol"])
         if not series:
             continue
@@ -636,11 +667,16 @@ def resolve_outcomes():
 
 def outcome_loop():
     time.sleep(90)  # let first checks/history settle
+    try:
+        _rescore_bounce_watch_once()
+    except Exception as e:
+        log.warning("bounce-watch rescore failed: %s", e)
     while True:
         try:
             resolve_outcomes()
+            send_followups()
         except Exception as e:
-            log.warning("resolve_outcomes failed: %s", e)
+            log.warning("resolve_outcomes/followups failed: %s", e)
         time.sleep(6 * 3600)
 
 threading.Thread(target=outcome_loop, daemon=True).start()
@@ -687,17 +723,19 @@ def log_alert(symbol, rule_type, message, price, detail=None, should_notify=True
             (symbol, rule_type, now - _cooldown_seconds())
         ).fetchone()
         if recent:
-            return
-        conn.execute(
+            return None
+        cur = conn.execute(
             "INSERT INTO alerts (symbol,timestamp,rule_type,message,price,detail,ack) VALUES (?,?,?,?,?,?,0)",
             (symbol, now, rule_type, message, price, detail)
         )
         conn.commit()
+        new_id = cur.lastrowid
     # Alert is always written to the DB/UI regardless of notify_strong_only — that setting only
-    # gates the outbound push/email/WhatsApp notification, decided by the caller per check cycle
-    # (see run_check: compute_signal() + notify_strong_only gate).
+    # gates the outbound notification. run_check passes should_notify=False and sends one
+    # grouped brief per signal event instead (notify_signal_brief).
     if should_notify and not is_guest_stock(symbol):
         worker_pool.submit(notify_alert, symbol, rule_type, message, price)
+    return new_id
 
 def get_alerts(limit=200):
     with get_db() as conn:
@@ -829,7 +867,7 @@ def synthesize_news(symbol, news_items, move_pct, direction, rule_label, rule_ty
 # OUTBOUND NOTIFICATIONS
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _send_email(subject, body):
+def _send_email(subject, body, html=None):
     """Returns (ok, message). Callers that only care about fire-and-forget (real alerts)
     can ignore the return value; api_test_notify uses it to show the user what actually
     happened instead of a blind "sent" — silent failures here were exactly why email
@@ -849,6 +887,8 @@ def _send_email(subject, body):
         msg_obj["From"] = user
         msg_obj["To"] = to
         msg_obj.set_content(body)
+        if html:
+            msg_obj.add_alternative(html, subtype="html")
         with smtplib.SMTP(host, get_setting_int("smtp_port", 587), timeout=15) as s:
             s.starttls()
             if pwd:
@@ -943,6 +983,225 @@ def notify_alert(symbol, rule_type, message, price):
     body = f"{symbol} — {label}\n{message}\nPrice: ${price}\n\n(Tripwire alert)"
     _send_email(subject, body)
     _send_whatsapp(f"⚡ {symbol} {label}: {message} (${price})")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SIGNAL EVENTS — one per symbol per check cycle: email brief, acted/passed, 5-day follow-up
+# ─────────────────────────────────────────────────────────────────────────────
+PUBLIC_URL = os.environ.get("TRIPWIRE_PUBLIC_URL", "").strip().rstrip("/")
+ACTION_WINDOW_TRADING_DAYS = 4  # mirrors the dashboard's ACTION_WINDOW_TRADING_DAYS
+RULE_NAMES = {"volatility": "Unusual daily move", "support_resistance": "Support/resistance break",
+              "volume": "Volume spike", "gap": "Opening gap", "rsi": "RSI extreme",
+              "ma_cross": "Moving-average crossover", "consecutive_down": "Consecutive down days"}
+SIGNAL_MEANING = {
+    "STRONG BUY": "Several independent rules agree on upward momentum.",
+    "STRONG BOUNCE WATCH": "Several independent rules flag a sharp drop. Historically such drops "
+                           "tended to rebound within days: a possible dip-buy setup, not a sell signal.",
+    "TRENDING BUY": "One rule points up; not yet confirmed by a second rule.",
+    "BOUNCE WATCH": "One rule flags a drop that has historically tended to rebound; not yet confirmed.",
+}
+
+def trading_days_after(ts, n):
+    d = datetime.fromtimestamp(ts).date()
+    while n > 0:
+        d += timedelta(days=1)
+        if d.weekday() < 5:
+            n -= 1
+    return d
+
+def _fmt_day(d):
+    return f"{d:%a} {d.day} {d:%b}"
+
+def _detail_of(row):
+    try:
+        return json.loads(row["detail"]) if row.get("detail") else {}
+    except Exception:
+        return {}
+
+def _event_label(rows):
+    """Ensemble label for an event; older alerts predate the stored label, so infer it."""
+    for r in rows:
+        ens = _detail_of(r).get("ensemble")
+        if ens:
+            return ens
+    sigs = [_detail_of(r).get("signal") for r in rows]
+    strong = any(_detail_of(r).get("strong") for r in rows)
+    up = sigs.count("BUY") >= sigs.count("SELL")
+    return ("STRONG " if strong else ("TRENDING " if up else "")) + ("BUY" if up else "BOUNCE WATCH")
+
+def _event_rows(event_id):
+    with get_db() as conn:
+        return [dict(r) for r in conn.execute(
+            "SELECT * FROM alerts WHERE COALESCE(event_id,id)=? ORDER BY id", (event_id,))]
+
+def _decision_sig(event_id, decision):
+    return hmac.new(app.secret_key.encode(), f"decide:{event_id}:{decision}".encode(), "sha256").hexdigest()[:24]
+
+def decision_link(event_id, decision):
+    if not PUBLIC_URL:
+        return None
+    return f"{PUBLIC_URL}/decide/{event_id}/{decision}/{_decision_sig(event_id, decision)}"
+
+def set_decision(ids, decision):
+    ids = [int(i) for i in ids][:200]
+    if not ids:
+        return
+    with get_db() as conn:
+        conn.executemany("UPDATE alerts SET decision=?, decision_ts=? WHERE id=?",
+                         [(decision, int(time.time()) if decision else None, i) for i in ids])
+        conn.commit()
+
+def _evidence_plain(sym, rule_type):
+    st = _rule_stats_for(sym, rule_type)
+    if not st:
+        return ""
+    s = f"In the backtest, this rule on {sym} was followed by {st['exc5']:+.1f}% vs the market over 5 days on average"
+    if st.get("hit5") is not None:
+        s += f", beating it {st['hit5']:.0f}% of the time"
+    s += f" ({st['n']} cases)"
+    if st.get("mae") is not None:
+        s += f"; typical worst dip along the way {st['mae']:+.1f}%"
+    if st.get("short_history") or st["n"] < 30:
+        s += " — low confidence, little history"
+    return s + "."
+
+def _btn(url, text, color):
+    return (f'<a href="{h_esc(url)}" style="display:inline-block;background:{color};color:#fff;text-decoration:none;'
+            f'font-weight:700;padding:10px 16px;border-radius:8px;margin:0 8px 8px 0">{h_esc(text)}</a>')
+
+def _email_shell(inner):
+    return ('<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;color:#111;'
+            f'font-size:15px;line-height:1.5">{inner}<p style="color:#888;font-size:12px;margin-top:22px">'
+            'Tripwire · informational only, not financial advice.</p></div>')
+
+def build_signal_brief(event_id):
+    rows = _event_rows(event_id)
+    if not rows:
+        return None
+    r0 = rows[0]; d0 = _detail_of(r0); sym = r0["symbol"]
+    label = _event_label(rows)
+    move = d0.get("move_pct")
+    move_txt = f" ({move:+.1f}% today)" if isinstance(move, (int, float)) else ""
+    act_by = _fmt_day(trading_days_after(r0["timestamp"], ACTION_WINDOW_TRADING_DAYS))
+    with state_lock:
+        live = list(state["results"].get(sym, {}).get("rules", []))
+    voters = [r for r in live if r.get("triggered") and not r.get("disabled") and _rule_weight(r["rule_type"]) > 0]
+    agree = f"{len(voters)} of 4 core rules agree: " + ", ".join(RULE_NAMES.get(r["rule_type"], r["rule_type"]) for r in voters) if voters else ""
+    synthesis = next((_detail_of(r).get("news_synthesis") for r in rows if _detail_of(r).get("news_synthesis")), None)
+    caveats = []
+    if any(_detail_of(r).get("near_earnings") for r in rows):
+        caveats.append("Earnings are within 2 days — the move may be earnings-driven, which behaves differently.")
+    bear = next((_detail_of(r).get("bear_regime_caveat") for r in rows if _detail_of(r).get("bear_regime_caveat")), None)
+    if bear:
+        caveats.append(bear)
+    fired = [(RULE_NAMES.get(r["rule_type"], r["rule_type"]), r["message"], _evidence_plain(sym, r["rule_type"])) for r in rows]
+
+    subject = f"⚡ {label} · {sym} ${r0['price']}{move_txt} — act by {act_by}"
+    acted, passed = decision_link(event_id, "acted"), decision_link(event_id, "passed")
+    open_url = f"{PUBLIC_URL}/?stock={sym}" if PUBLIC_URL else None
+
+    t = [f"{sym} — {label}", SIGNAL_MEANING.get(label, ""), ""]
+    if agree: t.append(agree)
+    t.append(f"Price ${r0['price']}{move_txt}. Act by {act_by} — the signal is calibrated for 1–5 trading days.")
+    t += ["", "What fired:"]
+    for name, msg, ev in fired:
+        t.append(f"• {name}: {msg}")
+        if ev: t.append(f"  {ev}")
+    if synthesis: t += ["", "News: " + synthesis]
+    for c in caveats: t += ["", "⚠ " + c]
+    if acted: t += ["", f"I acted: {acted}", f"I passed: {passed}", f"Open in Tripwire: {open_url}"]
+    else: t += ["", "Mark whether you acted in the Tripwire dashboard."]
+    text = "\n".join(t)
+
+    h = [f'<h2 style="margin:0 0 4px">{h_esc(sym)} — {h_esc(label)}</h2>',
+         f'<p style="margin:0 0 10px;color:#444">{h_esc(SIGNAL_MEANING.get(label, ""))}</p>']
+    if agree: h.append(f'<p style="margin:0 0 6px"><b>{h_esc(agree)}</b></p>')
+    h.append(f'<p style="margin:0 0 14px">Price ${h_esc(str(r0["price"]))}{h_esc(move_txt)} · '
+             f'<b style="color:#B45309">act by {h_esc(act_by)}</b> <span style="color:#666">(calibrated for 1–5 trading days)</span></p>')
+    h.append('<p style="margin:0 0 4px"><b>What fired</b></p><ul style="margin:0 0 12px;padding-left:20px">')
+    for name, msg, ev in fired:
+        h.append(f'<li><b>{h_esc(name)}</b>: {h_esc(msg)}' + (f'<br><span style="color:#555;font-size:13px">{h_esc(ev)}</span>' if ev else '') + '</li>')
+    h.append('</ul>')
+    if synthesis: h.append(f'<p style="background:#F3F4F6;border-radius:8px;padding:10px 12px"><b>News:</b> {h_esc(synthesis)}</p>')
+    for c in caveats: h.append(f'<p style="color:#B45309">⚠ {h_esc(c)}</p>')
+    if acted:
+        h.append('<p style="margin:16px 0 4px">' + _btn(acted, "I acted", "#059669") + _btn(passed, "I passed", "#6B7280")
+                 + _btn(open_url, f"Open {sym}", "#2563EB") + '</p>')
+    else:
+        h.append('<p style="color:#666">Mark whether you acted in the Tripwire dashboard.</p>')
+    html = _email_shell("".join(h))
+    wa = f"⚡ {sym} {label}{move_txt} — act by {act_by}." + (f" {open_url}" if open_url else "")
+    return {"subject": subject, "text": text, "html": html, "whatsapp": wa}
+
+def notify_signal_brief(event_id):
+    try:
+        b = build_signal_brief(event_id)
+        if not b:
+            return
+        _send_email(b["subject"], b["text"], b["html"])
+        _send_whatsapp(b["whatsapp"])
+    except Exception as e:
+        log.warning("notify_signal_brief(%s) failed: %s", event_id, e)
+
+def _event_outcome(rows):
+    """(stock %, market %, stock-minus-market pts) once every alert in the event is scored."""
+    if any(r.get("outcome_ts") is None for r in rows):
+        return None
+    for r in rows:
+        if r.get("outcome_excess") is not None and r.get("outcome_ret") is not None:
+            ex = r["outcome_excess"]  # SIGNAL_DIR is +1 for every signal: excess = stock - market
+            return r["outcome_ret"], round(r["outcome_ret"] - ex, 2), ex
+    return None
+
+def send_followups():
+    """One batched email with how recently-notified STRONG signals played out ~5 trading days
+    later, including whether the owner acted — the loop the brief opens is closed here."""
+    since = int(time.time()) - 30 * 86400
+    with get_db() as conn:
+        eids = [r[0] for r in conn.execute(
+            "SELECT DISTINCT event_id FROM alerts WHERE event_id IS NOT NULL AND followup_sent IS NULL "
+            "AND outcome_ts IS NOT NULL AND timestamp > ?", (since,))]
+    items, done = [], []
+    for eid in eids:
+        rows = _event_rows(eid)
+        out = _event_outcome(rows)
+        if out is None:
+            continue
+        done.append(eid)
+        if not any(_detail_of(r).get("strong") for r in rows) or is_guest_stock(rows[0]["symbol"]):
+            continue
+        items.append((eid, rows, out))
+    if done:
+        with get_db() as conn:
+            conn.executemany("UPDATE alerts SET followup_sent=1 WHERE COALESCE(event_id,id)=?", [(e,) for e in done])
+            conn.commit()
+    if not items:
+        return 0
+    beat = sum(1 for _, _, (_, _, ex) in items if ex > 0)
+    subject = f"📬 How your signals played out — {beat} of {len(items)} beat the market"
+    t, h = ["5 trading days later:", ""], ['<h2 style="margin:0 0 10px">How your signals played out</h2>',
+                                          '<p style="color:#555;margin:0 0 14px">5 trading days after each signal:</p>']
+    for eid, rows, (ret, mkt, ex) in items:
+        r0 = rows[0]; label = _event_label(rows)
+        day = _fmt_day(datetime.fromtimestamp(r0["timestamp"]).date())
+        verdict = f"✓ beat the market by {ex:.1f} pts" if ex > 0 else f"✗ lagged the market by {abs(ex):.1f} pts"
+        dec = r0.get("decision")
+        you = {"acted": "You acted.", "passed": "You passed."}.get(dec, "Not marked yet.")
+        t.append(f"{day} · {r0['symbol']} {label}: stock {ret:+.1f}%, market {mkt:+.1f}% → {verdict}. {you}")
+        links = ""
+        if not dec and decision_link(eid, "acted"):
+            t.append(f"   I acted: {decision_link(eid, 'acted')}   I passed: {decision_link(eid, 'passed')}")
+            links = ('<br><a href="' + h_esc(decision_link(eid, "acted")) + '">I acted</a> · <a href="'
+                     + h_esc(decision_link(eid, "passed")) + '">I passed</a>')
+        color = "#059669" if ex > 0 else "#DC2626"
+        h.append(f'<p style="margin:0 0 12px"><b>{h_esc(r0["symbol"])} {h_esc(label)}</b> <span style="color:#666">({h_esc(day)})</span><br>'
+                 f'stock {ret:+.1f}%, market {mkt:+.1f}% → <b style="color:{color}">{h_esc(verdict)}</b>. '
+                 f'<span style="color:#555">{h_esc(you)}</span>{links}</p>')
+    t += ["", "BOUNCE WATCH counts as right when the stock rebounds ahead of the market.",
+          "Full record: Tripwire → Performance."]
+    h.append('<p style="color:#666;font-size:13px">BOUNCE WATCH counts as right when the stock rebounds ahead of the market. '
+             'Full record: Tripwire → Performance.</p>')
+    _send_email(subject, "\n".join(t), _email_shell("".join(h)))
+    return len(items)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # RULE EVALUATION
@@ -1316,36 +1575,55 @@ def run_check(symbols=None):
             ensemble_signal = compute_signal(rules)
             symbol_is_strong = ensemble_signal in STRONG_SIGNALS
             near_earnings = _is_near_earnings(sym)
-            for rule in rules:
-                if rule.get("rule_type") in CONTEXT_ONLY_RULES:
-                    continue  # context-only: shown on the card, but no alert/notify/synthesis
-                if rule.get("triggered") and not rule.get("disabled"):
-                    synthesis = None
-                    if not is_in_cooldown(sym, rule["rule_type"]) and not is_guest_stock(sym):
-                        news_items = fetch_news(sym)
-                        direction  = rule.get("direction") or ("UP" if move_pct >= 0 else "DOWN")
-                        synthesis  = synthesize_news(sym, news_items, move_pct, direction, rule.get("label", rule["rule_type"]), rule["rule_type"], rule.get("signal"))
-                        if synthesis:
-                            rule["news_synthesis"] = synthesis
-                    detail = json.dumps({
-                        "actual_value":   rule.get("actual_value"),
-                        "threshold":      rule.get("threshold"),
-                        "direction":      rule.get("direction"),
-                        "signal":         rule.get("signal"),
-                        "support":        rule.get("support"),
-                        "resistance":     rule.get("resistance"),
-                        "avg_daily_vol":  rule.get("avg_daily_vol"),
-                        "period_low":     rule.get("period_low"),
-                        "period_high":    rule.get("period_high"),
-                        "description":    rule.get("description"),
-                        "rationale":      rule.get("rationale"),
-                        "news_synthesis": synthesis,
-                        "near_earnings":  near_earnings,
-                        "strong":         symbol_is_strong,
-                        "bear_regime_caveat": _bear_regime_caveat(rule.get("signal")) or None,
-                    })
-                    should_notify = False if digest_mode else (symbol_is_strong if notify_strong_only else True)
-                    log_alert(sym, rule["rule_type"], rule["message"], quote["close"], detail, should_notify)
+            # Context-only rules are shown on the card but never alert/notify/synthesize; rules
+            # still in cooldown were already logged recently.
+            to_log = [r for r in rules
+                      if r.get("rule_type") not in CONTEXT_ONLY_RULES
+                      and r.get("triggered") and not r.get("disabled")
+                      and not is_in_cooldown(sym, r["rule_type"])]
+            # One news synthesis per symbol per cycle, shared by every rule that fired with it
+            # (previously one paid AI call per rule, with near-identical content).
+            synthesis = None
+            if to_log and not is_guest_stock(sym):
+                first = to_log[0]
+                direction = first.get("direction") or ("UP" if move_pct >= 0 else "DOWN")
+                synthesis = synthesize_news(sym, fetch_news(sym), move_pct, direction,
+                                            " + ".join(r.get("label", r["rule_type"]) for r in to_log),
+                                            first["rule_type"], first.get("signal"))
+            new_ids = []
+            for rule in to_log:
+                if synthesis:
+                    rule["news_synthesis"] = synthesis
+                detail = json.dumps({
+                    "actual_value":   rule.get("actual_value"),
+                    "threshold":      rule.get("threshold"),
+                    "direction":      rule.get("direction"),
+                    "signal":         rule.get("signal"),
+                    "support":        rule.get("support"),
+                    "resistance":     rule.get("resistance"),
+                    "avg_daily_vol":  rule.get("avg_daily_vol"),
+                    "period_low":     rule.get("period_low"),
+                    "period_high":    rule.get("period_high"),
+                    "description":    rule.get("description"),
+                    "rationale":      rule.get("rationale"),
+                    "news_synthesis": synthesis,
+                    "near_earnings":  near_earnings,
+                    "strong":         symbol_is_strong,
+                    "ensemble":       ensemble_signal,
+                    "move_pct":       round(move_pct, 2),
+                    "bear_regime_caveat": _bear_regime_caveat(rule.get("signal")) or None,
+                })
+                aid = log_alert(sym, rule["rule_type"], rule["message"], quote["close"], detail, should_notify=False)
+                if aid:
+                    new_ids.append(aid)
+            if new_ids:
+                event_id = min(new_ids)
+                with get_db() as conn:
+                    conn.executemany("UPDATE alerts SET event_id=? WHERE id=?", [(event_id, i) for i in new_ids])
+                    conn.commit()
+                should_notify = False if digest_mode else (symbol_is_strong if notify_strong_only else True)
+                if should_notify and not is_guest_stock(sym):
+                    worker_pool.submit(notify_signal_brief, event_id)
             info_events = compute_info_events(sym, quote, history, params, cat, rules)
             hist30 = get_history(sym, days=30)
             result = {
@@ -1502,6 +1780,7 @@ GUEST_ACTION_NAMES = [
     ("/api/alerts/ack", "Acknowledge alerts"),
     ("/api/alerts/clear", "Clear alert history"),
     ("/api/recalibrate", "Recalibrate"),
+    ("/api/decision", "Mark acted/passed"),
     ("/sensitivity", "Change sensitivity"),
     ("/params/reset", "Reset rules"),
     ("/params", "Edit rules"),
@@ -1537,14 +1816,56 @@ def login():
             record_access("login_failed", "")
             error_html = '<div class="err">Incorrect password</div>'
         if role:
+            nxt = session.get("next", "")
             session.clear()
             session["authed"] = True
             session["role"] = role
             session["vid"] = secrets.token_hex(6)
             record_access("login", role)
             _login_email(role, client_ip(), device_label(request.headers.get("User-Agent")))
-            return redirect(url_for("dashboard"))
+            # Only ever redirect to a dashboard deep link (e.g. /?stock=NVDA from an email).
+            return redirect(nxt if nxt.startswith("/?") else url_for("dashboard"))
     return Response(LOGIN_PAGE.replace("__ERROR_HTML__", error_html), mimetype="text/html")
+
+DECIDE_PAGE = """<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tripwire — Decision</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0A0C12;color:#E4E0D8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px}
+.box{background:#12151F;border:1px solid #1E2235;border-radius:14px;padding:28px;width:360px;max-width:100%;text-align:center}
+.logo{font-weight:800;font-size:20px;color:#F59E0B;margin-bottom:14px}
+p{margin-bottom:14px;line-height:1.5}
+button{width:100%;background:#F59E0B;color:#000;border:none;border-radius:8px;padding:12px;font-weight:700;font-size:14px;cursor:pointer}
+a{color:#93C5FD}
+.muted{color:#9CA3AF;font-size:13px}
+</style></head><body><form class="box" method="POST"><div class="logo">⚡ Tripwire</div>__BODY__</form></body></html>"""
+
+def _decide_page(body, status=200):
+    return Response(DECIDE_PAGE.replace("__BODY__", body), status=status, mimetype="text/html")
+
+@app.route("/decide/<int:event_id>/<decision>/<sig>", methods=["GET", "POST"])
+def decide(event_id, decision, sig):
+    """Acted/passed buttons in emails. The signed link needs no login; GET only asks for
+    confirmation, because mail link-scanners open links automatically and would record a
+    decision nobody made."""
+    if decision not in ("acted", "passed") or not hmac.compare_digest(sig, _decision_sig(event_id, decision)):
+        return _decide_page("<p>This link isn't valid.</p>", 404)
+    rows = _event_rows(event_id)
+    if not rows:
+        return _decide_page("<p>That signal no longer exists.</p>", 404)
+    r0 = rows[0]
+    what = f"{h_esc(r0['symbol'])} {h_esc(_event_label(rows))} from {h_esc(_fmt_day(datetime.fromtimestamp(r0['timestamp']).date()))}"
+    open_link = f'<p class="muted"><a href="/?stock={h_esc(r0["symbol"])}">Open Tripwire</a></p>'
+    if request.method == "POST":
+        set_decision([r["id"] for r in rows], decision)
+        return _decide_page(f"<p>Recorded: you <b>{decision}</b> on {what}. ✓</p>"
+                            "<p class='muted'>You'll see how it played out in the follow-up email and under Performance.</p>" + open_link)
+    other = "passed" if decision == "acted" else "acted"
+    return _decide_page(f"<p>{what}</p><button type='submit'>Confirm: I {decision}</button>"
+                        f"<p class='muted' style='margin-top:14px'>Wrong button? "
+                        f"<a href='{h_esc(decision_link(event_id, other) or '')}'>I {other} instead</a></p>")
 
 @app.route("/logout")
 def logout():
@@ -1577,6 +1898,8 @@ def login_required(f):
         if not session.get("authed"):
             if request.path.startswith("/api/"):
                 return jsonify({"success": False, "error": "Not authenticated"}), 401
+            if request.path == "/" and request.query_string:
+                session["next"] = request.full_path
             return redirect(url_for("login"))
         return f(*args, **kwargs)
     return wrapped
@@ -1701,7 +2024,19 @@ def api_alerts():
         "ack": (r["ack"] if "ack" in r.keys() else 0) or 0,
         "time": datetime.fromtimestamp(r["timestamp"]).strftime("%Y-%m-%d %H:%M"),
         "ts": r["timestamp"],
+        "event_id": r["event_id"] if "event_id" in r.keys() else None,
+        "decision": r["decision"] if "decision" in r.keys() else None,
     } for r in rows]})
+
+@app.route("/api/decision", methods=["POST"])
+@login_required
+def api_decision():
+    data = request.json or {}
+    decision = data.get("decision")
+    if decision not in ("acted", "passed", None):
+        return jsonify({"success": False, "error": "decision must be acted, passed or null"}), 400
+    set_decision(data.get("ids") or [], decision)
+    return jsonify({"success": True})
 
 @app.route("/api/alerts/ack", methods=["POST"])
 @login_required
@@ -1763,23 +2098,51 @@ def api_analytics():
             "AVG(CASE WHEN outcome_correct=1 THEN 1.0 ELSE 0.0 END) hit "
             "FROM alerts WHERE outcome_ts IS NOT NULL AND outcome_excess IS NOT NULL "
             "GROUP BY rule_type").fetchall()
-        # Per-stock realized edge (which stocks' signals actually paid off)
-        srows = conn.execute(
-            "SELECT symbol, COUNT(*) n, AVG(outcome_excess) avg_exc, "
-            "AVG(CASE WHEN outcome_correct=1 THEN 1.0 ELSE 0.0 END) hit "
-            "FROM alerts WHERE outcome_ts IS NOT NULL AND outcome_excess IS NOT NULL "
-            "GROUP BY symbol ORDER BY avg_exc DESC").fetchall()
-        # Headline: overall across all scored signals
-        head = conn.execute(
-            "SELECT COUNT(*) n, AVG(outcome_excess) avg_exc, "
-            "AVG(CASE WHEN outcome_correct=1 THEN 1.0 ELSE 0.0 END) hit "
-            "FROM alerts WHERE outcome_ts IS NOT NULL AND outcome_excess IS NOT NULL").fetchone()
-        # Recent resolved signals (the receipts behind the aggregate)
-        recent = conn.execute(
-            "SELECT symbol, rule_type, timestamp, detail, outcome_ret, outcome_excess, outcome_correct "
-            "FROM alerts WHERE outcome_ts IS NOT NULL AND outcome_excess IS NOT NULL "
-            "ORDER BY timestamp DESC LIMIT 15").fetchall()
+        scored = [dict(r) for r in conn.execute(
+            "SELECT id, symbol, rule_type, timestamp, detail, event_id, decision, outcome_ret, outcome_excess "
+            "FROM alerts WHERE outcome_ts IS NOT NULL AND outcome_excess IS NOT NULL ORDER BY timestamp")]
         pending = conn.execute("SELECT COUNT(*) c FROM alerts WHERE outcome_ts IS NULL").fetchone()["c"]
+
+    # Signals, not rule triggers: one move that tripped several rules (or several cycles of
+    # the same day, for alerts that predate event grouping) counts once. Counting per rule
+    # let a single bad day dominate the record.
+    groups = {}
+    for r in scored:
+        key = f"e{r['event_id']}" if r["event_id"] else f"d{r['symbol']}:{datetime.fromtimestamp(r['timestamp']):%Y-%m-%d}"
+        groups.setdefault(key, []).append(r)
+    signals = []
+    for rows in groups.values():
+        r0 = rows[0]
+        signals.append({
+            "ids": [r["id"] for r in rows], "symbol": r0["symbol"], "ts": r0["timestamp"],
+            "label": _event_label(rows), "strong": any(_detail_of(r).get("strong") for r in rows),
+            "ret": r0["outcome_ret"], "excess": r0["outcome_excess"],
+            "decision": next((r["decision"] for r in rows if r["decision"]), None),
+        })
+    signals.sort(key=lambda s: s["ts"])
+    head = {"n": len(signals),
+            "avg_exc": (sum(s["excess"] for s in signals) / len(signals)) if signals else None,
+            "hit": (sum(1 for s in signals if s["excess"] > 0) / len(signals)) if signals else None}
+
+    def _grp(items):
+        if not items:
+            return None
+        return {"n": len(items), "avg_excess": round(sum(i["excess"] for i in items) / len(items), 2),
+                "hit": round(100 * sum(1 for i in items if i["excess"] > 0) / len(items), 1)}
+    strong_sigs = [s for s in signals if s["strong"]]
+    money = None
+    if strong_sigs:
+        money = {"n": len(strong_sigs), "stake": 1000,
+                 "vs_market": round(sum(s["excess"] for s in strong_sigs) * 10, 0),
+                 "raw": round(sum(s["ret"] for s in strong_sigs) * 10, 0)}
+    decisions = {"acted": _grp([s for s in strong_sigs if s["decision"] == "acted"]),
+                 "passed": _grp([s for s in strong_sigs if s["decision"] == "passed"]),
+                 "unmarked": sum(1 for s in strong_sigs if not s["decision"])}
+    by_sym = {}
+    for s in signals:
+        by_sym.setdefault(s["symbol"], []).append(s)
+    by_stock_list = sorted(({"symbol": k, **_grp(v)} for k, v in by_sym.items()),
+                           key=lambda x: -x["avg_excess"])
 
     # Backtested baseline per rule = simple average of the per-symbol rule_stats entries.
     bt = {}
@@ -1798,21 +2161,12 @@ def api_analytics():
         })
     outcomes.sort(key=lambda x: -(x["live_excess"] if x["live_excess"] is not None else -99))
 
-    by_stock = [{"symbol": r["symbol"], "n": r["n"],
-                 "avg_excess": round(r["avg_exc"], 2) if r["avg_exc"] is not None else None,
-                 "hit": round(r["hit"] * 100, 1) if r["hit"] is not None else None} for r in srows]
-
-    recent_list = []
-    for r in recent:
-        try:
-            sig = (json.loads(r["detail"]) or {}).get("signal") if r["detail"] else None
-        except Exception:
-            sig = None
-        recent_list.append({
-            "symbol": r["symbol"], "rule_type": r["rule_type"], "signal": sig,
-            "date": datetime.fromtimestamp(r["timestamp"]).strftime("%b %d"),
-            "ret": r["outcome_ret"], "excess": r["outcome_excess"], "correct": r["outcome_correct"],
-        })
+    recent_list = [{
+        "ids": s["ids"], "symbol": s["symbol"], "label": s["label"], "strong": s["strong"],
+        "date": datetime.fromtimestamp(s["ts"]).strftime("%b %d"),
+        "ret": s["ret"], "market": round(s["ret"] - s["excess"], 2), "excess": s["excess"],
+        "decision": s["decision"],
+    } for s in reversed(signals[-15:])]
 
     # Overall backtested hit rate across all rules that have live outcomes, for calibration drift.
     live_hits = [o["live_hit"] for o in outcomes if o["live_hit"] is not None]
@@ -1833,8 +2187,10 @@ def api_analytics():
     return jsonify({
         "headline": headline,
         "outcomes": outcomes,
-        "by_stock": by_stock,
+        "by_stock": by_stock_list,
         "recent": recent_list,
+        "money": money,
+        "decisions": decisions,
         "calibration": calibration,
         "outcomes_pending": pending,
     })
@@ -1942,19 +2298,97 @@ BACKTEST_PY = Path(__file__).parent / "backtest.py"
 RECAL_STATE = {"running": False, "phase": "idle", "rc": None, "tail": "", "started": None}
 _recal_lock = threading.Lock()
 
+RULE_STATS_PENDING = RULE_STATS_PATH.with_name("rule_stats.pending.json")
+RULE_STATS_PREV = RULE_STATS_PATH.with_name("rule_stats.prev.json")
+
+def _reload_rule_stats():
+    global RULE_STATS
+    RULE_STATS = _load_rule_stats()
+
 def _run_backtest(args, phase):
+    """A backtest run rewrites rule_stats.json for its *suggested* thresholds. Until those are
+    applied, the live file must keep describing the thresholds actually in use, so a run's new
+    stats are parked as pending and only swapped in on apply (and swapped back on undo)."""
     RECAL_STATE.update({"running": True, "phase": phase, "rc": None, "started": int(time.time())})
+    refresh = "--refresh" in args
+    live_stats = RULE_STATS_PATH.read_bytes() if refresh and RULE_STATS_PATH.exists() else None
     try:
         proc = subprocess.run([sys.executable, str(BACKTEST_PY), *args],
                               cwd=str(BACKTEST_PY.parent), capture_output=True, text=True, timeout=1800)
         RECAL_STATE["rc"] = proc.returncode
         RECAL_STATE["tail"] = (proc.stdout or "")[-1500:] + (("\n[stderr]\n" + proc.stderr[-800:]) if proc.returncode else "")
+        if refresh and RULE_STATS_PATH.exists():
+            if proc.returncode == 0:
+                RULE_STATS_PENDING.write_bytes(RULE_STATS_PATH.read_bytes())
+            if live_stats is not None:
+                RULE_STATS_PATH.write_bytes(live_stats)
+        elif args == ["apply"] and proc.returncode == 0 and RULE_STATS_PENDING.exists():
+            if RULE_STATS_PATH.exists():
+                RULE_STATS_PREV.write_bytes(RULE_STATS_PATH.read_bytes())
+            RULE_STATS_PENDING.replace(RULE_STATS_PATH)
+            _reload_rule_stats()
+        elif args == ["undo"] and proc.returncode == 0 and RULE_STATS_PREV.exists():
+            RULE_STATS_PREV.replace(RULE_STATS_PATH)
+            _reload_rule_stats()
     except Exception as e:
         RECAL_STATE["rc"] = -1
         RECAL_STATE["tail"] = f"error: {e}"
+        if live_stats is not None:
+            RULE_STATS_PATH.write_bytes(live_stats)
     finally:
         RECAL_STATE["running"] = False
         RECAL_STATE["phase"] = "done"
+
+PARAM_NAMES = {
+    "volatility_multiplier": "unusual-move threshold (× normal daily move)",
+    "volatility_lookback": "unusual-move lookback (days)",
+    "support_resist_pct": "support/resistance buffer (%)", "support_resist_lookback": "support/resistance lookback (days)",
+    "volume_multiplier": "volume-spike threshold (× normal volume)", "volume_lookback": "volume lookback (days)",
+    "gap_pct": "opening-gap threshold (%)", "rsi_period": "RSI period", "rsi_overbought": "RSI overbought level",
+    "rsi_oversold": "RSI oversold level", "enable_volatility": "unusual-move rule",
+    "enable_support_resistance": "support/resistance rule", "enable_volume": "volume rule",
+    "enable_gap": "opening-gap rule", "enable_rsi": "RSI rule", "enable_ma": "moving-average rule",
+}
+
+def auto_recal_loop():
+    """Monthly, at night: re-run the backtest on fresh data and email the owner only if it
+    suggests threshold changes. Nothing is applied without the owner pressing Apply."""
+    time.sleep(300)
+    while True:
+        try:
+            now = datetime.now()
+            last = get_setting("auto_recal_last", "")
+            due = not last or (now.date() - datetime.strptime(last, "%Y-%m-%d").date()).days >= 30
+            if get_setting_bool("auto_recal_enabled") and due and now.hour == 3:
+                with _recal_lock:
+                    busy = RECAL_STATE["running"]
+                    if not busy:
+                        RECAL_STATE["running"] = True
+                if not busy:
+                    set_setting("auto_recal_last", now.strftime("%Y-%m-%d"))
+                    _run_backtest(["--refresh"], "monthly check")
+                    diff = _recal_diff() or [] if RECAL_STATE["rc"] == 0 else []
+                    if diff:
+                        worker_pool.submit(_send_recal_email, diff)
+        except Exception as e:
+            log.warning("auto_recal_loop error: %s", e)
+        time.sleep(1800)
+
+def _send_recal_email(diff):
+    link = f"{PUBLIC_URL}/?tab=settings" if PUBLIC_URL else None
+    fmt = lambda v: "on" if v is True else "off" if v is False else ("—" if v is None else str(v))
+    lines = [f"{c['symbol']}: {PARAM_NAMES.get(c['key'], c['key'])} {fmt(c['from'])} → {fmt(c['to'])}" for c in diff[:20]]
+    more = f"\n… and {len(diff) - 20} more" if len(diff) > 20 else ""
+    subject = f"🔄 Tripwire monthly recalibration: {len(diff)} suggested change{'s' if len(diff) != 1 else ''}"
+    intro = ("Tripwire re-ran its 5-year backtest on fresh prices. These thresholds would now work better "
+             "than the ones in use. Nothing changes until you review them and press Apply.")
+    text = intro + "\n\n" + "\n".join(lines) + more + (f"\n\nReview and apply: {link}" if link else "\n\nReview in Settings → Recalibration.")
+    html = _email_shell(f'<h2 style="margin:0 0 8px">Monthly recalibration</h2><p>{h_esc(intro)}</p><ul>'
+                        + "".join(f"<li>{h_esc(l)}</li>" for l in lines) + "</ul>" + (f"<p>{h_esc(more)}</p>" if more else "")
+                        + (_btn(link, "Review and apply", "#2563EB") if link else "<p>Review in Settings → Recalibration.</p>"))
+    _send_email(subject, text, html)
+
+threading.Thread(target=auto_recal_loop, daemon=True).start()
 
 def _recal_diff():
     """Preview: which live thresholds/enables would change if the latest recommendation applied."""
@@ -2585,6 +3019,24 @@ input,select{outline:none}
 /* "Today" triage strip — what needs attention now, above the grid */
 #triage-strip{margin-bottom:14px}
 .triage-box{background:#12151F;border:1px solid #1E2235;border-radius:12px;padding:12px 14px}
+.today-head{font-size:17px;font-weight:800;margin-bottom:6px}
+.today-head.calm{color:#10B981}
+.today-head.needs{color:#F59E0B}
+.today-item{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:8px 0;border-top:1px solid #1E223599}
+.today-sym{font-weight:800;font-size:15px;cursor:pointer;text-decoration:underline dotted #6B7280}
+.today-meta{color:#9CA3AF;font-size:12px}
+.today-actions{margin-left:auto;display:flex;gap:6px}
+.dec-btn{border-radius:8px;padding:5px 10px;font-size:12px;font-weight:700;cursor:pointer;border:1px solid}
+.dec-btn.acted{background:#05966922;color:#34D399;border-color:#05966966}
+.dec-btn.passed{background:transparent;color:#9CA3AF;border-color:#374151}
+.dec-tag{font-size:11px;font-weight:700;border-radius:6px;padding:1px 6px}
+.dec-tag.acted{background:#05966922;color:#34D399}
+.dec-tag.passed{background:#37415155;color:#9CA3AF}
+.today-sub{color:#6B7280;font-size:12px;margin-top:6px}
+.today-more{color:#93C5FD;text-decoration:none}
+.today-detail{margin-top:10px;padding-top:10px;border-top:1px dashed #1E2235}
+.perf-money{font-size:28px;font-weight:800;margin:2px 0 6px}
+@media (max-width:600px){ .today-actions{margin-left:0;width:100%} .today-actions .dec-btn{flex:1;padding:8px} }
 .triage-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
 .triage-row:last-child{margin-bottom:0}
 .triage-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#6B7280;min-width:96px}
@@ -3152,6 +3604,21 @@ function evidenceLineHTML(sym,ruleType){
   return `<div class="evidence-line">📊 ${linkifyGlossary(line)}${lowConfidenceBadge(sym,ruleType)}</div>`;
 }
 
+// Deep links from emails: /?stock=NVDA opens that stock, /?tab=settings opens a tab.
+let startParamsHandled=false;
+function handleStartParams(){
+  if(startParamsHandled) return;
+  startParamsHandled=true;
+  const p=new URLSearchParams(location.search);
+  const tab=p.get('tab'), sym=(p.get('stock')||'').toUpperCase();
+  if(tab&&TAB_NAMES[tab]){
+    const btn=[...document.querySelectorAll('.tab')].find(b=>(b.getAttribute('onclick')||'').includes("'"+tab+"'"));
+    switchTab(tab,btn);
+  }
+  if(sym&&stocks.some(s=>s.symbol===sym)&&selectedSym!==sym) selectStock(sym);
+  if(tab||sym) history.replaceState(null,'','/');
+}
+
 async function loadAll(){
   try{
     const [s,a,st]=await Promise.all([fetchJSON('/api/stocks'),fetchJSON('/api/alerts'),fetchJSON('/api/status')]);
@@ -3161,6 +3628,7 @@ async function loadAll(){
     renderGrid();
     renderAlerts();
     checkNewAlertNotifications();
+    handleStartParams();
     document.getElementById('err-banner').style.display='none';
   }catch(e){
     document.getElementById('err-banner').textContent='Cannot reach backend. Make sure app.py is running.';
@@ -3436,7 +3904,7 @@ function renderGrid(){
     // amber if triggered, green if OK. Full detail is one click away in the panel below.
     let rulesHTML='';
     if(hasRuleData){
-      const chips=allRules.map(r=>{
+      const chips=allRules.filter(r=>detailMode||!CONTEXT_ONLY_RULES[r.rule_type]).map(r=>{
         const ctx=CONTEXT_ONLY_RULES[r.rule_type];
         const cls=ctx?'off':(r.triggered&&!r.disabled)?'trig':'ok';
         const tip=ctx?(r.label||r.rule_type)+' (context only — does not alert)':(r.label||r.rule_type);
@@ -3477,8 +3945,57 @@ function renderGrid(){
   renderTriage();
 }
 
-// "Today" triage strip: rank what needs attention now — STRONG first, then trending,
-// then a one-line count of info-tier activity. Chips jump to the stock's detail panel.
+// ── Home: one answer — "Nothing needs you" or the STRONG signals still waiting for your call ──
+let detailMode=false;
+try{ detailMode=localStorage.getItem('tw_detail')==='1'; }catch(e){}
+function toggleDetailMode(){
+  detailMode=!detailMode;
+  try{ localStorage.setItem('tw_detail',detailMode?'1':'0'); }catch(e){}
+  track(detailMode?'Showed more detail':'Showed less detail');
+  renderGrid();
+}
+
+// STRONG signal events from the alert log: alerts from one symbol's check cycle share
+// event_id; older alerts (before grouping) fall back to one event per symbol per day.
+function signalEvents(){
+  const map={};
+  for(const a of alerts){
+    const d=alertDetailOf(a);
+    if(!d.strong) continue;
+    const key=a.event_id!=null?'e'+a.event_id:'d'+a.symbol+':'+String(a.time).slice(0,10);
+    let ev=map[key];
+    if(!ev) ev=map[key]={symbol:a.symbol,ts:a.ts,ids:[],rules:[],sigs:[],label:d.ensemble||null,decision:null};
+    ev.ids.push(a.id); ev.rules.push(a.rule_type); ev.sigs.push(d.signal);
+    ev.ts=Math.min(ev.ts,a.ts);
+    if(a.decision) ev.decision=a.decision;
+  }
+  return Object.values(map).map(ev=>{
+    if(!ev.label||!ev.label.startsWith('STRONG')){
+      const up=ev.sigs.filter(s=>s==='BUY').length>=ev.sigs.filter(s=>s==='SELL').length;
+      ev.label='STRONG '+(up?'BUY':'BOUNCE WATCH');
+    }
+    return ev;
+  });
+}
+function actByDate(ts){
+  const d=new Date(ts*1000); let n=ACTION_WINDOW_TRADING_DAYS;
+  while(n>0){ d.setDate(d.getDate()+1); const w=d.getDay(); if(w!==0&&w!==6) n--; }
+  return d.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
+}
+function fmtFired(ts){ return new Date(ts*1000).toLocaleString('en-GB',{weekday:'short',hour:'2-digit',minute:'2-digit'}); }
+function eventEdge(sym,rules){
+  let best=null;
+  for(const rt of rules){ const st=(ruleStats[sym]||{})[rt]; if(st&&(best==null||st.exc5>best)) best=st.exc5; }
+  return best==null?'':` · backtested ${best>=0?'+':''}${best.toFixed(1)}% vs market over 5d`;
+}
+async function markDecision(ids,decision){
+  await postJSON('/api/decision',{ids:String(ids).split(',').map(Number),decision});
+  showToast(decision==='acted'?'Marked: you acted. The follow-up in ~5 trading days will show how it went.'
+                              :'Marked: you passed. The follow-up in ~5 trading days will show how it went.',4500);
+  await loadAll();
+  if(document.getElementById('pane-analytics').style.display!=='none') loadAnalytics();
+}
+
 function renderTriage(){
   const el=document.getElementById('triage-strip');
   if(!el) return;
@@ -3492,6 +4009,28 @@ function renderTriage(){
     }
     if((s.info_events||[]).length) infoCount++;
   }
+  const needs=signalEvents().filter(e=>!e.decision&&isWithinActionWindow(e.ts)).sort((a,b)=>a.ts-b.ts);
+  let html;
+  if(needs.length){
+    html=`<div class="today-head needs">⚡ ${needs.length} signal${needs.length>1?'s need':' needs'} you — act by ${actByDate(needs[0].ts)}</div>`+
+      needs.map(e=>{
+        const buy=e.label.includes('BUY');
+        const ids=e.ids.join(',');
+        return `<div class="today-item">
+          <span class="today-sym" onclick="selectStock('${e.symbol}')">${e.symbol}</span>
+          <span class="sig-badge ${buy?'sig-strong-buy':'sig-strong-sell'}">${e.label}</span>
+          <span class="today-meta">fired ${fmtFired(e.ts)} · act by ${actByDate(e.ts)}${eventEdge(e.symbol,e.rules)}</span>
+          ${guestMode?'':`<span class="today-actions"><button class="dec-btn acted" onclick="markDecision('${ids}','acted')">I acted</button><button class="dec-btn passed" onclick="markDecision('${ids}','passed')">I passed</button></span>`}
+        </div>`;
+      }).join('');
+  }else{
+    html=`<div class="today-head calm">✓ Nothing needs you today</div>`;
+  }
+  const bits=[];
+  if(trend.length) bits.push(`${trend.length} trending (not yet confirmed)`);
+  if(infoCount) bits.push(`${infoCount} with minor activity`);
+  html+=`<div class="today-sub">${bits.join(' · ')}${bits.length?' · ':''}<a class="today-more" href="javascript:void(0)" onclick="toggleDetailMode()">${detailMode?'Less detail ▴':'More detail ▾'}</a></div>`;
+  if(!detailMode){ el.innerHTML=`<div class="triage-box">${html}</div>`; return; }
   const bestEdge=(s)=>{
     // surface the strongest triggered rule's backtested 5d edge, if we have stats
     let best=null;
@@ -3508,15 +4047,11 @@ function renderTriage(){
     const edge=e!=null?`<span class="tedge">${e>=0?'+':''}${e.toFixed(1)}% 5d</span>`:'';
     return `<span class="triage-chip ${cls}" onclick="selectStock('${s.symbol}')"><span class="tsym">${s.symbol}</span> ${sig.label} ${edge}</span>`;
   };
-  if(!strong.length&&!trend.length){
-    el.innerHTML=`<div class="triage-box"><span class="triage-empty">✓ No strong or trending signals right now.</span>${infoCount?` <span class="triage-info">· ${infoCount} stock${infoCount>1?'s':''} showing info-tier activity.</span>`:''}</div>`;
-    return;
-  }
   let rows='';
-  if(strong.length) rows+=`<div class="triage-row"><span class="triage-label">⚡ Needs attention</span>${strong.map(x=>chip(x.s,x.sig)).join('')}</div>`;
+  if(strong.length) rows+=`<div class="triage-row"><span class="triage-label">Strong right now</span>${strong.map(x=>chip(x.s,x.sig)).join('')}</div>`;
   if(trend.length)  rows+=`<div class="triage-row"><span class="triage-label">Trending</span>${trend.map(x=>chip(x.s,x.sig)).join('')}</div>`;
   if(infoCount)     rows+=`<div class="triage-row"><span class="triage-label">Activity</span><span class="triage-info">${infoCount} stock${infoCount>1?'s':''} with info-tier activity (below signal threshold)</span></div>`;
-  el.innerHTML=`<div class="triage-box">${rows}</div>`;
+  el.innerHTML=`<div class="triage-box">${html}${rows?'<div class="today-detail">'+rows+'</div>':''}</div>`;
 }
 
 // Two-tier alerts: a single muted "activity" line per card for rules that crossed the looser
@@ -3525,7 +4060,7 @@ function renderTriage(){
 // compute_info_events in app.py and the show_info_tier setting.
 function infoEventsLineHTML(s){
   const events=s.info_events||[];
-  if(!events.length) return '';
+  if(!events.length||!detailMode) return '';
   const text=events.map(e=>shortRuleLabel(e.rule_type)+': '+e.message.replace(/^activity:\s*/,'')).join('  ·  ');
   return `<div class="info-tier-line">⚡ activity: ${text}</div>`;
 }
@@ -4003,7 +4538,8 @@ const SETTINGS_FORM=[
     {key:'check_interval_closed_seconds',label:'Check interval when closed (seconds)',type:'number'},
     {key:'market_hours_only',label:'Only check during market hours',type:'toggle'},
     {key:'alert_cooldown_hours',label:'Alert cooldown (hours)',type:'number'},
-    {key:'show_info_tier',label:'Show day-to-day activity (info tier)',type:'toggle',hint:'Shows a muted "activity" line on stock cards for moves that cross the looser pre-2026 thresholds but not the validated signal thresholds — informational only, never a BUY/SELL claim.'},
+    {key:'show_info_tier',label:'Show day-to-day activity (info tier)',type:'toggle',hint:'Computes the muted "activity" lines (moves that cross the looser pre-2026 thresholds but not the validated signal thresholds) — informational only, never a BUY/SELL claim. They appear on the cards when "More detail" is on.'},
+    {key:'auto_recal_enabled',label:'Monthly automatic recalibration check',type:'toggle',hint:'About every 30 days at 03:00, Tripwire re-runs its backtest on fresh prices and emails you only if it suggests better thresholds. Nothing changes until you press Apply under Recalibration.'},
   ]},
   {group:'Notifications',rows:[
     {key:'daily_digest_enabled',label:'Daily digest instead of instant pings',type:'toggle',hint:'When on, suppresses instant push/email/WhatsApp and sends one summary per day instead (email + WhatsApp) — a better fit for the 1–5 day signal horizon. Alerts still appear live in the app.'},
@@ -4056,7 +4592,7 @@ async function loadSettings(){
        <span id="settings-status"></span>
      </div>`+
     `<div class="settings-group"><h3>Recalibration</h3>
-       <div class="set-hint" style="margin-bottom:10px">Re-run the 5-year backtest on fresh data to re-tune every rule threshold, then review and apply the changes. Takes a couple of minutes.</div>
+       <div class="set-hint" style="margin-bottom:10px">Re-run the 5-year backtest on fresh data to re-tune every rule threshold, then review and apply the changes. Takes about a minute. It also runs by itself monthly (see Monitoring) and emails you when there's something to review.</div>
        <div class="settings-actions">
          <button id="btn-recal-run" onclick="recalRun()"${ownerOnly}>🔄 Recalibrate now${guestMode?' (owner only)':''}</button>
          <span id="recal-status" class="set-hint"></span>
@@ -4211,7 +4747,7 @@ async function loadAnalytics(){
   const hitClr=h.pct_correct>=55?'#10B981':h.pct_correct>=50?'#F59E0B':'#EF4444';
   const excClr=h.avg_excess>=0?'#10B981':'#EF4444';
   const headlineHTML=`<div class="perf-headline">
-    <div class="perf-hero"><div class="perf-hero-num" style="color:${hitClr}">${h.pct_correct}%</div><div class="perf-hero-lbl">of ${h.n} matured signals beat the market</div></div>
+    <div class="perf-hero"><div class="perf-hero-num" style="color:${hitClr}">${h.pct_correct}%</div><div class="perf-hero-lbl">of ${h.n} signals beat the market over the next 5 days</div></div>
     <div class="perf-hero"><div class="perf-hero-num" style="color:${excClr}">${h.avg_excess>=0?'+':''}${h.avg_excess}%</div><div class="perf-hero-lbl">avg ${linkifyGlossary('excess return')} vs S&P 500 over 5 days</div></div>
   </div>`;
 
@@ -4251,23 +4787,50 @@ async function loadAnalytics(){
     <table class="outcome-table"><thead><tr><th style="text-align:left">Stock</th><th>Scored</th><th>Avg ${linkifyGlossary('excess return')} 5d</th><th>${linkifyGlossary('Hit rate')}</th></tr></thead>
     <tbody>${stockBody}</tbody></table></div>`:'';
 
-  // Recent resolved signals (the receipts)
-  const sigBadge=(s)=>s==='BUY'?'<span class="rt-buy">BUY</span>':s==='SELL'?'<span class="rt-watch">BOUNCE</span>':'<span class="muted">—</span>';
+  // Money + your own decisions
+  const eur=v=>(v>=0?'+':'−')+'€'+Math.abs(Math.round(v)).toLocaleString('en-GB');
+  const m=d.money, dec=d.decisions||{};
+  const moneyCard=m?`<div class="analytics-card"><h3>In money</h3>
+    <div class="perf-money" style="color:${m.vs_market>=0?'#10B981':'#EF4444'}">${eur(m.vs_market)} vs the market</div>
+    <div class="set-hint">Putting €1,000 into each of the ${m.n} STRONG signal${m.n>1?'s':''} for 5 trading days (BUY and BOUNCE WATCH alike — both are calls that the stock will do well) would have left you ${eur(m.vs_market)} compared with the same money in the S&P 500; ${eur(m.raw)} in plain gains/losses. Before fees and taxes; past signals only.</div></div>`:'';
+  const decLine=(lbl,g)=>g?`<div class="al-sum"><strong>${lbl}:</strong> <span class="${g.avg_excess>=0?'up':'dn'}">${g.avg_excess>=0?'+':''}${g.avg_excess}%</span> vs the market on average · ${g.hit}% beat it · ${g.n} signal${g.n>1?'s':''}</div>`:'';
+  let decBody;
+  if(dec.acted||dec.passed){
+    decBody=decLine('When you acted',dec.acted)+decLine('When you passed',dec.passed);
+    if(dec.acted&&dec.passed){
+      const gap=+(dec.acted.avg_excess-dec.passed.avg_excess).toFixed(2);
+      decBody+=`<div class="set-hint" style="margin-top:6px">${gap>=0?`The signals you acted on did ${gap} pts better than the ones you skipped — your judgement is adding value.`:`The signals you skipped did ${Math.abs(gap)} pts better than the ones you acted on — following every signal would have done better.`} Small samples are noisy.</div>`;
+    }
+    if(dec.unmarked) decBody+=`<div class="set-hint">${dec.unmarked} STRONG signal${dec.unmarked>1?'s':''} not marked — mark them in the table below.</div>`;
+  }else{
+    decBody=`<div class="set-hint">Mark STRONG signals with <b>I acted</b> / <b>I passed</b> (in the email, on the Stocks page, or in the table below). This card then shows whether your own choices beat simply following every signal.</div>`;
+  }
+  const decisionsCard=m?`<div class="analytics-card"><h3>Your decisions</h3>${decBody}</div>`:'';
+
+  // Recent resolved signals (the receipts) — one row per signal, not per rule
+  const decCell=r=>{
+    if(r.decision) return `<span class="dec-tag ${r.decision}">${r.decision}</span>`;
+    if(!r.strong||guestMode) return '<span class="muted">—</span>';
+    const ids=r.ids.join(',');
+    return `<button class="dec-btn acted" onclick="markDecision('${ids}','acted')">acted</button> <button class="dec-btn passed" onclick="markDecision('${ids}','passed')">passed</button>`;
+  };
   const recentBody=(d.recent||[]).map(r=>{
-    const ok=r.correct===1;
+    const buy=r.label.includes('BUY');
     return `<tr><td style="text-align:left">${r.date}</td><td style="text-align:left">${r.symbol}</td>
-      <td style="text-align:left">${RULE_DISPLAY_NAME[r.rule_type]||r.rule_type} ${sigBadge(r.signal)}</td>
-      <td class="${r.excess>=0?'up':'dn'}">${r.excess>=0?'+':''}${r.excess}%</td>
-      <td style="color:${ok?'#10B981':'#EF4444'}">${ok?'✓':'✗'}</td></tr>`;
+      <td style="text-align:left"><span class="${buy?'rt-buy':'rt-watch'}">${r.label}</span></td>
+      <td class="${r.ret>=0?'up':'dn'}">${r.ret>=0?'+':''}${r.ret}%</td>
+      <td class="muted">${r.market>=0?'+':''}${r.market}%</td>
+      <td class="${r.excess>=0?'up':'dn'}">${r.excess>=0?'✓ +':'✗ '}${r.excess}</td>
+      <td>${decCell(r)}</td></tr>`;
   }).join('');
-  const recentCard=(d.recent||[]).length?`<div class="analytics-card"><h3>Recent resolved signals</h3>
-    <table class="outcome-table"><thead><tr><th style="text-align:left">Date</th><th style="text-align:left">Stock</th><th style="text-align:left">Signal</th><th>${linkifyGlossary('excess return')} 5d</th><th>Right?</th></tr></thead>
-    <tbody>${recentBody}</tbody></table>
-    <div class="set-hint" style="margin-top:8px">"Right?" = the signal-direction move beat the S&P 500 over the next 5 trading days.</div></div>`:'';
+  const recentCard=(d.recent||[]).length?`<div class="analytics-card"><h3>Recent signals, 5 trading days later</h3>
+    <div class="al-wrap" style="max-height:none"><table class="outcome-table"><thead><tr><th style="text-align:left">Date</th><th style="text-align:left">Stock</th><th style="text-align:left">Signal</th><th>Stock</th><th>Market</th><th>vs market</th><th>You</th></tr></thead>
+    <tbody>${recentBody}</tbody></table></div>
+    <div class="set-hint" style="margin-top:8px">✓ = the stock beat the S&P 500 over the next 5 trading days. A BOUNCE WATCH is a rebound call, so it counts as right when the stock recovers ahead of the market.</div></div>`:'';
 
   pane.innerHTML=`<h2 class="perf-title">📊 Performance</h2>
-    <div class="set-hint" style="margin:-6px 0 14px">How Tripwire's own signals actually played out — the app scoring itself on forward data.${pend?' '+d.outcomes_pending+' still maturing.':''}</div>
-    ${headlineHTML}${calibHTML}${ruleCard}${stockCard}${recentCard}`;
+    <div class="set-hint" style="margin:-6px 0 14px">How Tripwire's own signals actually played out — the app scoring itself on forward data. One move that tripped several rules counts as one signal.${pend?' '+d.outcomes_pending+' alert'+(d.outcomes_pending>1?'s':'')+' still maturing.':''}</div>
+    ${headlineHTML}${calibHTML}${moneyCard}${decisionsCard}${recentCard}${stockCard}${ruleCard}`;
 }
 
 // ── Assistant tab ─────────────────────────────────────────────────────────────

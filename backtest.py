@@ -438,6 +438,12 @@ def episode_starts(trigger):
     prev = np.empty(len(t), dtype=bool); prev[0] = False; prev[1:] = t[:-1]
     return t & (~prev)
 
+# Every signal is judged by whether the stock then beats the market. BUY is a momentum call; a
+# downside trigger (shown as "BOUNCE WATCH") is a rebound call — downside triggers were
+# historically followed by a rebound (~+0.7% vs SPY over 5d), so scoring them as sells counted
+# the typical outcome as a miss. Must match SIGNAL_DIR in app.py (live outcome scoring).
+SIGNAL_DIR = {"BUY": 1.0, "SELL": 1.0}
+
 def event_returns(df, trigger, signal, fwd, spy_fwd, eval_start_idx):
     """Return a DataFrame of episode-start events with signal-direction excess returns."""
     starts = episode_starts(trigger)
@@ -452,7 +458,7 @@ def event_returns(df, trigger, signal, fwd, spy_fwd, eval_start_idx):
             continue
         if not np.isfinite(fwd[HEADLINE_H][t]):   # need full 5-day forward window
             continue
-        dir_mult = 1.0 if s == "BUY" else -1.0
+        dir_mult = SIGNAL_DIR[s]
         rec = {"date": df.index[t], "pos": t, "signal": s}
         for h in FWD_HORIZONS:
             raw = fwd[h][t]; braw = spy_fwd[h][t]
@@ -751,7 +757,7 @@ def _make_ensemble_events_fn(df, esi, fwd, spy_fwd, weight_map=None):
             elif buys > sells and tot >= 1: label = "TREND_BUY"
             elif sells > buys and tot >= 1: label = "TREND_SELL"
             if label and label != prev_label and np.isfinite(fwd[HEADLINE_H][t]):
-                d = 1.0 if "BUY" in label else -1.0
+                d = SIGNAL_DIR["BUY" if "BUY" in label else "SELL"]
                 rec = {"date": df.index[t], "pos": t, "signal": "BUY" if "BUY" in label else "SELL", "label": label}
                 for h in FWD_HORIZONS:
                     braw = spy_fwd[h][t]

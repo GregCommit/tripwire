@@ -229,3 +229,32 @@ The v6 dashboard release turns several backtest findings into product behavior:
   around `select` + `apply`/`undo`, so the quarterly re-tune is a button, not a CLI ritual.
 - **Daily digest** — an optional once-a-day summary (email + WhatsApp) that replaces
   instant pings, matching the 1–5 day signal horizon.
+
+## v7: every signal is judged by whether the stock beats the market
+
+Downside triggers were relabeled "BOUNCE WATCH" because they were historically followed by a
+**rebound** (+0.7% vs SPY over 5 days pooled across 42,766 events), yet both the backtest and
+live scoring still judged them as sell calls — right only if the stock kept lagging. A
+successful rebound therefore counted as a miss, and the edge figures for downside rules were
+sign-flipped relative to what the label tells the user.
+
+Since v7, `SIGNAL_DIR` (in both `backtest.py` and `app.py`) is +1 for BUY and SELL alike:
+every signal, momentum or rebound, is right when the stock beats the S&P 500 over the next 5
+trading days. Past live outcomes for SELL-signal alerts were flipped once on upgrade
+(`bounce_rescored` setting). Thresholds and `rule_stats.json` must be regenerated under the new
+scoring — run a recalibration and apply it.
+
+Other v7 changes:
+
+- **Signals, not rule triggers.** Alerts logged for one symbol in one check cycle share an
+  `event_id`. The owner gets one email brief per signal (what fired, backtested evidence in
+  plain words, act-by date, news, "I acted / I passed" links), one news synthesis per signal
+  instead of one per rule, and a batched follow-up once the signal is scored. Performance counts
+  each signal once (older alerts: one signal per stock per day), which stops a single move that
+  tripped many rules from dominating the record.
+- **Monthly automatic recalibration check** (`auto_recal_enabled`, default on): about every 30
+  days at 03:00 the full pipeline runs and the owner is emailed only if it suggests changes.
+- **Pending evidence.** A recalibration run parks its new `rule_stats.json` as
+  `rule_stats.pending.json` and restores the live file, so evidence shown next to alerts always
+  describes the thresholds actually in use; `apply` swaps it in (keeping
+  `rule_stats.prev.json`), `undo` swaps it back.
