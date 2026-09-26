@@ -2774,6 +2774,8 @@ input,select{outline:none}
 .al-table td{padding:6px 8px;border-bottom:1px solid #1E223566;white-space:nowrap;vertical-align:top}
 .al-table tr.al-events td{white-space:normal;background:#0A0C12;line-height:1.7}
 .al-toggle{background:none;border:1px solid #3B82F655;color:#93C5FD;border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer}
+.guest-settings-note{background:#3B82F612;border:1px solid #3B82F655;color:#BFDBFE;border-radius:10px;padding:10px 14px;font-size:13px;margin-bottom:14px;line-height:1.5}
+button:disabled{opacity:.45;cursor:not-allowed}
 .guest-tag{font-size:10px;font-weight:700;color:#93C5FD;background:#3B82F618;border:1px solid #3B82F655;border-radius:6px;padding:1px 5px;margin-left:6px;vertical-align:middle;cursor:help}
 #chat-quota{font-size:12px;color:#93C5FD;margin-top:6px}
 #guest-pill{font-size:12px;font-weight:700;border-radius:10px;padding:3px 9px;background:#3B82F618;color:#93C5FD;border:1px solid #3B82F655;cursor:help;white-space:nowrap}
@@ -4044,17 +4046,19 @@ async function loadSettings(){
              (r.hint?`<div class="set-hint">${r.hint}</div>`:'');
     }).join('')
   }</div>`).join('');
-  document.getElementById('pane-settings').innerHTML=html+
+  const ownerOnly=guestMode?' disabled title="Owner only — not available with the guest password"':'';
+  const guestNote=guestMode?`<div class="guest-settings-note">👀 You're signed in with the <strong>guest password</strong>: settings are shown read-only, and saving, test notifications and recalibration are owner-only. Log out and sign in with the main password to change them.</div>`:'';
+  document.getElementById('pane-settings').innerHTML=guestNote+html+
     `<div class="settings-actions">
-       <button id="btn-save-settings" onclick="saveSettings()">Save settings</button>
-       <button id="btn-test-notify" onclick="testNotify()">Send test notification</button>
+       <button id="btn-save-settings" onclick="saveSettings()"${ownerOnly}>Save settings</button>
+       <button id="btn-test-notify" onclick="testNotify()"${ownerOnly}>Send test notification</button>
        <button class="btn-reset" onclick="enableBrowserNotifs()">Enable browser notifications</button>
        <span id="settings-status"></span>
      </div>`+
     `<div class="settings-group"><h3>Recalibration</h3>
        <div class="set-hint" style="margin-bottom:10px">Re-run the 5-year backtest on fresh data to re-tune every rule threshold, then review and apply the changes. Takes a couple of minutes.</div>
        <div class="settings-actions">
-         <button id="btn-recal-run" onclick="recalRun()">🔄 Recalibrate now</button>
+         <button id="btn-recal-run" onclick="recalRun()"${ownerOnly}>🔄 Recalibrate now${guestMode?' (owner only)':''}</button>
          <span id="recal-status" class="set-hint"></span>
        </div>
        <div id="recal-result" style="margin-top:12px"></div>
@@ -4103,7 +4107,8 @@ let recalPoll=null;
 async function recalRun(){
   const btn=document.getElementById('btn-recal-run'); if(btn) btn.disabled=true;
   document.getElementById('recal-result').innerHTML='';
-  await postJSON('/api/recalibrate/run',{});
+  try{ await postJSON('/api/recalibrate/run',{}); }
+  catch(e){ if(btn) btn.disabled=guestMode; throw e; }
   pollRecal();
 }
 function pollRecal(){
@@ -4122,7 +4127,7 @@ async function refreshRecalStatus(){
     if(!recalPoll) pollRecal();
     return;
   }
-  if(btn) btn.disabled=false;
+  if(btn) btn.disabled=guestMode;
   if(recalPoll){ clearInterval(recalPoll); recalPoll=null; }
   if(st.phase==='done'){
     status.textContent=st.rc===0?'✓ done':'⚠ finished with issues (rc '+st.rc+')';
