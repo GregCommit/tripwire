@@ -5,7 +5,7 @@ Run:  python app.py
 Open: http://localhost:5000
 """
 
-import sqlite3, threading, time, json, os, logging, csv, io, smtplib, urllib.parse, urllib.request, subprocess, sys
+import sqlite3, threading, time, json, os, logging, csv, io, smtplib, urllib.parse, urllib.request, subprocess, sys, hmac, secrets
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from pathlib import Path
@@ -85,6 +85,12 @@ def init_db():
                 id INTEGER PRIMARY KEY,
                 role TEXT, content TEXT, ts INTEGER
             );
+            CREATE TABLE IF NOT EXISTS access_log (
+                id INTEGER PRIMARY KEY,
+                ts INTEGER, kind TEXT, role TEXT,
+                vid TEXT, ip TEXT, device TEXT, detail TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_access_ts ON access_log(ts);
             CREATE INDEX IF NOT EXISTS idx_prices_symbol_ts ON prices(symbol, timestamp);
             CREATE INDEX IF NOT EXISTS idx_alerts_symbol_rule_ts ON alerts(symbol, rule_type, timestamp);
         """)
@@ -92,6 +98,7 @@ def init_db():
             ("alerts", "detail", "TEXT"),
             ("alerts", "ack", "INTEGER DEFAULT 0"),
             ("prices", "volume", "REAL"),
+            ("stocks", "added_by", "TEXT"),           # 'guest' for tickers added via guest login
             # Outcome tracking: filled in ~5 trading days after each alert (see resolve_outcomes)
             ("alerts", "outcome_ret", "REAL"),        # stock return since alert price, %
             ("alerts", "outcome_excess", "REAL"),     # signal-direction excess vs SPY, %
@@ -356,6 +363,13 @@ def get_stocks():
     with get_db() as conn:
         return [dict(r) for r in conn.execute("SELECT * FROM stocks WHERE active=1 ORDER BY symbol")]
 
+def is_guest_stock(symbol):
+    """Guest-added tickers are monitored and shown like any other, but never trigger the
+    owner's outbound notifications or paid AI news synthesis."""
+    with get_db() as conn:
+        row = conn.execute("SELECT added_by FROM stocks WHERE symbol=?", (symbol,)).fetchone()
+    return bool(row) and row["added_by"] == "guest"
+
 SENSITIVITY_LEVELS = ("conservative", "calibrated", "sensitive")
 
 def _apply_sensitivity(params, category, level):
@@ -511,6 +525,8 @@ def populate_history(symbol):
         rows = list(hist.iterrows())
         with get_db() as conn:
             for i, (ts, row) in enumerate(rows):
+                if row["Close"] != row["Close"]:  # Yahoo sometimes returns an empty (NaN) bar
+                    continue
                 day_ts = int(ts.timestamp())
                 prev_close = round(float(rows[i-1][1]["Close"]), 2) if i > 0 else round(float(row["Close"]), 2)
                 vol = row.get("Volume")
@@ -650,7 +666,7 @@ def get_history(symbol, days=90):
     with get_db() as conn:
         cutoff = int(time.time()) - days * 86400
         rows = conn.execute(
-            "SELECT timestamp,close,high,low,volume FROM prices WHERE symbol=? AND timestamp>? ORDER BY timestamp ASC",
+            "SELECT timestamp,close,high,low,volume FROM prices WHERE symbol=? AND timestamp>? AND close IS NOT NULL ORDER BY timestamp ASC",
             (symbol, cutoff)
         ).fetchall()
     # One row per calendar date — keep the latest intraday update for each day
@@ -680,7 +696,7 @@ def log_alert(symbol, rule_type, message, price, detail=None, should_notify=True
     # Alert is always written to the DB/UI regardless of notify_strong_only — that setting only
     # gates the outbound push/email/WhatsApp notification, decided by the caller per check cycle
     # (see run_check: compute_signal() + notify_strong_only gate).
-    if should_notify:
+    if should_notify and not is_guest_stock(symbol):
         worker_pool.submit(notify_alert, symbol, rule_type, message, price)
 
 def get_alerts(limit=200):
@@ -868,7 +884,8 @@ def build_daily_digest():
     since = int(time.time()) - 86400
     with get_db() as conn:
         rows = conn.execute(
-            "SELECT symbol,rule_type,message,detail,timestamp FROM alerts WHERE timestamp>? ORDER BY symbol,timestamp",
+            "SELECT symbol,rule_type,message,detail,timestamp FROM alerts WHERE timestamp>? "
+            "AND symbol NOT IN (SELECT symbol FROM stocks WHERE added_by='guest') ORDER BY symbol,timestamp",
             (since,)).fetchall()
     if not rows:
         return None
@@ -1304,7 +1321,7 @@ def run_check(symbols=None):
                     continue  # context-only: shown on the card, but no alert/notify/synthesis
                 if rule.get("triggered") and not rule.get("disabled"):
                     synthesis = None
-                    if not is_in_cooldown(sym, rule["rule_type"]):
+                    if not is_in_cooldown(sym, rule["rule_type"]) and not is_guest_stock(sym):
                         news_items = fetch_news(sym)
                         direction  = rule.get("direction") or ("UP" if move_pct >= 0 else "DOWN")
                         synthesis  = synthesize_news(sym, news_items, move_pct, direction, rule.get("label", rule["rule_type"]), rule["rule_type"], rule.get("signal"))
@@ -1390,20 +1407,169 @@ button{width:100%;background:#F59E0B;color:#000;border:none;border-radius:8px;pa
 </form>
 </body></html>"""
 
+GUEST_PASSWORD = os.environ.get("TRIPWIRE_GUEST_PASSWORD", "").strip()
+GUEST_EXPIRES = os.environ.get("TRIPWIRE_GUEST_EXPIRES", "").strip()  # YYYY-MM-DD, last valid day
+# POSTs a guest may make. Add/remove and the AI chat enforce their own guest limits in-handler.
+GUEST_ALLOWED_POSTS = {"/login", "/api/check", "/api/stocks/add", "/api/stocks/remove",
+                       "/api/ai/chat", "/api/ai/clear", "/api/track"}
+GUEST_BLOCKED_MSG = "View-only guest access — nothing was changed."
+GUEST_MAX_TICKERS = 10
+GUEST_AI_PER_LOGIN = 5
+GUEST_AI_DAILY_CAP = 50  # across all guests — bounds API cost even if someone logs in repeatedly
+
+def guest_expired():
+    if not GUEST_EXPIRES:
+        return False
+    try:
+        return datetime.now().date() > datetime.strptime(GUEST_EXPIRES, "%Y-%m-%d").date()
+    except ValueError:
+        log.warning("Invalid TRIPWIRE_GUEST_EXPIRES '%s' — guest access disabled", GUEST_EXPIRES)
+        return True
+
+def is_guest():
+    return session.get("role") == "guest"
+
+# ── Access log: logins (both passwords + failures) and what guests do, with timestamps ──
+def client_ip():
+    # Behind Caddy every request arrives from localhost; Caddy appends the real client address
+    # as the last X-Forwarded-For entry. Only trust the header when the peer is the local proxy.
+    xff = request.headers.get("X-Forwarded-For", "")
+    if request.remote_addr in ("127.0.0.1", "::1") and xff:
+        return xff.split(",")[-1].strip()
+    return request.remote_addr or "?"
+
+def device_label(ua):
+    ua = ua or ""
+    os_ = next((n for k, n in (("iPhone", "iPhone"), ("iPad", "iPad"), ("Android", "Android"),
+                               ("Windows", "Windows"), ("Macintosh", "Mac"), ("CrOS", "ChromeOS"),
+                               ("Linux", "Linux")) if k in ua), "Unknown device")
+    br = next((n for k, n in (("Edg/", "Edge"), ("OPR/", "Opera"), ("SamsungBrowser", "Samsung Internet"),
+                              ("Firefox/", "Firefox"), ("CriOS", "Chrome"), ("Chrome/", "Chrome"),
+                              ("Safari/", "Safari"), ("curl/", "curl")) if k in ua), "unknown browser")
+    return f"{os_} · {br}"
+
+_event_counts = {}
+_event_last = {}
+MAX_EVENTS_PER_VISIT = 1000
+
+def record_access(kind, role, detail=""):
+    vid = session.get("vid", "")
+    if kind == "event":
+        if _event_counts.get(vid, 0) >= MAX_EVENTS_PER_VISIT:
+            return
+        now = time.time()
+        last = _event_last.get(vid)
+        if last and last[0] == detail and now - last[1] < 3:
+            return
+        _event_last[vid] = (detail, now)
+        _event_counts[vid] = _event_counts.get(vid, 0) + 1
+    try:
+        with get_db() as conn:
+            conn.execute("INSERT INTO access_log (ts,kind,role,vid,ip,device,detail) VALUES (?,?,?,?,?,?,?)",
+                         (int(time.time()), kind, role, vid, client_ip(),
+                          device_label(request.headers.get("User-Agent")), (detail or "")[:300]))
+            conn.commit()
+    except Exception as e:
+        log.warning("record_access failed: %s", e)
+
+def _login_email(role, ip, device):
+    """Guest logins always email the owner; main-password logins only from an IP+device
+    combination never seen before, so the owner's own routine logins don't flood the inbox."""
+    with get_db() as conn:
+        if role == "owner":
+            seen = conn.execute("SELECT COUNT(*) FROM access_log WHERE kind='login' AND role='owner' AND ip=? AND device=?",
+                                (ip, device)).fetchone()[0]
+            if seen > 1:
+                return
+        n, ips = conn.execute("SELECT COUNT(*), COUNT(DISTINCT ip) FROM access_log WHERE kind='login' AND role=?",
+                              (role,)).fetchone()
+    who = "Guest password" if role == "guest" else "MAIN password (new device/address)"
+    when = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    subject = f"🔑 Tripwire login — {'guest' if role == 'guest' else 'main password, new device'} · {device}"
+    body = (f"{who} login\n\nTime:    {when}\nAddress: {ip}\nDevice:  {device}\n\n"
+            f"{'Guest' if role == 'guest' else 'Main-password'} logins so far: {n} from {ips} different address{'es' if ips != 1 else ''}.\n\n"
+            + ("If this wasn't you, change TRIPWIRE_PASSWORD on the server.\n\n" if role == "owner" else "")
+            + "Full details: Settings → Access log.")
+    worker_pool.submit(_send_email, subject, body)
+
+GUEST_ACTION_NAMES = [
+    ("/api/check", "Pressed Check Now"),
+    ("/api/stocks/add", "Add ticker"),
+    ("/api/stocks/remove", "Remove ticker"),
+    ("/api/ai/clear", "Started a new AI conversation"),
+    ("/api/settings/test-notify", "Send test notification"),
+    ("/api/settings", "Save settings"),
+    ("/api/alerts/ack", "Acknowledge alerts"),
+    ("/api/alerts/clear", "Clear alert history"),
+    ("/api/recalibrate", "Recalibrate"),
+    ("/sensitivity", "Change sensitivity"),
+    ("/params/reset", "Reset rules"),
+    ("/params", "Edit rules"),
+    ("/category", "Change category"),
+]
+
+def _guest_action_text(path, blocked):
+    body = request.get_json(silent=True) or {}
+    if path == "/api/ai/chat":
+        return f"Asked AI: “{(body.get('message') or '').strip()[:200]}”"
+    name = next((n for k, n in GUEST_ACTION_NAMES if k in path), path)
+    sym = (body.get("symbol") or "").upper() if isinstance(body, dict) else ""
+    if not sym and path.startswith("/api/stock/"):
+        sym = path.split("/")[3].upper()
+    txt = f"{name} {sym}".strip()
+    return f"Tried (blocked): {txt}" if blocked else txt
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     error_html = ""
     if request.method == "POST":
-        if request.form.get("password") == AUTH_PASSWORD:
+        pw = request.form.get("password") or ""
+        role = None
+        if hmac.compare_digest(pw, AUTH_PASSWORD):
+            role = "owner"
+        elif GUEST_PASSWORD and hmac.compare_digest(pw, GUEST_PASSWORD):
+            if guest_expired():
+                record_access("login_expired", "guest")
+                error_html = '<div class="err">Guest access has expired</div>'
+            else:
+                role = "guest"
+        else:
+            record_access("login_failed", "")
+            error_html = '<div class="err">Incorrect password</div>'
+        if role:
+            session.clear()
             session["authed"] = True
+            session["role"] = role
+            session["vid"] = secrets.token_hex(6)
+            record_access("login", role)
+            _login_email(role, client_ip(), device_label(request.headers.get("User-Agent")))
             return redirect(url_for("dashboard"))
-        error_html = '<div class="err">Incorrect password</div>'
     return Response(LOGIN_PAGE.replace("__ERROR_HTML__", error_html), mimetype="text/html")
 
 @app.route("/logout")
 def logout():
-    session.pop("authed", None)
+    if is_guest():
+        record_access("event", "guest", "Logged out")
+    session.clear()
     return redirect(url_for("login"))
+
+@app.before_request
+def enforce_guest_limits():
+    if not is_guest():
+        return None
+    if guest_expired():
+        session.clear()
+        if request.path.startswith("/api/"):
+            return jsonify({"success": False, "error": "Guest access has expired"}), 401
+        return redirect(url_for("login"))
+    if request.path == "/api/alerts/export.csv":
+        record_access("event", "guest", "Exported alerts CSV")
+    if request.method not in ("GET", "HEAD", "OPTIONS") and request.path not in ("/login", "/api/track"):
+        blocked = request.path not in GUEST_ALLOWED_POSTS
+        record_access("event", "guest", _guest_action_text(request.path, blocked))
+        if blocked:
+            return jsonify({"success": False, "guest": True, "error": GUEST_BLOCKED_MSG}), 403
+    return None
 
 def login_required(f):
     @wraps(f)
@@ -1439,6 +1605,10 @@ def api_status():
         "last_check": last_check,
         "market_phase": market_phase(),
         "ai_enabled": bool(get_anthropic_key()),
+        "guest": is_guest(),
+        "guest_expires": GUEST_EXPIRES if is_guest() else None,
+        "guest_ai_left": guest_ai_left() if is_guest() else None,
+        "guest_ai_limit": GUEST_AI_PER_LOGIN,
         "regime": get_market_regime(),
         # Read fresh from the DB (not the boot-time settings cache) since `backtest.py apply`
         # may run against the live DB while the app is up and we want the banner to notice.
@@ -1486,11 +1656,13 @@ def api_stocks():
                 "volume": row["volume"] if "volume" in row.keys() else None,
                 "history_closes": cached.get("history_closes", []),
                 "info_events": cached.get("info_events", []),
+                "guest_added": s.get("added_by") == "guest",
             })
         else:
             results.append({"symbol": sym, "category": cat, "price": None,
                             "error": cached.get("error", "Waiting for first check..."),
-                            "rules": [], "history_closes": [], "info_events": []})
+                            "rules": [], "history_closes": [], "info_events": [],
+                            "guest_added": s.get("added_by") == "guest"})
     return jsonify(results)
 
 @app.route("/api/history/<symbol>")
@@ -1685,6 +1857,13 @@ def api_add_stock():
     cat    = data.get("category","high_vol")
     if not symbol:
         return jsonify({"success": False, "error": "No symbol provided"})
+    guest = is_guest()
+    if guest:
+        active = {s["symbol"]: s for s in get_stocks()}
+        if symbol in active:
+            return jsonify({"success": False, "error": f"{symbol} is already on the watchlist"})
+        if sum(1 for s in active.values() if s.get("added_by") == "guest") >= GUEST_MAX_TICKERS:
+            return jsonify({"success": False, "error": f"Guests can add up to {GUEST_MAX_TICKERS} tickers — remove one of the guest-added ones first"})
     try:
         quote = fetch_quote(symbol)
         store_price(symbol, quote)
@@ -1692,8 +1871,8 @@ def api_add_stock():
         return jsonify({"success": False, "error": f"Could not fetch {symbol}: {e}"})
     with get_db() as conn:
         conn.execute(
-            "INSERT OR REPLACE INTO stocks (symbol,category,active,added_at) VALUES (?,?,1,?)",
-            (symbol, cat, int(time.time()))
+            "INSERT OR REPLACE INTO stocks (symbol,category,active,added_at,added_by) VALUES (?,?,1,?,?)",
+            (symbol, cat, int(time.time()), "guest" if guest else "owner")
         )
         conn.commit()
     worker_pool.submit(run_check, [symbol])
@@ -1705,6 +1884,9 @@ def api_add_stock():
 @login_required
 def api_remove_stock():
     symbol = request.json.get("symbol","").upper().strip()
+    if is_guest() and not is_guest_stock(symbol):
+        return jsonify({"success": False, "guest": True,
+                        "error": "Guests can only remove tickers that guests added."}), 403
     with get_db() as conn:
         conn.execute("UPDATE stocks SET active=0 WHERE symbol=?", (symbol,))
         conn.commit()
@@ -1837,6 +2019,89 @@ def api_recal_undo():
 
 # ── Settings ──────────────────────────────────────────────────────────────────
 
+@app.route("/api/track", methods=["POST"])
+@login_required
+def api_track():
+    if is_guest():
+        detail = str((request.get_json(silent=True) or {}).get("d", "")).strip()
+        if detail:
+            record_access("event", "guest", detail[:160])
+    return jsonify({"success": True})
+
+@app.route("/api/access-log")
+@login_required
+def api_access_log():
+    if is_guest():
+        return jsonify({"success": False, "error": "Owner only"}), 403
+    with get_db() as conn:
+        summary = {}
+        for role in ("guest", "owner"):
+            n, ips, last = conn.execute(
+                "SELECT COUNT(*), COUNT(DISTINCT ip), MAX(ts) FROM access_log WHERE kind='login' AND role=?",
+                (role,)).fetchone()
+            summary[role] = {"logins": n, "ips": ips, "last": last}
+        summary["failed"] = conn.execute(
+            "SELECT COUNT(*) FROM access_log WHERE kind IN ('login_failed','login_expired')").fetchone()[0]
+        logins = [dict(r) for r in conn.execute(
+            "SELECT ts,kind,role,vid,ip,device FROM access_log WHERE kind LIKE 'login%' ORDER BY ts DESC LIMIT 150")]
+        vids = [l["vid"] for l in logins if l["role"] == "guest" and l["kind"] == "login" and l["vid"]]
+        events = {}
+        if vids:
+            q = ",".join("?" * len(vids))
+            for r in conn.execute(f"SELECT vid,ts,detail FROM access_log WHERE kind='event' AND vid IN ({q}) ORDER BY ts",
+                                  vids):
+                events.setdefault(r["vid"], []).append({"ts": r["ts"], "detail": r["detail"]})
+    return jsonify({"success": True, "summary": summary, "logins": logins, "events": events})
+
+def build_guest_activity_email(since):
+    with get_db() as conn:
+        logins = [dict(r) for r in conn.execute(
+            "SELECT ts,vid,ip,device FROM access_log WHERE kind='login' AND role='guest' AND ts>? ORDER BY ts", (since,))]
+        events = {}
+        for r in conn.execute("SELECT vid,ts,detail FROM access_log WHERE kind='event' AND role='guest' AND ts>? ORDER BY ts",
+                              (since,)):
+            events.setdefault(r["vid"], []).append(r)
+    if not logins and not events:
+        return None
+    fmt = lambda t: datetime.fromtimestamp(t).strftime("%H:%M")
+    lines = []
+    by_vid = {l["vid"]: l for l in logins}
+    for vid in list(by_vid) + [v for v in events if v not in by_vid]:
+        l = by_vid.get(vid)
+        head = (f"Visit {fmt(l['ts'])} — {l['ip']} — {l['device']}" if l
+                else "Visit that started earlier (still active)")
+        lines.append(head)
+        for e in events.get(vid, [])[:80]:
+            lines.append(f"   {fmt(e['ts'])}  {e['detail']}")
+        if len(events.get(vid, [])) > 80:
+            lines.append(f"   … {len(events[vid]) - 80} more")
+        lines.append("")
+    ips = {l["ip"] for l in logins}
+    subject = f"👀 Tripwire guest activity today — {len(logins)} login{'s' if len(logins) != 1 else ''} from {len(ips)} address{'es' if len(ips) != 1 else ''}"
+    body = "What guests did in the last 24 hours (times are server local time):\n\n" + "\n".join(lines) + \
+           "\nFull history: Settings → Access log."
+    return subject, body
+
+GUEST_REPORT_HOUR = 21
+
+def guest_report_loop():
+    time.sleep(90)
+    while True:
+        try:
+            now = datetime.now()
+            today = now.strftime("%Y-%m-%d")
+            # Persisted so a restart after the report hour doesn't send the same day's report twice.
+            if now.hour >= GUEST_REPORT_HOUR and get_setting("guest_report_last", "") != today:
+                set_setting("guest_report_last", today)
+                rep = build_guest_activity_email(int(time.time()) - 86400)
+                if rep:
+                    worker_pool.submit(_send_email, *rep)
+        except Exception as e:
+            log.warning("guest_report_loop error: %s", e)
+        time.sleep(600)
+
+threading.Thread(target=guest_report_loop, daemon=True).start()
+
 @app.route("/api/settings", methods=["GET"])
 @login_required
 def api_get_settings():
@@ -1847,7 +2112,18 @@ def api_get_settings():
             out[k + "_set"] = bool(get_setting(k, ""))  # tell UI whether one is stored
         else:
             out[k] = get_setting(k, SETTINGS_DEFAULTS[k])
+    if is_guest():
+        for k in ("smtp_user", "notify_email_to", "callmebot_phone"):
+            out[k] = _mask_contact(out.get(k, ""))
     return jsonify(out)
+
+def _mask_contact(v):
+    if not v:
+        return v
+    if "@" in v:
+        name, domain = v.split("@", 1)
+        return name[:1] + "•••@" + domain
+    return v[:3] + "•••" + v[-2:] if len(v) > 5 else "•••"
 
 @app.route("/api/settings", methods=["POST"])
 @login_required
@@ -1958,9 +2234,11 @@ def execute_ai_tool(name, inp):
                     ext = dict(extended_state.get(sym, {}))
                 q = cached.get("quote", {})
                 rules = cached.get("rules", [])
+                prev = q.get("prev_close")
                 out.append({
                     "symbol": sym, "category": s["category"],
                     "price": q.get("close"),
+                    "pct_change_today": round((q["close"] - prev) / prev * 100, 2) if q.get("close") and prev else None,
                     "triggered_rules": [r["rule_type"] for r in rules if r.get("triggered") and not r.get("disabled")],
                     "earnings_date": ext.get("earnings_date"),
                     "earnings_in_days": _days_until(ext.get("earnings_date")),
@@ -2000,7 +2278,7 @@ def execute_ai_tool(name, inp):
             except Exception as e:
                 return {"error": f"Could not fetch {sym}: {e}"}
             with get_db() as conn:
-                conn.execute("INSERT OR REPLACE INTO stocks (symbol,category,active,added_at) VALUES (?,?,1,?)",
+                conn.execute("INSERT OR REPLACE INTO stocks (symbol,category,active,added_at,added_by) VALUES (?,?,1,?,'owner')",
                              (sym, cat, int(time.time())))
                 conn.commit()
             worker_pool.submit(run_check, [sym]); worker_pool.submit(fetch_extended_data, sym); worker_pool.submit(populate_history, sym)
@@ -2103,14 +2381,67 @@ def _ai_system_prompt():
 def _sse(obj):
     return f"data: {json.dumps(obj)}\n\n"
 
+# Guest AI: read-only tools, a per-login question quota plus a global daily cap, and a private
+# in-memory conversation per guest login that never touches the owner's stored chat history.
+GUEST_AI_TOOLS = [t for t in AI_TOOLS if t["name"] not in WRITE_TOOLS]
+_guest_ai_lock = threading.Lock()
+_guest_ai_day = {"date": None, "count": 0}
+_guest_convos = {}  # gid -> {"ts": last_activity, "messages": [{"role","content"}]}
+
+def guest_ai_left():
+    used = session.get("ai_used", 0)
+    today = datetime.now().strftime("%Y-%m-%d")
+    with _guest_ai_lock:
+        day_used = _guest_ai_day["count"] if _guest_ai_day["date"] == today else 0
+    return max(0, min(GUEST_AI_PER_LOGIN - used, GUEST_AI_DAILY_CAP - day_used))
+
+def _guest_ai_consume():
+    session["ai_used"] = session.get("ai_used", 0) + 1
+    today = datetime.now().strftime("%Y-%m-%d")
+    with _guest_ai_lock:
+        if _guest_ai_day["date"] != today:
+            _guest_ai_day.update(date=today, count=0)
+        _guest_ai_day["count"] += 1
+
+def _guest_gid():
+    if "gid" not in session:
+        session["gid"] = secrets.token_hex(8)
+    return session["gid"]
+
+def _guest_convo(gid):
+    with _guest_ai_lock:
+        return list(_guest_convos.get(gid, {}).get("messages", []))
+
+def _guest_convo_add(gid, role, content):
+    now = time.time()
+    with _guest_ai_lock:
+        for k in [k for k, v in _guest_convos.items() if now - v["ts"] > 86400]:
+            del _guest_convos[k]
+        c = _guest_convos.setdefault(gid, {"ts": now, "messages": []})
+        c["ts"] = now
+        c["messages"] = (c["messages"] + [{"role": role, "content": content}])[-10:]
+
+GUEST_AI_NOTE = (
+    "\n\nThe person chatting is a GUEST with view-only access, trying out the app. You can only "
+    "read data and search the web — you cannot change stocks, rules or settings. If they ask for "
+    "a change, explain it isn't available in guest mode (they can add or remove guest tickers "
+    "themselves from the Stocks tab). Keep answers short."
+)
+
 @app.route("/api/ai/history")
 @login_required
 def api_ai_history():
+    if is_guest():
+        return jsonify({"messages": _guest_convo(session.get("gid", ""))})
     return jsonify({"messages": _chat_history(60)})
 
 @app.route("/api/ai/clear", methods=["POST"])
 @login_required
 def api_ai_clear():
+    if is_guest():
+        with _guest_ai_lock:
+            _guest_convos.pop(session.get("gid", ""), None)
+        return jsonify({"success": True})
     with get_db() as conn:
         conn.execute("DELETE FROM chat_messages"); conn.commit()
     return jsonify({"success": True})
@@ -2124,21 +2455,32 @@ def api_ai_chat():
     if not user_msg:
         return jsonify({"error": "empty message"}), 400
 
-    history = _chat_history(30)
-    _chat_save("user", user_msg)
+    guest = is_guest()
+    if guest:
+        if guest_ai_left() <= 0:
+            return jsonify({"error": f"You've used all {GUEST_AI_PER_LOGIN} guest questions — ask the owner if you'd like to try more.",
+                            "guest_ai_left": 0}), 429
+        _guest_ai_consume()
+        gid = _guest_gid()
+        left_after = guest_ai_left()
+        history = _guest_convo(gid)
+        _guest_convo_add(gid, "user", user_msg)
+    else:
+        history = _chat_history(30)
+        _chat_save("user", user_msg)
 
     api_key = get_anthropic_key()
     def generate():
         import anthropic
         client = anthropic.Anthropic(api_key=api_key)
         model = get_setting("ai_assistant_model", "claude-opus-4-8")
-        system = _ai_system_prompt()
-        tools = AI_TOOLS + [{"type": "web_search_20260209", "name": "web_search"}]
+        system = _ai_system_prompt() + (GUEST_AI_NOTE if guest else "")
+        tools = (GUEST_AI_TOOLS if guest else AI_TOOLS) + [{"type": "web_search_20260209", "name": "web_search"}]
         messages = history + [{"role": "user", "content": user_msg}]
         assistant_text_parts = []
         wrote = False
         try:
-            for _ in range(12):  # cap tool-use rounds
+            for _ in range(6 if guest else 12):  # cap tool-use rounds
                 with client.messages.stream(
                     model=model, max_tokens=4000, system=system,
                     tools=tools, messages=messages,
@@ -2156,18 +2498,30 @@ def api_ai_chat():
                     for block in final.content:
                         if block.type == "tool_use":
                             yield _sse({"type": "tool", "label": _tool_label(block.name, block.input)})
-                            result = execute_ai_tool(block.name, block.input)
+                            if guest and block.name in WRITE_TOOLS:
+                                result = {"error": "Not available in guest mode"}
+                            else:
+                                result = execute_ai_tool(block.name, block.input)
                             if block.name in WRITE_TOOLS and not result.get("error"):
                                 wrote = True
                             tool_results.append({"type": "tool_result", "tool_use_id": block.id,
                                                  "content": json.dumps(result)})
                     messages.append({"role": "user", "content": tool_results})
+                    if assistant_text_parts and not assistant_text_parts[-1].endswith("\n"):
+                        assistant_text_parts.append("\n\n")
+                        yield _sse({"type": "text", "text": "\n\n"})
                     continue
                 break
             full = "".join(assistant_text_parts).strip()
             if full:
-                _chat_save("assistant", full)
-            yield _sse({"type": "done", "refresh": wrote})
+                if guest:
+                    _guest_convo_add(gid, "assistant", full)
+                else:
+                    _chat_save("assistant", full)
+            done = {"type": "done", "refresh": wrote}
+            if guest:
+                done["guest_ai_left"] = left_after
+            yield _sse(done)
         except Exception as e:
             log.warning("ai_chat failed: %s", e)
             yield _sse({"type": "error", "error": str(e)})
@@ -2412,6 +2766,21 @@ input,select{outline:none}
 .mp-closed{background:#6B728015;color:#9CA3AF;border:1px solid #6B728040}
 
 /* Bear-regime pill + calibration staleness stamp */
+.al-sum{font-size:13px;margin-bottom:4px}
+.al-muted{color:#6B7280}
+.al-wrap{overflow-x:auto;max-height:480px;overflow-y:auto;border:1px solid #1E2235;border-radius:8px}
+.al-table{width:100%;border-collapse:collapse;font-size:12px}
+.al-table th{position:sticky;top:0;background:#12151F;text-align:left;color:#9CA3AF;font-weight:600;padding:6px 8px;border-bottom:1px solid #1E2235}
+.al-table td{padding:6px 8px;border-bottom:1px solid #1E223566;white-space:nowrap;vertical-align:top}
+.al-table tr.al-events td{white-space:normal;background:#0A0C12;line-height:1.7}
+.al-toggle{background:none;border:1px solid #3B82F655;color:#93C5FD;border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer}
+.guest-tag{font-size:10px;font-weight:700;color:#93C5FD;background:#3B82F618;border:1px solid #3B82F655;border-radius:6px;padding:1px 5px;margin-left:6px;vertical-align:middle;cursor:help}
+#chat-quota{font-size:12px;color:#93C5FD;margin-top:6px}
+#guest-pill{font-size:12px;font-weight:700;border-radius:10px;padding:3px 9px;background:#3B82F618;color:#93C5FD;border:1px solid #3B82F655;cursor:help;white-space:nowrap}
+#toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,20px);opacity:0;pointer-events:none;
+  background:#1E2235;color:#E4E0D8;border:1px solid #3B82F655;border-radius:10px;padding:10px 16px;font-size:13px;
+  box-shadow:0 8px 24px #0008;z-index:1000;transition:opacity .2s,transform .2s;max-width:calc(100vw - 32px);text-align:center}
+#toast.show{opacity:1;transform:translate(-50%,0)}
 #regime-pill{font-size:17px;font-weight:800;border-radius:10px;padding:2px 9px;letter-spacing:.3px;background:#EF444418;color:#F87171;border:1px solid #EF444444}
 #calib-stamp.calib-stale{color:#F87171;font-weight:800}
 
@@ -2536,6 +2905,7 @@ input,select{outline:none}
   <div id="logo">⚡ Tripwire</div>
   <div id="topbar-right">
     <span id="market-phase" class="mp-closed">—</span>
+    <span id="guest-pill" style="display:none">👀 Guest · view only</span>
     <span id="regime-pill" class="regime-bear" style="display:none">🐻 BEAR REGIME</span>
     <span><span id="status-dot"></span><span id="status-txt">Connecting...</span></span>
     <span id="last-check-txt"></span>
@@ -2552,6 +2922,8 @@ input,select{outline:none}
   <button class="tab" onclick="switchTab('settings',this)">Settings</button>
   <button class="tab" onclick="switchTab('glossary',this)" id="tab-glossary-btn">📖 Glossary</button>
 </div>
+
+<div id="toast" role="status" aria-live="polite"></div>
 
 <div id="window-banner">⏱ <strong>Act within ~4 trading days.</strong> Rule thresholds are calibrated from a backtested 1–5 day edge — signals lose their statistical validity beyond that window.<span id="calib-stamp"></span></div>
 
@@ -2593,6 +2965,7 @@ input,select{outline:none}
       <button id="chat-send" onclick="sendChat()">Send</button>
     </div>
     <div style="text-align:right"><button id="chat-new" onclick="clearChat()">New conversation</button></div>
+    <div id="chat-quota" style="display:none"></div>
   </div>
 
   <div id="pane-analytics" style="display:none"></div>
@@ -2704,9 +3077,46 @@ function rangeBarHTML(lo, hi, current, label, loLabel, hiLabel, color) {
 
 // ── Data loop ─────────────────────────────────────────────────────────────────
 async function fetchJSON(url){ const r=await fetch(url); if(r.status===401){location.href='/login';return{};} return r.json(); }
-async function postJSON(url,body){ const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); if(r.status===401){location.href='/login';return{};} return r.json(); }
+async function postJSON(url,body){
+  const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if(r.status===401){location.href='/login';return{};}
+  if(r.status===403){
+    const e=await r.json().catch(()=>({}));
+    if(e.guest){
+      showToast('👀 '+e.error);
+      // Abort the caller so it can't show "saved"/"applying" for a change that never happened.
+      throw new Error('guest-blocked');
+    }
+  }
+  return r.json();
+}
 
-let aiEnabled=false, maxAlertId=0, notifPrimed=false, appSettings={};
+window.addEventListener('unhandledrejection',e=>{ if(e.reason&&e.reason.message==='guest-blocked') e.preventDefault(); });
+
+let toastTimer=null;
+function showToast(msg,ms){
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.classList.add('show');
+  clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove('show'),ms||3200);
+}
+
+// Guest activity tracking (guests only; the server ignores it for the owner).
+function track(text){
+  if(!guestMode) return;
+  fetch('/api/track',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({d:text}),keepalive:true}).catch(()=>{});
+}
+const TAB_NAMES={stocks:'Stocks',alerts:'Alerts',assistant:'AI Assistant',analytics:'Performance',settings:'Settings',glossary:'Glossary'};
+
+let aiEnabled=false, guestMode=false, guestAiLeft=null, guestAiLimit=5, maxAlertId=0, notifPrimed=false, appSettings={};
+function renderChatQuota(){
+  const q=document.getElementById('chat-quota');
+  if(!q) return;
+  if(!guestMode){ q.style.display='none'; return; }
+  q.style.display='block';
+  q.textContent=guestAiLeft>0
+    ? `👀 Guest: ${guestAiLeft} of ${guestAiLimit} questions left · read-only (the assistant can look things up but not change anything)`
+    : `👀 Guest: you've used all ${guestAiLimit} questions.`;
+}
 
 // ── Backtest evidence (fetched once; absent/empty = feature silently off) ──────
 let ruleStats={}, ruleStatsLoaded=false;
@@ -2764,6 +3174,18 @@ let currentRegime='bull';
 function renderStatus(st){
   checking=st.status==='checking';
   aiEnabled=!!st.ai_enabled;
+  const firstGuestStatus=!guestMode&&!!st.guest;
+  guestMode=!!st.guest;
+  if(guestMode){ guestAiLeft=st.guest_ai_left; guestAiLimit=st.guest_ai_limit||5; renderChatQuota(); }
+  if(firstGuestStatus){
+    renderGrid();
+    showToast('👀 Guest mode — your visit and clicks are recorded so the owner can see what testers try.',7000);
+  }
+  const gp=document.getElementById('guest-pill');
+  if(gp){
+    gp.style.display=guestMode?'inline-block':'none';
+    gp.title=guestMode?('Guest access'+(st.guest_expires?' — valid until '+st.guest_expires:'')+'. You can open everything and add your own tickers; other changes are not saved. Visits and clicks are recorded for the owner.'):'';
+  }
   currentRegime=st.regime||'bull';
   document.getElementById('status-dot').className=checking?'checking':'';
   document.getElementById('status-txt').textContent=checking?'Checking...':'Running';
@@ -2838,6 +3260,7 @@ function beep(){
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
 function switchTab(name,btn){
+  track('Opened tab: '+(TAB_NAMES[name]||name));
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   if(btn) btn.classList.add('active');
   ['stocks','alerts','assistant','analytics','settings','glossary'].forEach(n=>{
@@ -2852,6 +3275,7 @@ function switchTab(name,btn){
 
 // Jump to a specific glossary entry from an inline term link anywhere in the app.
 function openGlossary(id){
+  track('Looked up glossary term: '+id);
   const btn=document.getElementById('tab-glossary-btn');
   switchTab('glossary',btn);
   requestAnimationFrame(()=>{
@@ -3024,10 +3448,10 @@ function renderGrid(){
     }
 
     return `<div class="stock-card${selCls}${alertCls}" onclick="selectStock('${s.symbol}')">
-      <button class="remove-btn" onclick="removeStock('${s.symbol}',event)">✕</button>
+      ${(!guestMode||s.guest_added)?`<button class="remove-btn" onclick="removeStock('${s.symbol}',event)">✕</button>`:''}
       ${s.alert?'<div class="alert-dot"></div>':''}
       <div class="card-top">
-        <span class="stock-symbol">${s.symbol}</span>
+        <span class="stock-symbol">${s.symbol}${s.guest_added?'<span class="guest-tag" title="Added by a guest — shown here, but never emails or WhatsApps the owner">guest</span>':''}</span>
         <span class="stock-cat">${(s.category||'').replace('_vol',' vol')}</span>
       </div>
       ${s.price!=null?`
@@ -3138,6 +3562,7 @@ function cardRuleDetail(r){
 // ── Select / detail ───────────────────────────────────────────────────────────
 function selectStock(sym){
   if(selectedSym===sym){selectedSym=null;document.getElementById('detail').style.display='none';renderGrid();return;}
+  track('Opened stock details: '+sym);
   selectedSym=sym;
   const s=stocks.find(x=>x.symbol===sym);
   if(s){
@@ -3250,6 +3675,7 @@ async function loadDetailChart(sym){
   if(selectedSym===sym) renderDetailChart(sym);
 }
 function setChartRange(sym,r){
+  track(`Changed chart range: ${sym} ${r}`);
   chartRange=r;
   document.querySelectorAll('.chart-range-btn').forEach(b=>b.classList.toggle('active',b.textContent===r));
   renderDetailChart(sym);
@@ -3632,8 +4058,44 @@ async function loadSettings(){
          <span id="recal-status" class="set-hint"></span>
        </div>
        <div id="recal-result" style="margin-top:12px"></div>
-     </div>`;
+     </div>`+
+    (guestMode?'':`<div class="settings-group"><h3>Access log</h3><div id="access-log">Loading…</div></div>`);
   refreshRecalStatus();
+  if(!guestMode) loadAccessLog();
+}
+
+// ── Access log (owner only) ──────────────────────────────────────────────────
+function fmtStamp(ts){
+  const d=new Date(ts*1000), p=n=>String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+function fmtTime(ts){ return fmtStamp(ts).slice(11); }
+async function loadAccessLog(){
+  const box=document.getElementById('access-log');
+  if(!box) return;
+  const d=await fetchJSON('/api/access-log');
+  if(!d.success){ box.textContent='Could not load the access log.'; return; }
+  const s=d.summary;
+  const sumLine=(label,x)=>`<div class="al-sum"><strong>${label}:</strong> ${x.logins} login${x.logins===1?'':'s'} from ${x.ips} different address${x.ips===1?'':'es'}${x.last?` · last ${fmtStamp(x.last)}`:''}</div>`;
+  const WHO={login:{guest:'👀 Guest',owner:'🔑 Main password'},login_failed:'⛔ Wrong password',login_expired:'⌛ Expired guest password'};
+  const rows=d.logins.map((l,i)=>{
+    const who=l.kind==='login'?WHO.login[l.role]:WHO[l.kind];
+    const evs=(l.kind==='login'&&l.role==='guest')?(d.events[l.vid]||[]):null;
+    const evCell=evs==null?'':(evs.length?`<button class="al-toggle" onclick="toggleAccessEvents(${i})">${evs.length} action${evs.length===1?'':'s'} ▸</button>`:'<span class="al-muted">no actions yet</span>');
+    const evRow=evs&&evs.length?`<tr class="al-events" id="al-ev-${i}" style="display:none"><td colspan="5">${
+      evs.map(e=>`<div><span class="al-muted">${fmtTime(e.ts)}</span> ${escapeHTML(e.detail)}</div>`).join('')}</td></tr>`:'';
+    return `<tr><td>${fmtStamp(l.ts)}</td><td>${who}</td><td>${escapeHTML(l.ip||'')}</td><td>${escapeHTML(l.device||'')}</td><td>${evCell}</td></tr>${evRow}`;
+  }).join('');
+  box.innerHTML=sumLine('Guest password',s.guest)+sumLine('Main password',s.owner)+
+    `<div class="al-sum"><strong>Failed attempts:</strong> ${s.failed}</div>`+
+    `<div class="set-hint" style="margin:6px 0 10px">You get an email for every guest login, for main-password logins from a new device/address, and a guest-activity summary each evening. One friend on mobile data can appear under several addresses; people sharing a Wi-Fi appear as one.</div>`+
+    (rows?`<div class="al-wrap"><table class="al-table"><thead><tr><th>Time</th><th>Who</th><th>Address</th><th>Device</th><th>Activity</th></tr></thead><tbody>${rows}</tbody></table></div>`
+         :'<div class="al-muted">No logins recorded yet.</div>');
+}
+function toggleAccessEvents(i){
+  const r=document.getElementById('al-ev-'+i); if(!r) return;
+  const open=r.style.display==='none'; r.style.display=open?'table-row':'none';
+  const b=r.previousElementSibling.querySelector('.al-toggle'); if(b) b.textContent=b.textContent.replace(open?'▸':'▾',open?'▾':'▸');
 }
 
 // ── One-click recalibration ───────────────────────────────────────────────────
@@ -3824,6 +4286,8 @@ function mdLite(s){
 }
 
 async function loadChatHistory(){
+  renderChatQuota();
+  if(guestMode) document.getElementById('chat-input').placeholder='Ask about a stock, a move, or what a signal means…';
   if(!aiEnabled){
     document.getElementById('chat-scroll').innerHTML=
       '<div class="ai-disabled">🤖 The AI assistant needs an Anthropic API key.<br><br>'+
@@ -3845,10 +4309,19 @@ async function loadChatHistory(){
   scrollChat();
 }
 
+const GUEST_CHAT_SUGGESTIONS=[
+  'Why did the most active stock move today?',
+  'Give me a short summary of the whole watchlist',
+  'What does a STRONG BUY signal mean here?',
+  'Any upcoming earnings on the watchlist?',
+];
 function renderSuggestions(){
   const scroll=document.getElementById('chat-scroll');
-  scroll.innerHTML='<div style="color:#6B7280;font-size:13px;margin-bottom:14px">Ask me anything about your watchlist, or tell me to change a rule or setting.</div>'+
-    '<div class="chat-suggestions">'+CHAT_SUGGESTIONS.map(s=>`<div class="chat-chip" onclick="useSuggestion(this)">${s}</div>`).join('')+'</div>';
+  const intro=guestMode?'Ask anything about the watchlist — the assistant can look things up and search the web.'
+                       :'Ask me anything about your watchlist, or tell me to change a rule or setting.';
+  const list=guestMode?GUEST_CHAT_SUGGESTIONS:CHAT_SUGGESTIONS;
+  scroll.innerHTML=`<div style="color:#6B7280;font-size:13px;margin-bottom:14px">${intro}</div>`+
+    '<div class="chat-suggestions">'+list.map(s=>`<div class="chat-chip" onclick="useSuggestion(this)">${s}</div>`).join('')+'</div>';
 }
 function useSuggestion(el){ document.getElementById('chat-input').value=el.textContent; sendChat(); }
 
@@ -3886,7 +4359,11 @@ async function sendChat(){
   try{
     const resp=await fetch('/api/ai/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg})});
     if(resp.status===401){location.href='/login';return;}
-    if(!resp.ok){ const e=await resp.json().catch(()=>({error:'request failed'})); addChatBubble('assistant','⚠ '+(e.error||'error')); throw new Error(e.error); }
+    if(!resp.ok){
+      const e=await resp.json().catch(()=>({error:'request failed'}));
+      if(e.guest_ai_left!=null){ guestAiLeft=e.guest_ai_left; renderChatQuota(); }
+      addChatBubble('assistant','⚠ '+(e.error||'error')); throw new Error(e.error);
+    }
     const reader=resp.body.getReader();
     const dec=new TextDecoder();
     let buf='';
@@ -3903,7 +4380,10 @@ async function sendChat(){
         if(ev.type==='text'){ if(!bubble) bubble=addChatBubble('assistant',''); acc+=ev.text; bubble.innerHTML=mdLite(acc); scrollChat(); }
         else if(ev.type==='tool'){ addToolChip(ev.label); }
         else if(ev.type==='error'){ if(!bubble) bubble=addChatBubble('assistant',''); acc+='\n⚠ '+ev.error; bubble.innerHTML=mdLite(acc); }
-        else if(ev.type==='done'){ if(ev.refresh){ chatHistoryLoaded=true; loadAll(); } }
+        else if(ev.type==='done'){
+          if(ev.guest_ai_left!=null){ guestAiLeft=ev.guest_ai_left; renderChatQuota(); }
+          if(ev.refresh){ chatHistoryLoaded=true; loadAll(); }
+        }
       }
     }
   }catch(e){ /* already shown */ }
