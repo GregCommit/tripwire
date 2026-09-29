@@ -3536,6 +3536,27 @@ button:disabled{opacity:.45;cursor:not-allowed}
 #pane-glossary{max-width:820px;padding-bottom:80px}
 .gloss-link{color:#60A5FA;cursor:pointer;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:2px}
 .gloss-link:hover{color:#93C5FD}
+#pane-guide{padding-bottom:60px;max-width:860px}
+.guide-sec{background:#12151F;border:1px solid #1E2235;border-radius:12px;padding:18px 20px;margin-bottom:16px}
+.guide-sec h3{font-size:18px;margin-bottom:10px}
+.guide-short p,.guide-long p{font-size:15px;line-height:1.6;color:#D1D5DB;margin-bottom:10px}
+.guide-long h4{font-size:14px;color:#F59E0B;margin:16px 0 6px}
+.guide-long ul{padding-left:20px;margin-bottom:10px}
+.guide-long li{font-size:14px;line-height:1.6;color:#D1D5DB;margin-bottom:6px}
+.guide-more summary{cursor:pointer;color:#93C5FD;font-size:14px;font-weight:600;margin-top:4px}
+.guide-long{margin-top:8px;border-top:1px dashed #1E2235;padding-top:6px}
+.guide-fig{width:100%;height:auto;display:block;background:#0A0C12;border-radius:10px;margin:8px 0 12px}
+.guide-flow{display:flex;flex-wrap:wrap;align-items:stretch;gap:6px;margin:8px 0 12px}
+.gf-step{flex:1;min-width:120px;background:#0A0C12;border:1px solid #1E2235;border-radius:10px;padding:10px;font-size:20px;text-align:center;display:flex;flex-direction:column;gap:4px}
+.gf-step b{font-size:13px;color:#E4E0D8}.gf-step span{font-size:11px;color:#9CA3AF}
+.gf-arrow{align-self:center;color:#6B7280;font-size:18px}
+@media (max-width:700px){ .gf-arrow{display:none} .gf-step{min-width:45%} }
+.guide-vote{background:#0A0C12;border:1px solid #1E2235;border-radius:10px;padding:12px;margin:8px 0 12px}
+.gv-title{font-size:12px;color:#9CA3AF;margin-bottom:8px}
+.gv-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.gv-chip{font-size:12px;border-radius:8px;padding:4px 10px;border:1px solid #374151;color:#6B7280}
+.gv-chip.on{border-color:#05966988;background:#05966922;color:#34D399;font-weight:700}
+.gv-result{font-size:13px;color:#D1D5DB}
 .gloss-entry{background:#12151F;border:1px solid #1E2235;border-radius:10px;padding:14px 16px;margin-bottom:10px;scroll-margin-top:110px;transition:border-color .3s,background .3s}
 .gloss-entry.gloss-flash{border-color:#F59E0B;background:#F59E0B10}
 .gloss-term{font-size:16px;font-weight:800;color:#F59E0B;margin-bottom:5px}
@@ -3635,6 +3656,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
   <button class="tab" onclick="switchTab('analytics',this)">📊 Performance</button>
   <button class="tab" onclick="switchTab('portfolio',this)">💼 Portfolio test</button>
   <button class="tab" onclick="switchTab('settings',this)">Settings</button>
+  <button class="tab" onclick="switchTab('guide',this)">📘 Guide</button>
   <button class="tab" onclick="switchTab('glossary',this)" id="tab-glossary-btn">📖 Glossary</button>
 </div>
 
@@ -3688,6 +3710,8 @@ button:disabled{opacity:.45;cursor:not-allowed}
   <div id="pane-portfolio" style="display:none"></div>
 
   <div id="pane-settings" style="display:none"></div>
+
+  <div id="pane-guide" style="display:none"></div>
 
   <div id="pane-glossary" style="display:none"></div>
 </div>
@@ -3822,7 +3846,7 @@ function track(text){
   if(!guestMode) return;
   fetch('/api/track',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({d:text}),keepalive:true}).catch(()=>{});
 }
-const TAB_NAMES={stocks:'Stocks',alerts:'Alerts',assistant:'AI Assistant',analytics:'Performance',portfolio:'Portfolio test',settings:'Settings',glossary:'Glossary'};
+const TAB_NAMES={stocks:'Stocks',alerts:'Alerts',assistant:'AI Assistant',analytics:'Performance',portfolio:'Portfolio test',settings:'Settings',guide:'Guide',glossary:'Glossary'};
 function tabBtn(name){ return [...document.querySelectorAll('.tab')].find(b=>(b.getAttribute('onclick')||'').includes("'"+name+"'")); }
 
 let aiEnabled=false, guestMode=false, guestAiLeft=null, guestAiLimit=5, maxAlertId=0, notifPrimed=false, appSettings={};
@@ -3994,15 +4018,125 @@ function switchTab(name,btn){
   track('Opened tab: '+(TAB_NAMES[name]||name));
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   if(btn) btn.classList.add('active');
-  ['stocks','alerts','assistant','analytics','portfolio','settings','glossary'].forEach(n=>{
+  ['stocks','alerts','assistant','analytics','portfolio','settings','guide','glossary'].forEach(n=>{
     const el=document.getElementById('pane-'+n);
     if(el) el.style.display=(n===name)?'':'none';
   });
+  if(name==='guide') renderGuide();
   if(name==='settings') loadSettings();
   if(name==='analytics') loadAnalytics();
   if(name==='portfolio') loadPortfolio();
   if(name==='assistant') loadChatHistory();
   if(name==='glossary') renderGlossary();
+}
+
+// ── Guide tab: why / what / how, each a 30–60 second summary with a "read more" ─────
+const GUIDE_FIG_NOISE=`<svg viewBox="0 0 640 170" class="guide-fig" role="img" aria-label="A jittery price line with one unusual drop marked">
+  <polyline fill="none" stroke="#4B5563" stroke-width="2" points="10,90 40,84 70,95 100,88 130,92 160,80 190,87 220,83 250,91 280,86 310,94 340,89 370,140 400,128 430,110 460,98 490,92 520,86 550,80 580,76 610,72 630,70"/>
+  <circle cx="370" cy="140" r="9" fill="none" stroke="#F59E0B" stroke-width="3"/>
+  <text x="385" y="160" font-size="13" fill="#F59E0B">tripwire: unusual drop, several rules agree</text>
+  <text x="14" y="30" font-size="13" fill="#9CA3AF">most days: ordinary wiggles, Tripwire stays quiet</text>
+  <text x="470" y="60" font-size="13" fill="#10B981">rebound in the days after</text>
+</svg>`;
+const GUIDE_FIG_FLOW=`<div class="guide-flow">
+  <div class="gf-step">📈<b>Watch</b><span>every minute in market hours</span></div><div class="gf-arrow">→</div>
+  <div class="gf-step">🔎<b>Check 7 rules</b><span>is this move unusual for this stock?</span></div><div class="gf-arrow">→</div>
+  <div class="gf-step">🗳<b>Vote</b><span>2+ of the 4 proven rules agree</span></div><div class="gf-arrow">→</div>
+  <div class="gf-step">⚡<b>STRONG signal</b><span>banner + email, act by date</span></div><div class="gf-arrow">→</div>
+  <div class="gf-step">🙋<b>You decide</b><span>"I acted" / "I passed"</span></div><div class="gf-arrow">→</div>
+  <div class="gf-step">📬<b>Follow-up</b><span>5 trading days later: did it work?</span></div>
+</div>`;
+const GUIDE_FIG_VOTE=`<div class="guide-vote">
+  <div class="gv-title">NVDA today — the 4 voting rules</div>
+  <div class="gv-row"><span class="gv-chip on">Unusual move ▲</span><span class="gv-chip on">Volume spike ▲</span><span class="gv-chip">Support/resistance</span><span class="gv-chip">RSI</span></div>
+  <div class="gv-result">2 of 4 agree, both pointing up → <b>STRONG BUY</b>. With only 1 → "trending", not yet a signal.</div>
+</div>`;
+const GUIDE_FIG_EXCESS=`<svg viewBox="0 0 640 150" class="guide-fig" role="img" aria-label="Bar chart: stock plus 3 percent, market plus 1 percent, difference plus 2 points">
+  <text x="10" y="22" font-size="13" fill="#9CA3AF">5 trading days after a signal</text>
+  <rect x="150" y="38" width="300" height="26" rx="4" fill="#F59E0B"/><text x="10" y="56" font-size="13" fill="#E4E0D8">the stock</text><text x="460" y="56" font-size="13" fill="#F59E0B">+3%</text>
+  <rect x="150" y="76" width="100" height="26" rx="4" fill="#6B7280"/><text x="10" y="94" font-size="13" fill="#E4E0D8">S&amp;P 500</text><text x="260" y="94" font-size="13" fill="#9CA3AF">+1%</text>
+  <text x="10" y="134" font-size="14" fill="#10B981">signal "beat the market" by +2 points  ✓</text>
+</svg>`;
+
+const GUIDE_SECTIONS=[
+  {id:'why', icon:'🎯', title:'Why — the purpose',
+   short:`<p>Stock prices move every minute, and almost all of it is noise. Watching screens all day makes it easy to react to the wrong moves, like panic-selling a dip that recovers two days later.</p>
+     <p>Tripwire watches your stocks for you and stays quiet on ordinary days. It speaks up only when something unusual happens that, over five years of history, was typically followed by the stock <b>doing better than the market</b> in the next few days. Then it tells you what happened, how reliable that has been, and by when to decide.</p>
+     <p>It is a second pair of eyes that gives you information, not financial advice, and it never trades for you.</p>`,
+   long:`<h4>The problem it solves</h4>
+     <p>Most people who invest in individual stocks face three problems: they can't watch the market all day, they can't tell an important move from normal wiggling, and in the moment emotion wins (fear on a drop, greed on a spike).</p>
+     ${GUIDE_FIG_NOISE}
+     <h4>An example</h4>
+     <p>NVDA falls 6% on a Tuesday. Is it the start of a crash, or a buying chance? Instead of guessing, Tripwire checks: is a 6% drop unusual <i>for NVDA</i>? Is volume unusually high too? Has the price broken below its recent range? If several of these agree, you get one clear message, for example "STRONG BOUNCE WATCH: in the past, drops like this on NVDA were followed by a rebound ahead of the market 63% of the time". If it's just one weak hint, you get nothing, or at most a quiet "trending" note on the stock's tile.</p>
+     <h4>What it is not</h4>
+     <ul><li><b>Not a trading robot.</b> It never buys or sells anything.</li>
+     <li><b>Not a guarantee.</b> "63% of the time" also means 37% of the time it didn't work.</li>
+     <li><b>Not a replacement for choosing good companies.</b> The Portfolio test tab shows honestly how much the signals add on top of simply holding your stocks. So far most of the gain comes from which stocks you hold, and the signals add a little.</li></ul>
+     <h4>Why "tripwire"?</h4>
+     <p>Like a wire across a path: nothing happens until something crosses it. You get your attention back and spend it only when it counts.</p>`},
+  {id:'what', icon:'🧰', title:'What — the product',
+   short:`<p>A dashboard of your watchlist that is checked every minute while the US market is open. Seven rules look for unusual behaviour: a big move, a volume spike, the price breaking out of its usual range, or the stock being very overbought or oversold.</p>
+     <p>When at least two of the four rules with a proven track record agree, you get a <b>STRONG signal</b>. It appears as a banner at the top of the Stocks page and arrives as an email with the evidence and an <b>act-by date</b> (4 trading days). You mark "I acted" or "I passed", and 5 trading days later Tripwire emails you how it turned out.</p>`,
+   long:`<h4>From price to decision</h4>
+     ${GUIDE_FIG_FLOW}
+     <h4>The signals, in plain words</h4>
+     <ul><li><b>STRONG BUY</b>: several rules see strong upward momentum. Historically such stocks kept beating the market for a few days.</li>
+     <li><b>STRONG BOUNCE WATCH</b>: several rules see a sharp drop. Surprisingly, such drops were usually followed by a rebound, so this is a possible "buy the dip" moment, not a sell signal.</li>
+     <li><b>Trending</b>: only one rule sees something. Worth a glance, not yet a signal, and no email.</li></ul>
+     <h4>The tabs</h4>
+     <ul><li><b>Stocks</b>: the answer first ("Nothing needs you today" or the signals awaiting your call), then one tile per stock. The tile shows the same signal as the banner, plus which rules are triggered <i>right now</i>. Click a tile for its chart and details.</li>
+     <li><b>Alerts</b>: the record: active signals on top, then every rule that fired, per stock, with the numbers behind it.</li>
+     <li><b>Assistant</b>: ask questions in plain English ("why did MU jump today?"). It can look things up, search the news and, if you ask, adjust settings.</li>
+     <li><b>Performance</b>: the app grading itself: how many signals actually beat the market, and how your own "acted / passed" choices did.</li>
+     <li><b>Portfolio test</b>: $1,000 following every signal, compared with the same stocks never traded and with the S&P 500, over the last 5 years and live from today.</li>
+     <li><b>Settings</b>: notifications, email, and recalibration. <b>Glossary</b>: every term explained.</li></ul>
+     <h4>Emails you'll get</h4>
+     <ul><li>A <b>signal brief</b> for each STRONG signal, with "I acted / I passed" buttons.</li>
+     <li>A <b>follow-up</b> about 5 trading days later with the outcome.</li>
+     <li>Once a month, <b>suggested rule updates</b>, only if the data says the rules should change. Nothing changes until you press Apply.</li></ul>`},
+  {id:'how', icon:'⚙️', title:'How — the method',
+   short:`<p><b>1. Compare:</b> every minute, each stock's latest price is compared with <i>its own</i> recent history, because a 3% move is dramatic for a bank and ordinary for a chip maker.</p>
+     <p><b>2. Vote:</b> four rules with a proven record vote. Two or more agreeing makes a STRONG signal.</p>
+     <p><b>3. Tested on history:</b> every threshold was chosen by replaying 5 years of real prices and keeping what was followed by beating the market over 1–5 days.</p>
+     <p><b>4. Self-checking:</b> each signal is scored 5 trading days later, and once a month the thresholds are re-tested on fresh data.</p>`,
+   long:`<h4>The four voting rules, with examples</h4>
+     <ul><li><b>Unusual move</b>: today's change is several times bigger than this stock's normal day. If AAPL usually moves about 1% a day, a 4% day stands out.</li>
+     <li><b>Volume spike</b>: far more shares traded than usual (for example 3× the 20-day average), which often means news or big investors are involved.</li>
+     <li><b>Support / resistance</b>: the price breaks clearly above its recent high or below its recent low, i.e. out of the range it has been stuck in.</li>
+     <li><b>RSI</b>: a standard gauge of how stretched a stock is. Very high means it's running hot; very low means it's been sold off hard.</li></ul>
+     <p>Three more rules (an opening gap, several down days in a row, moving-average crossings) are shown for context but don't vote, because on their own they had almost no track record.</p>
+     ${GUIDE_FIG_VOTE}
+     <h4>"Beating the market": how every signal is judged</h4>
+     <p>A stock rising 3% isn't impressive if the whole market rose 3%. So every signal is judged against the S&P 500 over the next 5 trading days:</p>
+     ${GUIDE_FIG_EXCESS}
+     <p>This applies to both signal types: a BOUNCE WATCH counts as right when the stock recovers <i>ahead of</i> the market.</p>
+     <h4>How the thresholds were chosen (backtesting)</h4>
+     <p>Think of testing a weather rule like "dark clouds mean rain tomorrow" against 5 years of weather records before trusting it. Tripwire did the same with prices: for every rule and many possible thresholds, it replayed 5 years of history, noted every time the rule would have fired, and checked what the stock did over the next 5 days compared with the market. Only settings that worked, and kept working on the most recent part of the history they weren't tuned on, were kept.</p>
+     <h4>Why "act within 4 trading days"?</h4>
+     <p>The edge was measured over 1–5 days. After that the pattern has played out, so an old signal is no longer evidence of anything. That's why every signal carries an act-by date and then expires.</p>
+     <h4>Keeping itself honest</h4>
+     <ul><li><b>Follow-ups and Performance:</b> the real results of live signals, compared with what the backtest promised.</li>
+     <li><b>Monthly re-test:</b> it re-runs the backtest on fresh data and suggests updates, which you approve.</li>
+     <li><b>Sensitivity dial</b> (per stock): Conservative means fewer, stronger signals; Sensitive means more signals, but weaker ones.</li></ul>
+     <h4>Limits to keep in mind</h4>
+     <ul><li><b>A rising market:</b> the history used was mostly a rising market, so in a prolonged downturn the "rebound" pattern is less reliable (a BEAR REGIME note appears when that's the case).</li>
+     <li><b>Earnings:</b> moves around earnings behave differently and are flagged.</li>
+     <li><b>No fees or taxes:</b> results don't include them, apart from a small trading cost in the Portfolio test.</li>
+     <li><b>The past is a guide, not a promise.</b></li></ul>`},
+];
+
+let guideRendered=false;
+function renderGuide(){
+  if(guideRendered) return;
+  guideRendered=true;
+  document.getElementById('pane-guide').innerHTML=`<h2 class="perf-title">📘 Guide</h2>
+    <div class="set-hint" style="margin:-6px 0 16px">A quick manual: why Tripwire exists, what it does and how it works. Each section takes under a minute to read; open "Read more" for details and examples.</div>`+
+    GUIDE_SECTIONS.map(s=>`<section class="guide-sec" id="guide-${s.id}">
+      <h3>${s.icon} ${s.title}</h3>
+      <div class="guide-short">${s.short}</div>
+      <details class="guide-more" ontoggle="if(this.open) track('Opened guide details: ${s.id}')"><summary>Read more: details and examples</summary><div class="guide-long">${s.long}</div></details>
+    </section>`).join('')+
+    `<div class="pf-note">Unfamiliar word? The <a href="javascript:void(0)" class="today-more" onclick="switchTab('glossary',tabBtn('glossary'))">Glossary</a> explains every term. Informational only, not financial advice.</div>`;
 }
 
 // Jump to a specific glossary entry from an inline term link anywhere in the app.
