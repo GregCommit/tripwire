@@ -3203,6 +3203,7 @@ input,select{outline:none}
 /* Action-window banner */
 #window-banner{background:#F59E0B15;border-bottom:1px solid #F59E0B44;color:#F59E0B;
   padding:9px 20px;font-size:13px;font-weight:600;text-align:center;line-height:1.5}
+#window-banner:has(#calib-stamp:empty){display:none}
 #window-banner strong{font-weight:800}
 
 /* Tabs */
@@ -3640,7 +3641,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
 
 <div id="toast" role="status" aria-live="polite"></div>
 
-<div id="window-banner">⏱ <strong>Act within ~4 trading days.</strong> Rule thresholds are calibrated from a backtested 1–5 day edge — signals lose their statistical validity beyond that window.<span id="calib-stamp"></span></div>
+<div id="window-banner"><span id="calib-stamp"></span></div>
 
 <div id="content">
   <div id="err-banner" class="err-banner" style="display:none"></div>
@@ -3947,7 +3948,7 @@ function renderCalibStamp(calibratedAt){
   if(!calibratedAt){ el.textContent=''; el.className=''; return; }
   const days=Math.floor((Date.now()-new Date(calibratedAt+'T00:00:00').getTime())/86400000);
   const stale=days>CALIB_STALE_DAYS;
-  el.textContent=` · calibrated ${calibratedAt}${stale?' (stale — over 90 days old)':''}`;
+  el.textContent=`Last calibrated ${calibratedAt}${stale?' (stale — over 90 days old)':''}`;
   el.className=stale?'calib-stale':'';
 }
 
