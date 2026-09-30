@@ -18,10 +18,11 @@ try:
     EASTERN = ZoneInfo("America/New_York")
 except Exception:
     EASTERN = None
-from flask import Flask, jsonify, request, Response, session, redirect, url_for, stream_with_context
+from flask import Flask, jsonify, request, Response, session, redirect, url_for, stream_with_context, send_from_directory
 from flask_cors import CORS
 import yfinance as yf
 import portfolio_sim
+import narrate
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("tripwire")
@@ -2745,6 +2746,54 @@ def api_portfolio_sim_restart():
     _live_pf_cache.update(ts=0.0, data=None)
     return jsonify({"success": True, "start": today})
 
+# ── Guide narration: the Guide tab's "Listen" button, recorded by narrate.py ──────────────
+NARR_STATE = {"recording": False, "sha": None}
+
+def narration_status():
+    if NARR_STATE["sha"] is None:   # the Guide text is fixed for the life of the process
+        NARR_STATE["sha"] = narrate.plan_sha(narrate.plan(DASHBOARD))
+    return narrate.status(sha=NARR_STATE["sha"])
+
+def narration_loop():
+    """After a deploy that changed the Guide text, re-record the narration in the background
+    (about 20 minutes on the server's single CPU). Until it matches, the Listen button is hidden."""
+    time.sleep(90)
+    try:
+        if narration_status()["available"] or not narrate.can_record():
+            return
+        NARR_STATE["recording"] = True
+        cmd = [sys.executable, str(Path(narrate.__file__))]
+        if os.name == "posix":
+            cmd = ["nice", "-n", "15"] + cmd
+        r = subprocess.run(cmd, cwd=str(Path(__file__).parent), capture_output=True, text=True,
+                           timeout=3 * 3600)
+        log.info("Guide narration: %s", ((r.stdout or r.stderr).strip().splitlines() or ["no output"])[-1])
+    except Exception as e:
+        log.warning("Guide narration recording failed: %s", e)
+    finally:
+        NARR_STATE["recording"] = False
+
+threading.Thread(target=narration_loop, daemon=True).start()
+
+@app.route("/api/narration")
+@login_required
+def api_narration():
+    st = narration_status()
+    man = st["manifest"] or {}
+    return jsonify({"available": st["available"], "voice": narrate.VOICE_NAME,
+                    "recording": NARR_STATE["recording"] or narrate.recording_in_progress(),
+                    "url": f"/narration/{man['file']}" if man else None, "duration": man.get("duration"),
+                    "chapters": man.get("chapters", [])})
+
+@app.route("/narration/<name>")
+@login_required
+def narration_file(name):
+    if not (name.startswith("guide-") and name.endswith(".mp3")):
+        return "Not found", 404
+    # conditional=True answers the Range requests browsers use to stream and seek audio.
+    return send_from_directory(narrate.OUT_DIR, name, mimetype="audio/mpeg", conditional=True,
+                               max_age=30 * 86400)
+
 def _recal_diff():
     """Preview: which live thresholds/enables would change if the latest recommendation applied."""
     recp = Path(__file__).parent / "backtest_results" / "recommended_params.json"
@@ -3641,6 +3690,33 @@ button:disabled{opacity:.45;cursor:not-allowed}
 #float-back:hover{background:#FBBF24}
 body.on-assistant #float-back{bottom:calc(100px + env(safe-area-inset-bottom))}
 @media (max-width:600px){ #float-back{left:14px;bottom:calc(14px + env(safe-area-inset-bottom))} }
+/* Guide narration: Listen buttons and the floating player (stays while browsing other tabs) */
+#narr-cta{margin:0 0 16px}
+.narr-sec-link{font-size:13px;font-weight:600;color:#93C5FD;margin-left:12px;text-decoration:none;white-space:nowrap}
+.guide-sec.narrating{border-color:#F59E0B88;box-shadow:0 0 0 1px #F59E0B33}
+#narr-player{position:fixed;right:20px;bottom:calc(20px + env(safe-area-inset-bottom));z-index:120;display:none;
+  align-items:center;gap:6px;background:#12151F;border:1px solid #F59E0B88;border-radius:14px;padding:8px 8px 8px 10px;
+  box-shadow:0 6px 18px #000A;width:360px;max-width:calc(100vw - 40px)}
+body.narrating #narr-player{display:flex}
+#narr-player button{background:none;border:none;color:#9CA3AF;cursor:pointer;font-size:14px;padding:6px 8px;border-radius:8px}
+#narr-player button:hover{background:#1E2235}
+#narr-player #np-toggle{background:#F59E0B;color:#000;width:38px;height:38px;border-radius:50%;font-size:15px;flex-shrink:0}
+#narr-player #np-speed{color:#F59E0B;font-weight:700;min-width:48px}
+.np-info{flex:1;min-width:0;cursor:pointer}
+.np-title{display:flex;gap:8px;font-size:13px;font-weight:600;white-space:nowrap}
+#np-sec{overflow:hidden;text-overflow:ellipsis;min-width:0}
+#np-time{color:#9CA3AF;font-weight:400;flex-shrink:0;margin-left:auto}
+.np-seek{padding:7px 0 3px;cursor:pointer}
+.np-bar{display:flex;gap:3px;height:5px;transition:height .12s}
+.np-seek:hover .np-bar{height:7px}
+.np-seg{flex:1 1 0;min-width:3px;background:#2A2F45;border-radius:2px;overflow:hidden}
+.np-seg-fill{height:100%;width:0;background:#F59E0B}
+body.on-assistant #narr-player{bottom:calc(100px + env(safe-area-inset-bottom))}
+@media (max-width:600px){
+  #narr-player{left:14px;right:14px;width:auto;max-width:none;bottom:calc(14px + env(safe-area-inset-bottom))}
+  body.narrating #float-back{bottom:calc(84px + env(safe-area-inset-bottom))}
+  body.narrating.on-assistant #float-back{bottom:calc(170px + env(safe-area-inset-bottom))}
+}
 #regime-pill{font-size:11px;font-weight:800;border-radius:10px;padding:2px 9px;letter-spacing:.3px;background:#EF444418;color:#F87171;border:1px solid #EF444444}
 #calib-stamp.calib-stale{color:#F87171;font-weight:800}
 
@@ -3836,6 +3912,15 @@ body.on-assistant #float-back{bottom:calc(100px + env(safe-area-inset-bottom))}
 
 <div id="toast" role="status" aria-live="polite"></div>
 <button id="float-back" onclick="goBack()"></button>
+<div id="narr-player" role="region" aria-label="Guide audio">
+  <button id="np-toggle" onclick="narrToggle()" aria-label="Pause">⏸</button>
+  <div class="np-info" onclick="narrShowSection()" title="Show this section">
+    <div class="np-title"><span id="np-sec">Guide</span><span id="np-time"></span></div>
+    <div class="np-seek" onclick="narrSeekBar(event)"><div class="np-bar" id="np-bar"></div></div>
+  </div>
+  <button id="np-speed" onclick="narrSpeed()" title="Reading speed">1×</button>
+  <button id="np-close" onclick="narrStop()" aria-label="Stop and close">✕</button>
+</div>
 
 <div id="window-banner"><span id="calib-stamp"></span></div>
 
@@ -4378,13 +4463,140 @@ function renderGuide(){
   if(guideRendered) return;
   guideRendered=true;
   document.getElementById('pane-guide').innerHTML=`<h2 class="perf-title">📘 Guide</h2>
-    <div class="set-hint" style="margin:-6px 0 16px">A quick manual: why Tripwire exists, what it does and how it works. Each section takes under a minute to read; open "Read more" for details and examples.</div>`+
+    <div class="set-hint" style="margin:-6px 0 16px">A quick manual: why Tripwire exists, what it does and how it works. Each section takes under a minute to read; open "Read more" for details and examples.</div>
+    <div id="narr-cta"></div>`+
     GUIDE_SECTIONS.map(s=>`<section class="guide-sec" id="guide-${s.id}">
-      <h3>${s.icon} ${s.title}</h3>
+      <h3>${s.icon} ${s.title}<span class="narr-sec" data-sec="${s.id}"></span></h3>
       <div class="guide-short">${s.short}</div>
       <details class="guide-more" ontoggle="if(this.open) track('Opened guide details: ${s.id}')"><summary>Read more: details and examples</summary><div class="guide-long">${s.long}</div></details>
     </section>`).join('')+
     `<div class="pf-note">Unfamiliar word? The <a href="javascript:void(0)" class="today-more" onclick="switchTab('glossary',tabBtn('glossary'))">Glossary</a> explains every term. Informational only, not financial advice.</div>`;
+  loadNarration();
+}
+
+// ── Guide narration: the whole Guide recorded once by narrate.py and played as one file with
+// chapter marks, so any section can be started, and the page highlights (and opens) what is
+// being read. The player floats, so listening can continue while browsing other tabs.
+let narr=null, narrAudio=null, narrCh=-1, narrRate=1;
+try{ narrRate=parseFloat(localStorage.getItem('narrRate'))||1; }catch(e){}
+async function loadNarration(){
+  try{ narr=await fetchJSON('/api/narration'); }catch(e){ narr=null; }
+  const cta=document.getElementById('narr-cta');
+  if(!cta) return;
+  const ok=narr&&narr.available;
+  cta.innerHTML=ok?`<button class="intro-btn" onclick="narrStart('${narr.chapters[0].id}')">🔊 Listen to the guide <span class="intro-sub">· ${Math.round(narr.duration/60)} min, read by ${escapeHTML(narr.voice)}</span></button>`
+    :(narr&&narr.recording?`<div class="set-hint">🔊 An audio version of this guide is being recorded. Check back in about 20 minutes.</div>`:'');
+  document.querySelectorAll('.narr-sec').forEach(el=>{
+    el.innerHTML=ok?`<a class="narr-sec-link" href="javascript:void(0)" onclick="narrStart('${el.dataset.sec}')">▶ Listen</a>`:'';
+  });
+}
+function fmtClock(s){ s=Math.max(0,Math.round(s||0)); return Math.floor(s/60)+':'+String(s%60).padStart(2,'0'); }
+function narrEnsureAudio(){
+  if(narrAudio) return narrAudio;
+  const a=narrAudio=new Audio();
+  a.preload='metadata';
+  a.addEventListener('timeupdate',narrTick);
+  a.addEventListener('play',narrUI); a.addEventListener('pause',narrUI);
+  a.addEventListener('ended',()=>{ track('Finished the guide narration'); narrStop(); });
+  // Lock-screen and headphone controls on phones.
+  if('mediaSession' in navigator){
+    const h=(k,f)=>{ try{ navigator.mediaSession.setActionHandler(k,f); }catch(e){} };
+    h('play',()=>a.play()); h('pause',()=>a.pause()); h('stop',narrStop);
+    h('seekbackward',()=>{ a.currentTime=Math.max(0,a.currentTime-15); });
+    h('seekforward',()=>{ a.currentTime=a.currentTime+15; });
+    h('previoustrack',()=>narrGoChapter(narrCh>0&&a.currentTime-narr.chapters[narrCh].start<3?narrCh-1:narrCh));
+    h('nexttrack',()=>narrGoChapter(narrCh+1));
+  }
+  return a;
+}
+function narrChEnd(i){ return i+1<narr.chapters.length?narr.chapters[i+1].start:narr.duration; }
+// The progress bar is split into the recording's chapters (each section's summary and details),
+// sized by length, like chapter marks on a video.
+function narrBuildBar(){
+  const bar=document.getElementById('np-bar');
+  if(!bar||bar.dataset.url===narr.url) return;
+  bar.dataset.url=narr.url;
+  bar.innerHTML=narr.chapters.map((c,i)=>`<div class="np-seg" style="flex-grow:${(narrChEnd(i)-c.start).toFixed(1)}" title="${escapeHTML(c.title+(c.kind==='long'?' · details':''))}"><div class="np-seg-fill"></div></div>`).join('');
+}
+function narrGoChapter(i){
+  if(narr&&narrAudio&&i>=0&&i<narr.chapters.length) narrAudio.currentTime=narr.chapters[i].start;
+}
+function narrStart(secId){
+  if(!narr||!narr.available) return;
+  const a=narrEnsureAudio();
+  const at=(narr.chapters.find(c=>c.id===secId)||narr.chapters[0]).start;
+  if(a.getAttribute('src')!==narr.url) a.src=narr.url;
+  a.defaultPlaybackRate=a.playbackRate=narrRate;
+  narrBuildBar();
+  if(a.readyState>=1) a.currentTime=at;
+  else a.addEventListener('loadedmetadata',()=>{ a.currentTime=at; },{once:true});
+  a.play().catch(()=>{});
+  track('Listened to the guide from: '+secId);
+  document.body.classList.add('narrating');
+  narrCh=-1; narrTick(); narrUI();
+}
+function narrTick(){
+  if(!narr||!narrAudio||!document.body.classList.contains('narrating')) return;
+  const t=narrAudio.currentTime, chs=narr.chapters;
+  let i=0; while(i+1<chs.length&&chs[i+1].start<=t+0.05) i++;
+  if(i!==narrCh){ narrCh=i; narrChapterChanged(chs[i]); }
+  document.querySelectorAll('#np-bar .np-seg-fill').forEach((f,k)=>{
+    f.style.width=(100*Math.max(0,Math.min(1,(t-chs[k].start)/(narrChEnd(k)-chs[k].start||1)))).toFixed(2)+'%';
+  });
+  document.getElementById('np-time').textContent=fmtClock(t)+' / '+fmtClock(narr.duration);
+}
+function narrChapterChanged(ch){
+  document.querySelectorAll('.guide-sec.narrating').forEach(el=>el.classList.remove('narrating'));
+  const sec=document.getElementById('guide-'+ch.id);
+  if(sec){
+    sec.classList.add('narrating');
+    const more=sec.querySelector('.guide-more');
+    if(more&&ch.kind==='long'&&!more.open) more.open=true;   // follow along into "Read more"
+  }
+  document.getElementById('np-sec').textContent=ch.title+(ch.kind==='long'?' · details':'');
+  if('mediaSession' in navigator&&window.MediaMetadata)
+    navigator.mediaSession.metadata=new MediaMetadata({title:ch.title+(ch.kind==='long'?' (details)':''),artist:'Tripwire guide',album:'Tripwire'});
+}
+function narrUI(){
+  if(!narrAudio) return;
+  const b=document.getElementById('np-toggle'), playing=!narrAudio.paused;
+  b.textContent=playing?'⏸':'▶'; b.setAttribute('aria-label',playing?'Pause':'Play');
+  document.getElementById('np-speed').textContent=narrRate+'×';
+}
+function narrToggle(){
+  if(!narrAudio) return;
+  if(narrAudio.paused) narrAudio.play().catch(()=>{}); else narrAudio.pause();
+}
+function narrSpeed(){
+  const steps=[1,1.25,1.5];
+  narrRate=steps[(steps.indexOf(narrRate)+1)%steps.length];
+  if(narrAudio) narrAudio.defaultPlaybackRate=narrAudio.playbackRate=narrRate;
+  try{ localStorage.setItem('narrRate',String(narrRate)); }catch(e){}
+  narrUI();
+}
+function narrSeekBar(ev){
+  ev.stopPropagation();
+  if(!narr||!narrAudio) return;
+  // Find the chapter segment under the tap (a tap in a gap counts for the nearer side).
+  const segs=[...document.querySelectorAll('#np-bar .np-seg')];
+  let i=segs.findIndex(sg=>ev.clientX<=sg.getBoundingClientRect().right+1.5);
+  if(i<0) i=segs.length-1;
+  const r=segs[i].getBoundingClientRect(), f=Math.max(0,Math.min(1,(ev.clientX-r.left)/r.width));
+  narrAudio.currentTime=narr.chapters[i].start+f*(narrChEnd(i)-narr.chapters[i].start);
+}
+function narrStop(){
+  if(narrAudio) narrAudio.pause();
+  document.body.classList.remove('narrating');
+  document.querySelectorAll('.guide-sec.narrating').forEach(el=>el.classList.remove('narrating'));
+  narrCh=-1;
+  if('mediaSession' in navigator) navigator.mediaSession.metadata=null;
+}
+// Tapping the player's title shows the section being read (the back button returns you).
+function narrShowSection(){
+  if(!narr||narrCh<0) return;
+  if(currentTab!=='guide') switchTab('guide',tabBtn('guide'));
+  const sec=document.getElementById('guide-'+narr.chapters[narrCh].id);
+  if(sec) window.scrollTo(0,sec.getBoundingClientRect().top+window.pageYOffset-110);
 }
 
 // Jump to a specific glossary entry from an inline term link anywhere in the app.
