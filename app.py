@@ -1758,6 +1758,8 @@ threading.Thread(target=monitor_loop, daemon=True).start()
 LOGIN_PAGE = """<!DOCTYPE html>
 <html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Tripwire — Login</title>
+<link rel="apple-touch-icon" href="/apple-touch-icon.png"><link rel="icon" type="image/png" href="/static/icon-512.png"><meta name="apple-mobile-web-app-title" content="Tripwire"><meta name="theme-color" content="#12151F">
+
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#0A0C12;color:#E4E0D8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
@@ -1925,6 +1927,8 @@ def login():
 DECIDE_PAGE = """<!DOCTYPE html>
 <html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Tripwire — Decision</title>
+<link rel="apple-touch-icon" href="/apple-touch-icon.png"><link rel="icon" type="image/png" href="/static/icon-512.png"><meta name="apple-mobile-web-app-title" content="Tripwire"><meta name="theme-color" content="#12151F">
+
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#0A0C12;color:#E4E0D8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
@@ -2775,6 +2779,13 @@ def narration_loop():
 
 threading.Thread(target=narration_loop, daemon=True).start()
 
+# Home-screen icon (drawn by make_icon.py). Public: iOS fetches it without the login cookie.
+@app.route("/apple-touch-icon.png")
+@app.route("/apple-touch-icon-precomposed.png")
+def apple_touch_icon():
+    return send_from_directory(Path(__file__).parent / "static", "icon-180.png", mimetype="image/png",
+                               max_age=7 * 86400)
+
 @app.route("/api/narration")
 @login_required
 def api_narration():
@@ -3389,6 +3400,8 @@ DASHBOARD = r"""<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Tripwire</title>
+<link rel="apple-touch-icon" href="/apple-touch-icon.png"><link rel="icon" type="image/png" href="/static/icon-512.png"><meta name="apple-mobile-web-app-title" content="Tripwire"><meta name="theme-color" content="#12151F">
+
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#0A0C12;color:#E4E0D8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh}
@@ -3399,7 +3412,7 @@ input,select{outline:none}
 #topbar{background:#12151F;border-bottom:1px solid #1E2235;padding:0 20px;height:52px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;gap:12px;flex-wrap:wrap}
 #logo{font-weight:800;font-size:17px;color:#F59E0B;letter-spacing:-0.5px}
 #topbar-right{display:flex;align-items:center;gap:12px;font-size:13px;color:#6B7280}
-#status-dot{width:8px;height:8px;border-radius:50%;background:#10B981;display:inline-block;margin-right:4px;transition:background .3s}
+#status-dot{width:8px;height:8px;border-radius:50%;background:#9DB4D0;display:inline-block;margin-right:4px;transition:background .3s}
 #status-dot.checking{background:#F59E0B}
 #btn-check{background:#F59E0B;color:#000;border-radius:6px;padding:7px 16px;font-weight:700;font-size:13px}
 #btn-check:disabled{opacity:0.5;cursor:not-allowed}
@@ -3427,30 +3440,32 @@ input,select{outline:none}
 #add-bar-label{font-size:12px;color:#6B7280;font-weight:600}
 #add-bar input{background:#0A0C12;border:1px solid #1E2235;color:#E4E0D8;border-radius:5px;padding:5px 9px;font-size:12px;width:90px}
 #add-bar select{background:#0A0C12;border:1px solid #1E2235;color:#E4E0D8;border-radius:5px;padding:5px 9px;font-size:12px}
-#btn-add{background:#10B981;color:#fff;border-radius:5px;padding:5px 12px;font-weight:700;font-size:12px}
+#btn-add{background:#F59E0B;color:#000;border-radius:5px;padding:5px 12px;font-weight:700;font-size:12px}
 #add-status{font-size:12px;color:#6B7280}
 #add-status.err{color:#EF4444}
-#add-status.ok{color:#10B981}
+#add-status.ok{color:#9DB4D0}
 
 /* "Today" triage strip — what needs attention now, above the grid */
 #triage-strip{margin-bottom:14px}
 .triage-box{background:#12151F;border:1px solid #1E2235;border-radius:12px;padding:12px 14px}
 .today-head{font-size:17px;font-weight:800;margin-bottom:6px}
-.today-head.calm{color:#10B981}
+.today-head.calm{color:#9DB4D0}
 .today-head.needs{color:#F59E0B}
 .today-item{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:8px 0;border-top:1px solid #1E223599}
 .today-sym{font-weight:800;font-size:15px;cursor:pointer;text-decoration:underline dotted #6B7280}
 .today-meta{color:#9CA3AF;font-size:12px}
 .today-actions{margin-left:auto;display:flex;gap:6px}
 .dec-btn{border-radius:8px;padding:5px 10px;font-size:12px;font-weight:700;cursor:pointer;border:1px solid}
-.dec-btn.acted{background:#05966922;color:#34D399;border-color:#05966966}
+.dec-btn.acted{background:#9DB4D022;color:#9DB4D0;border-color:#9DB4D066}
 .dec-btn.passed{background:transparent;color:#9CA3AF;border-color:#374151}
 .dec-tag{font-size:11px;font-weight:700;border-radius:6px;padding:1px 6px}
-.dec-tag.acted{background:#05966922;color:#34D399}
+.dec-tag.acted{background:#9DB4D022;color:#9DB4D0}
 .dec-tag.passed{background:#37415155;color:#9CA3AF}
 .today-sub{color:#6B7280;font-size:12px;margin-top:6px}
 .today-more{color:#93C5FD;text-decoration:none}
-.today-detail{margin-top:10px;padding-top:10px;border-top:1px dashed #1E2235}
+.today-detail{margin-top:10px;border-top:none;padding-top:16px;
+  background:radial-gradient(circle,#6B7280 3px,transparent 3.6px) left top/8px 8px no-repeat,radial-gradient(circle,#6B7280 3px,transparent 3.6px) right top/8px 8px no-repeat,
+    linear-gradient(#2A2F45,#2A2F45) center 3px/calc(100% - 8px) 2px no-repeat}
 .perf-money{font-size:28px;font-weight:800;margin:2px 0 6px}
 .ci-range{font-size:11px;color:#9CA3AF;font-weight:400}
 @media (max-width:600px){ .today-actions{margin-left:0;width:100%} .today-actions .dec-btn{flex:1;padding:8px} }
@@ -3459,7 +3474,7 @@ input,select{outline:none}
 .triage-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#6B7280;min-width:96px}
 .triage-chip{display:inline-flex;align-items:center;gap:6px;border-radius:8px;padding:4px 10px;cursor:pointer;font-size:13px;font-weight:700;border:1px solid transparent}
 .triage-chip .tsym{font-weight:800}
-.triage-chip.buy{color:#10B981;background:#10B98115;border-color:#10B98144}
+.triage-chip.buy{color:#38BDF8;background:#38BDF815;border-color:#38BDF844}
 .triage-chip.watch{color:#F59E0B;background:#F59E0B15;border-color:#F59E0B44}
 .triage-chip.trend{color:#9CA3AF;background:#37415118;border-color:#37415144}
 .triage-chip .tedge{font-weight:600;opacity:.85;font-size:12px}
@@ -3490,22 +3505,22 @@ input,select{outline:none}
 /* Compact per-card rule status: one small chip per rule instead of a tall labeled list. */
 .card-signal-row{margin-top:8px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 /* A tile with an open signal wears the signal's colour, so it matches its banner row at a glance */
-.stock-card.sig-open.buy{border:2px solid #10B98199;padding:11px 13px}
+.stock-card.sig-open.buy{border:2px solid #38BDF899;padding:11px 13px}
 .stock-card.sig-open.watch{border:2px solid #F59E0B99;padding:11px 13px}
 .stock-card.sig-open.decided{border-style:dashed}
 .stock-card .sig-badge{font-size:12.5px;padding:2px 8px;letter-spacing:.3px}
 .card-sig-meta{font-size:12px;color:#9CA3AF;font-weight:600}
 .card-sig-meta.due{color:#FCD34D}
 .lean-pill{display:inline-block;font-size:11px;font-weight:700;border-radius:6px;padding:1px 7px;margin-top:6px;border:1px dashed}
-.lean-pill.buy{color:#6EE7B7;border-color:#10B98144}
+.lean-pill.buy{color:#38BDF8;border-color:#38BDF844}
 .lean-pill.watch{color:#FCD34D;border-color:#F59E0B44}
 .dec-state{font-size:12px;font-weight:700;border-radius:8px;padding:4px 9px}
-.dec-state.acted{color:#34D399;background:#05966918}
+.dec-state.acted{color:#9DB4D0;background:#9DB4D018}
 .dec-state.passed{color:#9CA3AF;background:#37415133}
 .alerts-sec{font-size:13px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:#9CA3AF;margin:18px 0 8px}
 .alerts-sec:first-child{margin-top:0}
 .sig-card{border-width:2px;scroll-margin-top:130px}
-.sig-card.buy{border-color:#10B98166}
+.sig-card.buy{border-color:#38BDF866}
 .sig-card.watch{border-color:#F59E0B66}
 .sig-card .today-item{border-top:none;padding:12px 18px}
 .sig-card-why{padding:0 18px 12px;font-size:13px;color:#D1D5DB}
@@ -3513,7 +3528,7 @@ input,select{outline:none}
 .alert-group-latest{font-size:12px;color:#6B7280}
 .rule-chips{margin-top:8px;display:flex;flex-wrap:wrap;gap:4px}
 .rule-chip{font-size:10px;font-weight:700;letter-spacing:.2px;border-radius:5px;padding:2px 6px;border:1px solid transparent;white-space:nowrap}
-.rule-chip.ok{color:#10B981;background:#10B9810F;border-color:#10B98122}
+.rule-chip.ok{color:#9DB4D0;background:#9DB4D00F;border-color:#9DB4D022}
 .rule-chip.trig{color:#F59E0B;background:#F59E0B1A;border-color:#F59E0B44}
 .rule-chip.off{color:#4B5563;background:#37415112;border-color:#37415133}
 .card-status-hdr{font-size:11px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;margin-top:9px}
@@ -3572,7 +3587,7 @@ input,select{outline:none}
 .rule-title{font-weight:700;font-size:14px}
 .rule-header-right{display:flex;gap:8px;align-items:center}
 .badge{border-radius:4px;padding:2px 9px;font-size:15px;font-weight:700;letter-spacing:.5px}
-.badge-ok{background:#10B98115;color:#10B981;border:1px solid #10B98133}
+.badge-ok{background:#9DB4D015;color:#9DB4D0;border:1px solid #9DB4D033}
 .badge-alert{background:#F59E0B15;color:#F59E0B;border:1px solid #F59E0B33}
 .badge-disabled{background:#6B728015;color:#6B7280;border:1px solid #6B728033}
 .rule-desc{font-size:12px;color:#9CA3AF;margin-bottom:6px;line-height:1.5}
@@ -3637,14 +3652,14 @@ input,select{outline:none}
 
 /* Signal badges */
 .sig-badge{display:inline-block;border-radius:6px;padding:3px 12px;font-size:11px;font-weight:800;letter-spacing:.6px;text-transform:uppercase}
-.sig-strong-buy{background:#10B98125;color:#10B981;border:2px solid #10B98166}
+.sig-strong-buy{background:#38BDF825;color:#38BDF8;border:2px solid #38BDF866}
 /* "Bounce watch" (formerly SELL) is amber, not red — backtesting found downside triggers on
    this watchlist historically bounce within days rather than continue lower; see BACKTESTING.md */
 .sig-strong-sell{background:#F59E0B25;color:#F59E0B;border:2px solid #F59E0B66}
-.sig-trending-buy{background:#10B98112;color:#10B981;border:1px solid #10B98144}
+.sig-trending-buy{background:#38BDF812;color:#38BDF8;border:1px solid #38BDF844}
 .sig-trending-sell{background:#F59E0B12;color:#F59E0B;border:1px solid #F59E0B44}
 .sig-pending{background:#6B728012;color:#6B7280;border:1px solid #6B728044}
-.sig-buy{background:#10B98112;color:#10B981;border:1px solid #10B98133}
+.sig-buy{background:#38BDF812;color:#38BDF8;border:1px solid #38BDF833}
 .sig-sell{background:#F59E0B12;color:#F59E0B;border:1px solid #F59E0B33}
 .sig-neutral{background:#37415112;color:#6B7280;border:1px solid #37415144}
 /* one rule's direction — deliberately smaller than a signal badge */
@@ -3654,7 +3669,7 @@ input,select{outline:none}
 
 /* Market phase pill */
 #market-phase{font-size:11px;font-weight:700;border-radius:10px;padding:2px 9px;letter-spacing:.3px}
-.mp-regular{background:#10B98118;color:#10B981;border:1px solid #10B98140}
+.mp-regular{background:#9DB4D018;color:#9DB4D0;border:1px solid #9DB4D040}
 .mp-pre,.mp-post{background:#F59E0B15;color:#F59E0B;border:1px solid #F59E0B40}
 .mp-closed{background:#6B728015;color:#9CA3AF;border:1px solid #6B728040}
 
@@ -3731,7 +3746,7 @@ body.on-assistant #narr-player{bottom:calc(100px + env(safe-area-inset-bottom))}
 .switch input{opacity:0;width:0;height:0}
 .slider{position:absolute;cursor:pointer;inset:0;background:#374151;border-radius:20px;transition:.2s}
 .slider:before{content:"";position:absolute;height:14px;width:14px;left:3px;bottom:3px;background:#E4E0D8;border-radius:50%;transition:.2s}
-.switch input:checked+.slider{background:#10B981}
+.switch input:checked+.slider{background:#F59E0B}
 .switch input:checked+.slider:before{transform:translateX(18px)}
 
 /* Settings tab */
@@ -3749,7 +3764,7 @@ body.on-assistant #narr-player{bottom:calc(100px + env(safe-area-inset-bottom))}
 .settings-actions{display:flex;gap:10px;align-items:center;margin-top:8px}
 #btn-save-settings{background:#F59E0B;color:#000;border-radius:7px;padding:9px 20px;font-weight:700;font-size:13px}
 #btn-test-notify{background:#1E2235;color:#E4E0D8;border-radius:7px;padding:9px 16px;font-size:13px}
-#settings-status{font-size:12px;color:#10B981}
+#settings-status{font-size:12px;color:#9DB4D0}
 
 /* Analytics tab */
 #pane-analytics{padding-bottom:60px}
@@ -3794,7 +3809,9 @@ body.on-assistant #narr-player{bottom:calc(100px + env(safe-area-inset-bottom))}
 .guide-long ul{padding-left:20px;margin-bottom:10px}
 .guide-long li{font-size:14px;line-height:1.6;color:#D1D5DB;margin-bottom:6px}
 .guide-more summary{cursor:pointer;color:#93C5FD;font-size:14px;font-weight:600;margin-top:4px}
-.guide-long{margin-top:8px;border-top:1px dashed #1E2235;padding-top:6px}
+.guide-long{margin-top:10px;border-top:none;padding-top:16px;
+  background:radial-gradient(circle,#6B7280 3px,transparent 3.6px) left top/8px 8px no-repeat,radial-gradient(circle,#6B7280 3px,transparent 3.6px) right top/8px 8px no-repeat,
+    linear-gradient(#2A2F45,#2A2F45) center 3px/calc(100% - 8px) 2px no-repeat}
 .guide-fig{width:100%;height:auto;display:block;background:#0A0C12;border-radius:10px;margin:8px 0 12px}
 .guide-flow{display:flex;flex-wrap:wrap;align-items:stretch;gap:6px;margin:8px 0 12px}
 .gf-step{flex:1;min-width:120px;background:#0A0C12;border:1px solid #1E2235;border-radius:10px;padding:10px;font-size:20px;text-align:center;display:flex;flex-direction:column;gap:4px}
@@ -3805,7 +3822,7 @@ body.on-assistant #narr-player{bottom:calc(100px + env(safe-area-inset-bottom))}
 .gv-title{font-size:12px;color:#9CA3AF;margin-bottom:8px}
 .gv-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
 .gv-chip{font-size:12px;border-radius:8px;padding:4px 10px;border:1px solid #374151;color:#6B7280}
-.gv-chip.on{border-color:#05966988;background:#05966922;color:#34D399;font-weight:700}
+.gv-chip.on{border-color:#F59E0B88;background:#F59E0B22;color:#F59E0B;font-weight:700}
 .gv-result{font-size:13px;color:#D1D5DB}
 .gloss-entry{background:#12151F;border:1px solid #1E2235;border-radius:10px;padding:14px 16px;margin-bottom:10px;scroll-margin-top:110px;transition:border-color .3s,background .3s}
 .gloss-entry.gloss-flash{border-color:#F59E0B;background:#F59E0B10}
@@ -3816,13 +3833,17 @@ body.on-assistant #narr-player{bottom:calc(100px + env(safe-area-inset-bottom))}
 .analytics-card h3{font-size:13px;color:#F59E0B;margin-bottom:6px;letter-spacing:.5px;text-transform:uppercase}
 /* Performance scorecard */
 .perf-title{font-size:20px;font-weight:800;margin-bottom:2px}
+/* The trip wire, Tripwire's signature line (as in the icon): a thin wire between two anchor posts */
+.perf-title::after{content:"";display:block;width:132px;height:8px;margin:8px 0 10px;
+  background:radial-gradient(circle,#6B7280 3px,transparent 3.6px) left center/8px 8px no-repeat,radial-gradient(circle,#6B7280 3px,transparent 3.6px) right center/8px 8px no-repeat,
+    linear-gradient(#374151,#374151) center/calc(100% - 8px) 2px no-repeat}
 .perf-headline{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px}
 .perf-hero{flex:1;min-width:220px;background:#12151F;border:1px solid #1E2235;border-radius:12px;padding:18px 20px}
 .perf-hero-num{font-size:38px;font-weight:800;letter-spacing:-1.5px;line-height:1}
 .perf-hero-lbl{font-size:13px;color:#9CA3AF;margin-top:6px;line-height:1.4}
 .perf-drift{background:#F59E0B12;border:1px solid #F59E0B44;color:#F59E0B;border-radius:10px;padding:12px 16px;font-size:13px;margin-bottom:16px;line-height:1.5}
-.perf-ok{background:#10B98110;border:1px solid #10B98133;color:#10B981;border-radius:10px;padding:10px 16px;font-size:13px;margin-bottom:16px}
-.rt-buy{background:#10B98120;color:#10B981;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:700}
+.perf-ok{background:#9DB4D010;border:1px solid #9DB4D033;color:#9DB4D0;border-radius:10px;padding:10px 16px;font-size:13px;margin-bottom:16px}
+.rt-buy{background:#38BDF820;color:#38BDF8;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:700}
 .rt-watch{background:#F59E0B20;color:#F59E0B;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:700}
 .analytics-summary{display:flex;gap:20px;flex-wrap:wrap;margin-bottom:16px}
 .an-stat{background:#12151F;border:1px solid #1E2235;border-radius:10px;padding:12px 18px}
@@ -4065,7 +4086,7 @@ function rangeBarHTML(lo, hi, current, label, loLabel, hiLabel, color) {
   if (!lo || !hi) return '';
   const pct = ((current-lo)/(hi-lo)*100).toFixed(1);
   const clampedPct = Math.max(2, Math.min(98, parseFloat(pct)));
-  const curClr = parseFloat(pct) < 15 ? '#EF4444' : parseFloat(pct) > 85 ? '#F59E0B' : color||'#10B981';
+  const curClr = parseFloat(pct) < 15 ? '#EF4444' : parseFloat(pct) > 85 ? '#F59E0B' : color||'#9DB4D0';
   return `<div class="range-cell">
     <div class="range-cell-label">${label}</div>
     <div class="range-row"><span>${loLabel}</span><span class="dn">$${fmtPx(lo)}</span></div>
@@ -4153,6 +4174,7 @@ function evidenceLineHTML(sym,ruleType){
   return `<div class="evidence-line">📊 ${linkifyGlossary(line)}${lowConfidenceBadge(sym,ruleType)}</div>`;
 }
 
+const openEdits=new Set();   // rule Edit forms open right now ("NVDA:volatility")
 // Deep links from emails: /?stock=NVDA opens that stock, /?tab=settings opens a tab.
 let startParamsHandled=false;
 function handleStartParams(){
@@ -4778,7 +4800,7 @@ function renderGrid(){
       // "now" = the latest check; the open signal above it may be from an earlier day
       const hdr=triggered.length>0
         ? `<div class="card-status-hdr" style="color:#F59E0B">⚠ ${triggered.length} triggered now</div>`
-        : `<div class="card-status-hdr" style="color:#10B981">✓ Quiet now</div>`;
+        : `<div class="card-status-hdr" style="color:#9DB4D0">✓ Quiet now</div>`;
       rulesHTML=`${hdr}${liveReadingHTML(sig,ev)}<div class="rule-chips">${chips}</div>`;
     }
 
@@ -4807,7 +4829,9 @@ function renderGrid(){
     </div>`;
   }).join('');
 
-  if(selectedSym){const s=stocks.find(x=>x.symbol===selectedSym);if(s)renderDetail(s);}
+  // While an Edit form is open, the 5-second refresh leaves the detail panel alone, so the
+  // form stays open and keeps what is being typed.
+  if(selectedSym&&!openEdits.size){const s=stocks.find(x=>x.symbol===selectedSym);if(s)renderDetail(s);}
   renderTriage();
 }
 
@@ -5069,6 +5093,7 @@ function selectStock(sym){
 function pctStr(a,b){const p=((a-b)/b*100);return(p>0?'+':'')+p.toFixed(2)+'%';}
 
 function renderDetail(s){
+  openEdits.clear();   // a fresh render shows every Edit form closed
   const panel=document.getElementById('detail');
   panel.style.display='block';
   const pctCls=s.pct>0?'up':s.pct<0?'dn':'muted';
@@ -5080,7 +5105,7 @@ function renderDetail(s){
   const h90hi=h.length?Math.max(...h):null;
 
   const ranges=[
-    rangeBarHTML(h90lo&&h90lo.toFixed(2),h90hi&&h90hi.toFixed(2),s.price,'30-day range','Low','High','#10B981'),
+    rangeBarHTML(h90lo&&h90lo.toFixed(2),h90hi&&h90hi.toFixed(2),s.price,'30-day range','Low','High','#9DB4D0'),
     rangeBarHTML(s.week52_low,s.week52_high,s.price,'52-week range','52W Low','52W High','#3B82F6'),
     rangeBarHTML(s.lifetime_low,s.lifetime_high,s.price,'All-time range','All-Time Low','All-Time High','#A78BFA'),
   ].join('');
@@ -5322,7 +5347,12 @@ const RULE_ENABLE_KEY={
 
 function toggleEdit(sym,ruleType){
   const el=document.getElementById('edit_'+sym+'_'+ruleType);
-  if(el) el.style.display=el.style.display==='none'?'block':'none';
+  if(!el) return;
+  const open=el.style.display==='none';
+  el.style.display=open?'block':'none';
+  if(open) openEdits.add(sym+':'+ruleType); else openEdits.delete(sym+':'+ruleType);
+  const b=el.closest('.rule-card').querySelector('.edit-toggle');
+  if(b) b.textContent=open?'Close':'Edit';
 }
 
 async function saveParams(sym,ruleType){
@@ -5335,12 +5365,20 @@ async function saveParams(sym,ruleType){
   const enKey=RULE_ENABLE_KEY[ruleType];
   const enEl=document.getElementById('en_'+sym+'_'+ruleType);
   if(enKey&&enEl) params[enKey]=enEl.checked;
-  await postJSON('/api/stock/'+sym+'/params',params);
+  let r;
+  try{ r=await postJSON('/api/stock/'+sym+'/params',params); }catch(e){ return; }   // guests: toast already shown
+  if(!r||!r.success){ showToast('Could not save: '+((r&&r.error)||'please try again')); return; }
+  openEdits.delete(sym+':'+ruleType);
+  showToast(`Saved. ${sym} is being re-checked with the new setting.`);
   setTimeout(loadAll,1500);
 }
 
 async function resetParams(sym){
-  await postJSON('/api/stock/'+sym+'/params/reset',{});
+  let r;
+  try{ r=await postJSON('/api/stock/'+sym+'/params/reset',{}); }catch(e){ return; }
+  if(!r||!r.success){ showToast('Could not reset: '+((r&&r.error)||'please try again')); return; }
+  [...openEdits].filter(k=>k.startsWith(sym+':')).forEach(k=>openEdits.delete(k));
+  showToast(`${sym} is back on its calibrated settings.`);
   setTimeout(loadAll,1500);
 }
 
@@ -5398,7 +5436,7 @@ function alertEntryHTML(a,inSignal,hideNews){
       ${alertSig}${ctx}
       ${windowChip}
       ${detail.near_earnings?'<span class="earnings-chip soon" style="margin-top:0">📅 earnings-driven?</span>':''}
-      ${dim?'<span style="font-size:15px;color:#10B981">✓ ack</span>':''}
+      ${dim?'<span style="font-size:15px;color:#9DB4D0">✓ ack</span>':''}
       <span class="alert-entry-price">Price: $${a.price}</span>
     </div>
     <div class="alert-entry-msg">${a.message}</div>
@@ -5667,8 +5705,8 @@ async function testNotify(){
   st.textContent='Sending… (waiting for real delivery result, up to ~20s)';
   const r=await postJSON('/api/settings/test-notify',{});
   const line=(label,res)=>`${res.ok?'✓':'✗'} ${label}: ${res.message}`;
-  st.innerHTML=`<div style="color:${r.email.ok?'#10B981':'#EF4444'}">${line('Email',r.email)}</div>`+
-               `<div style="color:${r.whatsapp.ok?'#10B981':'#EF4444'}">${line('WhatsApp',r.whatsapp)}</div>`+
+  st.innerHTML=`<div style="color:${r.email.ok?'#9DB4D0':'#EF4444'}">${line('Email',r.email)}</div>`+
+               `<div style="color:${r.whatsapp.ok?'#9DB4D0':'#EF4444'}">${line('WhatsApp',r.whatsapp)}</div>`+
                `<div class="set-hint" style="margin-top:4px">Just edited credentials? Save settings first, then test again.</div>`;
 }
 
