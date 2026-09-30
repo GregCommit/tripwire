@@ -2203,23 +2203,46 @@ def _wilson(k, n, z=1.96):
     h = z * ((p * (1 - p) / n + z * z / (4 * n * n)) ** 0.5) / d
     return [round(max(0.0, c - h) * 100, 1), round(min(1.0, c + h) * 100, 1)]
 
+def rules_since():
+    """The day the current rules took effect: the switch to judging signals against the owner's
+    own stocks. Performance grades only signals from then on, because older ones measure rules
+    the app no longer uses. Set once from the calibration date; monthly refinements of the same
+    method don't reset it."""
+    v = get_setting("perf_since", "")
+    if not v:
+        v = (_get_calibrated_at_fresh() or datetime.now().strftime("%Y-%m-%d"))[:10]
+        set_setting("perf_since", v)
+    return v
+
 @app.route("/api/analytics")
 @login_required
 def api_analytics():
     """Performance scorecard: how the app's OWN signals actually played out (self-scoring),
     not alert-volume vanity metrics. Everything here is built from resolved outcomes
     (alerts scored ~5 trading days after firing by resolve_outcomes)."""
+    since = rules_since()
+    include_old = request.args.get("all") == "1"
+    cut = 0 if include_old else int(datetime.strptime(since, "%Y-%m-%d").timestamp())
     with get_db() as conn:
         # Per-rule live outcomes vs backtested edge
         orows = conn.execute(
             "SELECT rule_type, COUNT(*) n, AVG(outcome_excess) avg_exc, "
             "AVG(CASE WHEN outcome_correct=1 THEN 1.0 ELSE 0.0 END) hit "
-            "FROM alerts WHERE outcome_ts IS NOT NULL AND outcome_excess IS NOT NULL "
-            "GROUP BY rule_type").fetchall()
+            "FROM alerts WHERE outcome_ts IS NOT NULL AND outcome_excess IS NOT NULL AND timestamp>=? "
+            "GROUP BY rule_type", (cut,)).fetchall()
         scored = [dict(r) for r in conn.execute(
             "SELECT id, symbol, rule_type, timestamp, detail, event_id, decision, outcome_ret, outcome_excess "
-            "FROM alerts WHERE outcome_ts IS NOT NULL AND outcome_excess IS NOT NULL ORDER BY timestamp")]
-        pending = conn.execute("SELECT COUNT(*) c FROM alerts WHERE outcome_ts IS NULL").fetchone()["c"]
+            "FROM alerts WHERE outcome_ts IS NOT NULL AND outcome_excess IS NOT NULL AND timestamp>=? "
+            "ORDER BY timestamp", (cut,))]
+        pending = conn.execute("SELECT COUNT(*) c FROM alerts WHERE outcome_ts IS NULL AND timestamp>=?",
+                               (cut,)).fetchone()["c"]
+        older = conn.execute(
+            "SELECT event_id, symbol, timestamp FROM alerts WHERE outcome_ts IS NOT NULL "
+            "AND outcome_excess IS NOT NULL AND timestamp<?",
+            (int(datetime.strptime(since, "%Y-%m-%d").timestamp()),)).fetchall()
+    # Signals under the old rules (grouped the same way as below), offered behind a link.
+    older_n = len({f"e{r['event_id']}" if r["event_id"] else f"d{r['symbol']}:{datetime.fromtimestamp(r['timestamp']):%Y-%m-%d}"
+                   for r in older})
 
     # Signals, not rule triggers: one move that tripped several rules (or several cycles of
     # the same day, for alerts that predate event grouping) counts once. Counting per rule
@@ -2325,6 +2348,7 @@ def api_analytics():
         "decisions": decisions,
         "calibration": calibration,
         "outcomes_pending": pending,
+        "since": since, "include_old": include_old, "older_n": older_n,
     })
 
 @app.route("/api/check", methods=["POST"])
@@ -3833,6 +3857,7 @@ body.on-assistant #narr-player{bottom:calc(100px + env(safe-area-inset-bottom))}
 .analytics-card h3{font-size:13px;color:#F59E0B;margin-bottom:6px;letter-spacing:.5px;text-transform:uppercase}
 /* Performance scorecard */
 .perf-title{font-size:20px;font-weight:800;margin-bottom:2px}
+.perf-scope{font-size:13px;color:#9DB4D0;background:#9DB4D00F;border:1px solid #9DB4D033;border-radius:8px;padding:8px 12px;margin:0 0 14px}
 /* The trip wire, Tripwire's signature line (as in the icon): a thin wire between two anchor posts */
 .perf-title::after{content:"";display:block;width:132px;height:8px;margin:8px 0 10px;
   background:radial-gradient(circle,#6B7280 3px,transparent 3.6px) left center/8px 8px no-repeat,radial-gradient(circle,#6B7280 3px,transparent 3.6px) right center/8px 8px no-repeat,
@@ -5723,15 +5748,22 @@ const RULE_DISPLAY_NAME={volatility:'Unusual Move',support_resistance:'S/R Break
 
 // Performance scorecard: does the app's own signal actually work? Everything here is built
 // from resolved outcomes — each alert scored ~5 trading days after it fired, vs SPY.
+// Performance grades the current rules only (since d.since); older signals sit behind a link.
+let perfAll=false;
+function perfScopeHTML(d){
+  const when=fmtDay(d.since);
+  if(d.include_old) return `<div class="perf-scope">Including ${d.older_n} earlier signal${d.older_n===1?'':'s'} from the old rules (tuned to beat the S&amp;P 500), so this mixes two rule sets. <a class="today-more" href="javascript:void(0)" onclick="perfAll=false;loadAnalytics()">Show the current rules only</a></div>`;
+  return `<div class="perf-scope">Grading the <b>current rules</b>, in use since ${when}.${d.older_n?` ${d.older_n} earlier signal${d.older_n===1?'':'s'} from the old rules are left out. <a class="today-more" href="javascript:void(0)" onclick="perfAll=true;track('Performance: showed old-rule signals');loadAnalytics()">Show them too</a>`:''}</div>`;
+}
 async function loadAnalytics(){
-  const d=await fetchJSON('/api/analytics');
+  const d=await fetchJSON('/api/analytics'+(perfAll?'?all=1':''));
   const pane=document.getElementById('pane-analytics');
   const h=d.headline||{};
   const pend=d.outcomes_pending?`<div class="set-hint" style="margin-top:4px">${d.outcomes_pending} signal${d.outcomes_pending>1?'s':''} still maturing (each is scored ~5 trading days after it fires).</div>`:'';
 
   if(!h.n){
-    pane.innerHTML=`<h2 class="perf-title">📊 Performance</h2>
-      <div class="analytics-card"><div class="set-hint">No signals have matured yet. Once an alert is ~5 trading days old, Tripwire scores what actually happened (the stock's move against your other stocks, after costs: its ${linkifyGlossary('result vs your stocks')}) and reports here whether its signals are working.</div>${pend}</div>`;
+    pane.innerHTML=`<h2 class="perf-title">📊 Performance</h2>${perfScopeHTML(d)}
+      <div class="analytics-card"><div class="set-hint">No signals from the current rules have matured yet. Once an alert is ~5 trading days old, Tripwire scores what actually happened (the stock's move against your other stocks, after costs: its ${linkifyGlossary('result vs your stocks')}) and reports here whether its signals are working.</div>${pend}</div>`;
     return;
   }
 
@@ -5830,7 +5862,7 @@ async function loadAnalytics(){
 
   pane.innerHTML=`<h2 class="perf-title">📊 Performance</h2>
     <div class="set-hint" style="margin:-6px 0 14px">How Tripwire's own signals actually played out — the app scoring itself on forward data. One move that tripped several rules counts as one signal.${pend?' '+d.outcomes_pending+' alert'+(d.outcomes_pending>1?'s':'')+' still maturing.':''}</div>
-    ${headlineHTML}${calibHTML}${moneyCard}${decisionsCard}${recentCard}${stockCard}${ruleCard}`;
+    ${perfScopeHTML(d)}${headlineHTML}${calibHTML}${moneyCard}${decisionsCard}${recentCard}${stockCard}${ruleCard}`;
 }
 
 // ── Portfolio test tab ────────────────────────────────────────────────────────
