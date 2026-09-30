@@ -3734,8 +3734,32 @@ body.on-assistant #float-back{bottom:calc(100px + env(safe-area-inset-bottom))}
 .narr-sec-link{font-size:13px;font-weight:600;color:#93C5FD;margin-left:12px;text-decoration:none;white-space:nowrap}
 .guide-sec.narrating{border-color:#F59E0B88;box-shadow:0 0 0 1px #F59E0B33}
 #narr-player{position:fixed;right:20px;bottom:calc(20px + env(safe-area-inset-bottom));z-index:120;display:none;
-  align-items:center;gap:6px;background:#12151F;border:1px solid #F59E0B88;border-radius:14px;padding:8px 8px 8px 10px;
+  flex-direction:column;background:#12151F;border:1px solid #F59E0B88;border-radius:14px;padding:8px 8px 8px 10px;
   box-shadow:0 6px 18px #000A;width:360px;max-width:calc(100vw - 40px)}
+.np-row{display:flex;align-items:center;gap:6px}
+/* Tapping the bar opens the chapter panel: big numbered rows, and a taller bar numbered to match */
+#np-panel{display:none;max-height:55vh;overflow:auto;padding:2px 0 8px;margin-bottom:8px;border-bottom:1px solid #1E2235}
+#narr-player.expanded #np-panel{display:block}
+.np-panel-head{display:flex;align-items:center;justify-content:space-between;font-size:12px;font-weight:700;
+  color:#9CA3AF;letter-spacing:.4px;text-transform:uppercase;margin:0 0 6px 2px}
+#narr-player .np-ch{display:flex;align-items:center;gap:10px;width:100%;position:relative;overflow:hidden;
+  background:#0A0C12;border:1px solid #1E2235;border-radius:10px;padding:11px 10px;margin-bottom:6px;
+  color:#D1D5DB;font-size:14px;text-align:left}
+#narr-player .np-ch.current{border-color:#F59E0B88;color:#fff}
+.np-ch-fill{position:absolute;left:0;top:0;bottom:0;width:0;background:#F59E0B1A;pointer-events:none}
+.np-ch-n{position:relative;width:22px;height:22px;border-radius:50%;background:#2A2F45;font-size:12px;font-weight:700;
+  display:grid;place-items:center;flex-shrink:0}
+.np-ch.current .np-ch-n{background:#F59E0B;color:#000}
+.np-ch-t{position:relative;flex:1;min-width:0}
+.np-ch-k{display:block;color:#9CA3AF;font-size:12px}
+.np-ch-time{position:relative;color:#9CA3AF;font-size:12px}
+.np-seg{position:relative}
+.np-seg-n{position:absolute;inset:0;display:none;align-items:center;justify-content:center;font-size:10px;
+  font-weight:800;color:#E4E0D8;pointer-events:none}
+#narr-player.expanded .np-bar{height:18px}
+#narr-player.expanded .np-seg-n{display:flex}
+#narr-player.expanded .np-seek{padding:10px 0 4px}
+body.np-open #float-back{display:none}
 body.narrating #narr-player{display:flex}
 #narr-player button{background:none;border:none;color:#9CA3AF;cursor:pointer;font-size:14px;padding:6px 8px;border-radius:8px}
 #narr-player button:hover{background:#1E2235}
@@ -3959,13 +3983,19 @@ body.on-assistant #narr-player{bottom:calc(100px + env(safe-area-inset-bottom))}
 <div id="toast" role="status" aria-live="polite"></div>
 <button id="float-back" onclick="goBack()"></button>
 <div id="narr-player" role="region" aria-label="Guide audio">
-  <button id="np-toggle" onclick="narrToggle()" aria-label="Pause">⏸</button>
-  <div class="np-info" onclick="narrShowSection()" title="Show this section">
-    <div class="np-title"><span id="np-sec">Guide</span><span id="np-time"></span></div>
-    <div class="np-seek" onclick="narrSeekBar(event)"><div class="np-bar" id="np-bar"></div></div>
+  <div id="np-panel">
+    <div class="np-panel-head"><span>Chapters</span><button onclick="narrExpand(false)" aria-label="Hide chapters">⌄ Hide</button></div>
+    <div id="np-chlist"></div>
   </div>
-  <button id="np-speed" onclick="narrSpeed()" title="Reading speed">1×</button>
-  <button id="np-close" onclick="narrStop()" aria-label="Stop and close">✕</button>
+  <div class="np-row">
+    <button id="np-toggle" onclick="narrToggle()" aria-label="Pause">⏸</button>
+    <div class="np-info" onclick="narrShowSection()" title="Show this section">
+      <div class="np-title"><span id="np-sec">Guide</span><span id="np-time"></span></div>
+      <div class="np-seek" onclick="narrSeekBar(event)" title="Chapters"><div class="np-bar" id="np-bar"></div></div>
+    </div>
+    <button id="np-speed" onclick="narrSpeed()" title="Reading speed">1×</button>
+    <button id="np-close" onclick="narrStop()" aria-label="Stop and close">✕</button>
+  </div>
 </div>
 
 <div id="window-banner"><span id="calib-stamp"></span></div>
@@ -4563,7 +4593,16 @@ function narrBuildBar(){
   const bar=document.getElementById('np-bar');
   if(!bar||bar.dataset.url===narr.url) return;
   bar.dataset.url=narr.url;
-  bar.innerHTML=narr.chapters.map((c,i)=>`<div class="np-seg" style="flex-grow:${(narrChEnd(i)-c.start).toFixed(1)}" title="${escapeHTML(c.title+(c.kind==='long'?' · details':''))}"><div class="np-seg-fill"></div></div>`).join('');
+  bar.innerHTML=narr.chapters.map((c,i)=>`<div class="np-seg" style="flex-grow:${(narrChEnd(i)-c.start).toFixed(1)}" title="${escapeHTML(c.title+(c.kind==='long'?' · details':''))}"><div class="np-seg-fill"></div><span class="np-seg-n">${i+1}</span></div>`).join('');
+  document.getElementById('np-chlist').innerHTML=narr.chapters.map((c,i)=>`<button class="np-ch" onclick="narrGoChapter(${i});narrTick()">
+      <span class="np-ch-fill"></span><span class="np-ch-n">${i+1}</span>
+      <span class="np-ch-t">${escapeHTML(c.title)}<span class="np-ch-k">${c.kind==='long'?'Details and examples':'Summary'}</span></span>
+      <span class="np-ch-time">${fmtClock(c.start)}</span></button>`).join('');
+}
+function narrExpand(on){
+  document.getElementById('narr-player').classList.toggle('expanded',on);
+  document.body.classList.toggle('np-open',on);
+  if(on) track('Opened guide audio chapters');
 }
 function narrGoChapter(i){
   if(narr&&narrAudio&&i>=0&&i<narr.chapters.length) narrAudio.currentTime=narr.chapters[i].start;
@@ -4589,6 +4628,10 @@ function narrTick(){
   if(i!==narrCh){ narrCh=i; narrChapterChanged(chs[i]); }
   document.querySelectorAll('#np-bar .np-seg-fill').forEach((f,k)=>{
     f.style.width=(100*Math.max(0,Math.min(1,(t-chs[k].start)/(narrChEnd(k)-chs[k].start||1)))).toFixed(2)+'%';
+  });
+  document.querySelectorAll('#np-chlist .np-ch').forEach((row,k)=>{
+    row.classList.toggle('current',k===narrCh);
+    row.firstElementChild.style.width=(100*Math.max(0,Math.min(1,(t-chs[k].start)/(narrChEnd(k)-chs[k].start||1)))).toFixed(2)+'%';
   });
   document.getElementById('np-time').textContent=fmtClock(t)+' / '+fmtClock(narr.duration);
 }
@@ -4624,6 +4667,7 @@ function narrSpeed(){
 function narrSeekBar(ev){
   ev.stopPropagation();
   if(!narr||!narrAudio) return;
+  if(!document.getElementById('narr-player').classList.contains('expanded')){ narrExpand(true); return; }
   // Find the chapter segment under the tap (a tap in a gap counts for the nearer side).
   const segs=[...document.querySelectorAll('#np-bar .np-seg')];
   let i=segs.findIndex(sg=>ev.clientX<=sg.getBoundingClientRect().right+1.5);
@@ -4634,6 +4678,7 @@ function narrSeekBar(ev){
 function narrStop(){
   if(narrAudio) narrAudio.pause();
   document.body.classList.remove('narrating');
+  narrExpand(false);
   document.querySelectorAll('.guide-sec.narrating').forEach(el=>el.classList.remove('narrating'));
   narrCh=-1;
   if('mediaSession' in navigator) navigator.mediaSession.metadata=null;

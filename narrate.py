@@ -169,7 +169,8 @@ def record(force=False):
                 pos += len(samples) + len(gap)
             print(f"  {ch['id']}/{ch['kind']}: done at {pos / rate / 60:.1f} min of audio "
                   f"({time.time() - t0:.0f}s so far)", flush=True)
-        name = f"guide-{sha[:10]}.mp3"
+        # A new name for every recording, so phones never replay a cached older one.
+        name = f"guide-{sha[:10]}-{int(time.time())}.mp3"
         tmp = OUT_DIR / (name + ".part")
         # Constant bitrate keeps seeking exact, so chapter jumps land on the right word.
         sf.write(str(tmp), np.concatenate(parts), rate, format="MP3", bitrate_mode="CONSTANT",
