@@ -230,6 +230,47 @@ The v6 dashboard release turns several backtest findings into product behavior:
 - **Daily digest** — an optional once-a-day summary (email + WhatsApp) that replaces
   instant pings, matching the 1–5 day signal horizon.
 
+## v8: purpose, target and the evidence behind them
+
+**Purpose.** Tripwire is an attention and timing aid for a long-term stock picker, not a
+trading system. Signals are shown as **STRONG DIP** (internal label STRONG BOUNCE WATCH) and
+**STRONG MOMENTUM** (internal STRONG BUY), with "worth a look until" instead of "act by"
+(`SIGNAL_DISPLAY` in app.py and the dashboard). The internal labels are unchanged, so no logic
+depends on the wording.
+
+**Target.** Every signal is tuned and scored against the equal-weight average of the owner's
+watchlist minus a 0.4% round-trip cost (`TARGET` / `ROUND_TRIP_COST` in backtest.py,
+`TARGET_COST_PCT` in app.py), not the S&P 500. Acting on a signal moves money out of the
+owner's other stocks, so that is the bar it has to clear. The S&P 500 comparison is kept as a
+secondary figure (`alerts.outcome_excess_spy`). Past outcomes were rescored once on upgrade
+(`target_rescored` setting).
+
+**Evidence (learn.py, run monthly after the recalibration):**
+
+- *Fair yearly replay* (`python learn.py all` then `replay`; results in
+  `backtest_results/learn/replay.json`, shown in the Portfolio test tab). For each year
+  2021–2025, thresholds or models were chosen using only earlier years, then scored on that
+  unseen year:
+
+  | approach | signal days/yr | vs your stocks per signal | portfolio vs never trading |
+  |---|---|---|---|
+  | tuned to beat the S&P 500 (the old method) | 108 | −0.46% ±0.21 | −5.7 pts/yr (1/5 yrs positive) |
+  | tuned to beat your stocks after costs | 10 | +0.98% ±0.64 | +0.7 pts/yr (4/5 yrs positive) |
+  | peer-pooled (343 reference stocks) | 0 | — | — |
+  | learned models with market context | 7–17 | −0.4% to −1.2% | −0.8 to −1.1 pts/yr |
+
+  Changing the target was the only change that helped. Peer pooling found no rule reliable
+  enough to clear the new bar, and the context models learned noise.
+
+- *Timing test* (`python learn.py timing`; `timing.json`). For a purchase the owner plans
+  anyway: waiting for a STRONG dip instead of buying as planned cost about 1.2% of shares on
+  the watchlist, because dips come in only ~1 month in 6 and these stocks drift up. When a
+  STRONG dip does come, buying right then rather than 4 weeks later gave +3.3% more shares on
+  the watchlist (350 dips) against +2.5% for the same comparison on an ordinary day: a dip bonus
+  of +0.8 pts (±0.5). On the 343 reference stocks the bonus was +0.7 pts (±0.1, ~9,700 dips).
+  Over 2 weeks instead of 4 the reference bonus vanished (−0.1 pts), so the edge is small and
+  shows over about a month, not days. Hence: **don't wait for dips, but use one when it comes.**
+
 ## Portfolio test (the "💼 Portfolio test" tab)
 
 Two simulated $1,000 portfolios answer "what would following every STRONG signal have done?":

@@ -548,9 +548,114 @@ def replay(test_years=TEST_YEARS):
             f"portfolio {s['added_pts_per_year']:+} pts/yr ({s['years_positive']}/{len(test_years)} yrs positive)")
     return out
 
+# ── timing aid: does waiting for a dip signal get a better price for a planned purchase? ──
+def no_signal_price(month):
+    """Price paid for a planned monthly purchase when no dip signal appeared that month.
+    `month` is that stock's daily bars for the calendar month (columns open/close, date index).
+    Deadline rule: having waited all month in vain, the buyer buys at the month's last close —
+    so waiting through a rising month counts as a real cost, not a free pass."""
+    return float(month["close"].iloc[-1])
+
+def _sell_votes(df, params, cache):
+    """Per-day count of voting rules pointing to a dip (the BOUNCE WATCH side)."""
+    votes = np.zeros(len(df))
+    for rule in CORE_RULES:
+        if params.get(list(bt._enable_flag(rule))[0], True) is False:
+            continue
+        trig, sig = bt.run_rule(rule, df, params, cache)
+        votes += trig.to_numpy(dtype=bool) & (sig.to_numpy() == "SELL")
+    return votes
+
+def _after_dip(frames, base, wl, horizons=(10, 21)):
+    """Buying right after a STRONG dip vs buying h trading days later, compared with the same
+    comparison on ordinary days (stocks drift up, so buying earlier usually wins anyway — the dip's
+    real value is the difference)."""
+    acc = {}
+    for sym, f in frames.items():
+        if sym in CONTEXT:
+            continue
+        df = f.iloc[-(YEARS * 252 + 300):]
+        if len(df) < 400:
+            continue
+        params = base.get(sym) or dict(bt.CATEGORY_DEFAULTS[_vol_bucket(df)])
+        votes = _sell_votes(df, params, bt.ticker_cache(df))
+        o = df["open"].to_numpy(dtype=float); c = df["close"].to_numpy(dtype=float); n = len(df)
+        grp = "watchlist" if sym in wl else "reference"
+        a = acc.setdefault(grp, {h: {"dip": [], "any": []} for h in horizons})
+        for h in horizons:
+            idx = np.arange(260, n - h - 1)
+            later = c[idx + h] / o[idx + 1] - 1               # buy at next open vs close h days later
+            a[h]["any"].append(later[::5])
+            a[h]["dip"].append(later[votes[idx] >= 2])
+    out = {}
+    for grp, a in acc.items():
+        out[grp] = {}
+        for h, d in a.items():
+            dip = np.concatenate(d["dip"]); anyd = np.concatenate(d["any"])
+            out[grp][str(h)] = {"dip_days": int(len(dip)),
+                                "dip_pct": round(float(dip.mean()) * 100, 2),
+                                "dip_se": round(float(dip.std(ddof=1) / np.sqrt(len(dip))) * 100, 2) if len(dip) > 1 else None,
+                                "dip_better_share": round(float((dip > 0).mean()) * 100, 1),
+                                "ordinary_pct": round(float(anyd.mean()) * 100, 2),
+                                "dip_bonus_pts": round(float(dip.mean() - anyd.mean()) * 100, 2)}
+    return out
+
+def timing_test():
+    frames, _ = load_frames(); base = live_params(); wl = set(watchlist())
+    rows = []
+    for sym, f in frames.items():
+        if sym in CONTEXT:
+            continue
+        df = f.iloc[-(YEARS * 252 + 300):]
+        if len(df) < 400:
+            continue
+        params = base.get(sym) or dict(bt.CATEGORY_DEFAULTS[_vol_bucket(df)])
+        votes = _sell_votes(df, params, bt.ticker_cache(df))
+        opens = df["open"].to_numpy(dtype=float); closes = df["close"].to_numpy(dtype=float)
+        months = df.index.to_period("M")
+        pos = np.arange(len(df))
+        for m in months.unique()[1:-1]:                       # full months only
+            mi = pos[months == m]
+            if len(mi) < 15 or mi[0] < 260:
+                continue
+            first_open, avg_close = opens[mi[0]], float(closes[mi].mean())
+            month_df = df.iloc[mi[0]:mi[-1] + 1]
+            for variant, need in (("any_dip", 1), ("strong_dip", 2)):
+                hit = next((i for i in mi if votes[i] >= need and i + 1 < len(df)), None)
+                price = opens[hit + 1] if hit is not None else no_signal_price(month_df)
+                rows.append({"sym": sym, "watchlist": sym in wl, "month": str(m), "year": m.year,
+                             "variant": variant, "signalled": hit is not None,
+                             "vs_first_day": first_open / price - 1, "vs_month_avg": avg_close / price - 1})
+    t = pd.DataFrame(rows)
+    t.to_csv(LEARN_DIR / "timing.csv.gz", index=False)
+    out = {"generated": datetime.now().strftime("%Y-%m-%d %H:%M"), "groups": {}, "after_dip": _after_dip(frames, base, wl)}
+    for (variant, is_wl), g in t.groupby(["variant", "watchlist"]):
+        key = f"{variant}|{'watchlist' if is_wl else 'reference'}"
+        sig = g[g["signalled"]]
+        out["groups"][key] = {
+            "months": len(g), "signalled_share": round(float(g["signalled"].mean()) * 100, 1),
+            "vs_first_day_pct": round(float(g["vs_first_day"].mean()) * 100, 2),
+            "vs_first_day_se": round(float(g["vs_first_day"].std(ddof=1) / np.sqrt(len(g))) * 100, 2),
+            "better_than_first_day": round(float((g["vs_first_day"] > 0).mean()) * 100, 1),
+            "vs_month_avg_pct": round(float(g["vs_month_avg"].mean()) * 100, 2),
+            "signal_months_vs_first_day_pct": round(float(sig["vs_first_day"].mean()) * 100, 2) if len(sig) else None,
+            "by_year_vs_first_day": {int(y): round(float(v.mean()) * 100, 2) for y, v in g.groupby("year")["vs_first_day"]},
+        }
+    (LEARN_DIR / "timing.json").write_text(json.dumps(out, indent=1))
+    for grp, hs in out["after_dip"].items():
+        for h, v in hs.items():
+            log(f"  after a STRONG dip ({grp}), buy now vs {h} days later: {v['dip_pct']:+.2f}% ±{v['dip_se']} "
+                f"(ordinary day {v['ordinary_pct']:+.2f}%, dip bonus {v['dip_bonus_pts']:+.2f} pts, {v['dip_days']} dips)")
+    log("\nTiming aid (planned monthly purchase; + = more shares for the same money):")
+    for k, v in out["groups"].items():
+        log(f"  {k:26} months {v['months']:6} | signal in {v['signalled_share']}% of months | "
+            f"vs first-day buy {v['vs_first_day_pct']:+.2f}% ±{v['vs_first_day_se']} (better {v['better_than_first_day']}% of months) | "
+            f"vs month average {v['vs_month_avg_pct']:+.2f}% | signal months only {v['signal_months_vs_first_day_pct']}%")
+    return out
+
 def main():
     ap = argparse.ArgumentParser(description="Tripwire learning layer")
-    ap.add_argument("cmd", choices=["fetch", "stats", "peers", "walkforward", "events", "replay", "all"])
+    ap.add_argument("cmd", choices=["fetch", "stats", "peers", "walkforward", "events", "replay", "timing", "all"])
     ap.add_argument("--refresh", action="store_true")
     a = ap.parse_args()
     if a.cmd in ("fetch", "all"):
@@ -565,6 +670,8 @@ def main():
         build_events()
     if a.cmd in ("replay", "all"):
         replay()
+    if a.cmd == "timing":
+        timing_test()
 
 if __name__ == "__main__":
     main()

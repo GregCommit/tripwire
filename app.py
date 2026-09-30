@@ -1063,12 +1063,25 @@ ACTION_WINDOW_TRADING_DAYS = 4  # mirrors the dashboard's ACTION_WINDOW_TRADING_
 RULE_NAMES = {"volatility": "Unusual daily move", "support_resistance": "Support/resistance break",
               "volume": "Volume spike", "gap": "Opening gap", "rsi": "RSI extreme",
               "ma_cross": "Moving-average crossover", "consecutive_down": "Consecutive down days"}
+# What the owner sees. Tripwire is an attention and timing aid for a long-term stock picker, not
+# a trading system: the internal labels (used by the logic) read like orders, so the display
+# names describe what happened instead. The fair yearly replay and the timing test are the
+# evidence behind the meanings below (see BACKTESTING.md).
+SIGNAL_DISPLAY = {"STRONG BUY": "STRONG MOMENTUM", "STRONG BOUNCE WATCH": "STRONG DIP",
+                  "TRENDING BUY": "MOMENTUM BUILDING", "BOUNCE WATCH": "DIP FORMING", "PENDING": "MIXED"}
+
+def show_label(label):
+    return SIGNAL_DISPLAY.get(label, label)
+
 SIGNAL_MEANING = {
-    "STRONG BUY": "Several independent rules agree on upward momentum.",
-    "STRONG BOUNCE WATCH": "Several independent rules flag a sharp drop. Historically such drops "
-                           "tended to rebound within days: a possible dip-buy setup, not a sell signal.",
+    "STRONG BUY": "Several independent rules see unusually strong upward momentum — often news or a "
+                  "re-rating. Worth a look to check your reasons for owning it; not a reason to chase.",
+    "STRONG BOUNCE WATCH": "Several independent rules flag a sharp drop. On your stocks such drops tended to "
+                           "recover: if you were already planning to add this stock, right after a strong dip "
+                           "has been a slightly better moment than an ordinary day. Not a reason to sell — and "
+                           "not a reason to wait for dips either, they come in only about 1 month in 6.",
     "TRENDING BUY": "One rule points up; not yet confirmed by a second rule.",
-    "BOUNCE WATCH": "One rule flags a drop that has historically tended to rebound; not yet confirmed.",
+    "BOUNCE WATCH": "One rule flags a drop; not yet confirmed by a second rule.",
 }
 
 def trading_days_after(ts, n):
@@ -1152,6 +1165,7 @@ def build_signal_brief(event_id):
         return None
     r0 = rows[0]; d0 = _detail_of(r0); sym = r0["symbol"]
     label = _event_label(rows)
+    shown = show_label(label)
     move = d0.get("move_pct")
     move_txt = f" ({move:+.1f}% today)" if isinstance(move, (int, float)) else ""
     act_by = _fmt_day(trading_days_after(r0["timestamp"], ACTION_WINDOW_TRADING_DAYS))
@@ -1168,13 +1182,13 @@ def build_signal_brief(event_id):
         caveats.append(bear)
     fired = [(RULE_NAMES.get(r["rule_type"], r["rule_type"]), r["message"], _evidence_plain(sym, r["rule_type"])) for r in rows]
 
-    subject = f"⚡ {label} · {sym} ${r0['price']}{move_txt} — act by {act_by}"
+    subject = f"⚡ {shown} · {sym} ${r0['price']}{move_txt} — worth a look until {act_by}"
     acted, passed = decision_link(event_id, "acted"), decision_link(event_id, "passed")
     open_url = f"{PUBLIC_URL}/?stock={sym}" if PUBLIC_URL else None
 
-    t = [f"{sym} — {label}", SIGNAL_MEANING.get(label, ""), ""]
+    t = [f"{sym} — {shown}", SIGNAL_MEANING.get(label, ""), ""]
     if agree: t.append(agree)
-    t.append(f"Price ${r0['price']}{move_txt}. Act by {act_by} — the signal is calibrated for 1–5 trading days.")
+    t.append(f"Price ${r0['price']}{move_txt}. Worth a look until {act_by} — after about 4 trading days the pattern has played out.")
     t += ["", "What fired:"]
     for name, msg, ev in fired:
         t.append(f"• {name}: {msg}")
@@ -1185,11 +1199,11 @@ def build_signal_brief(event_id):
     else: t += ["", "Mark whether you acted in the Tripwire dashboard."]
     text = "\n".join(t)
 
-    h = [f'<h2 style="margin:0 0 4px">{h_esc(sym)} — {h_esc(label)}</h2>',
+    h = [f'<h2 style="margin:0 0 4px">{h_esc(sym)} — {h_esc(shown)}</h2>',
          f'<p style="margin:0 0 10px;color:#444">{h_esc(SIGNAL_MEANING.get(label, ""))}</p>']
     if agree: h.append(f'<p style="margin:0 0 6px"><b>{h_esc(agree)}</b></p>')
     h.append(f'<p style="margin:0 0 14px">Price ${h_esc(str(r0["price"]))}{h_esc(move_txt)} · '
-             f'<b style="color:#B45309">act by {h_esc(act_by)}</b> <span style="color:#666">(calibrated for 1–5 trading days)</span></p>')
+             f'<b style="color:#B45309">worth a look until {h_esc(act_by)}</b> <span style="color:#666">(after ~4 trading days the pattern has played out)</span></p>')
     h.append('<p style="margin:0 0 4px"><b>What fired</b></p><ul style="margin:0 0 12px;padding-left:20px">')
     for name, msg, ev in fired:
         h.append(f'<li><b>{h_esc(name)}</b>: {h_esc(msg)}' + (f'<br><span style="color:#555;font-size:13px">{h_esc(ev)}</span>' if ev else '') + '</li>')
@@ -1202,7 +1216,7 @@ def build_signal_brief(event_id):
     else:
         h.append('<p style="color:#666">Mark whether you acted in the Tripwire dashboard.</p>')
     html = _email_shell("".join(h))
-    wa = f"⚡ {sym} {label}{move_txt} — act by {act_by}." + (f" {open_url}" if open_url else "")
+    wa = f"⚡ {sym} {shown}{move_txt} — worth a look until {act_by}." + (f" {open_url}" if open_url else "")
     return {"subject": subject, "text": text, "html": html, "whatsapp": wa}
 
 def notify_signal_brief(event_id):
@@ -1259,14 +1273,14 @@ def send_followups():
         verdict = f"✓ beat your stocks by {ex:.1f} pts after costs" if ex > 0 else f"✗ trailed your stocks by {abs(ex):.1f} pts after costs"
         dec = r0.get("decision")
         you = {"acted": "You acted.", "passed": "You passed."}.get(dec, "Not marked yet.")
-        t.append(f"{day} · {r0['symbol']} {label}: stock {ret:+.1f}%, your stocks {mkt:+.1f}% → {verdict}. {you}")
+        t.append(f"{day} · {r0['symbol']} {show_label(label)}: stock {ret:+.1f}%, your stocks {mkt:+.1f}% → {verdict}. {you}")
         links = ""
         if not dec and decision_link(eid, "acted"):
             t.append(f"   I acted: {decision_link(eid, 'acted')}   I passed: {decision_link(eid, 'passed')}")
             links = ('<br><a href="' + h_esc(decision_link(eid, "acted")) + '">I acted</a> · <a href="'
                      + h_esc(decision_link(eid, "passed")) + '">I passed</a>')
         color = "#059669" if ex > 0 else "#DC2626"
-        h.append(f'<p style="margin:0 0 12px"><b>{h_esc(r0["symbol"])} {h_esc(label)}</b> <span style="color:#666">({h_esc(day)})</span><br>'
+        h.append(f'<p style="margin:0 0 12px"><b>{h_esc(r0["symbol"])} {h_esc(show_label(label))}</b> <span style="color:#666">({h_esc(day)})</span><br>'
                  f'stock {ret:+.1f}%, your stocks {mkt:+.1f}% → <b style="color:{color}">{h_esc(verdict)}</b>. '
                  f'<span style="color:#555">{h_esc(you)}</span>{links}</p>')
     t += ["", "Right = the stock beat the average of your watchlist by more than the 0.4% trading costs.",
@@ -1936,7 +1950,7 @@ def decide(event_id, decision, sig):
     if not rows:
         return _decide_page("<p>That signal no longer exists.</p>", 404)
     r0 = rows[0]
-    what = f"{h_esc(r0['symbol'])} {h_esc(_event_label(rows))} from {h_esc(_fmt_day(datetime.fromtimestamp(r0['timestamp']).date()))}"
+    what = f"{h_esc(r0['symbol'])} {h_esc(show_label(_event_label(rows)))} from {h_esc(_fmt_day(datetime.fromtimestamp(r0['timestamp']).date()))}"
     open_link = f'<p class="muted"><a href="/?stock={h_esc(r0["symbol"])}">Open Tripwire</a></p>'
     if request.method == "POST":
         set_decision([r["id"] for r in rows], decision)
@@ -2486,12 +2500,32 @@ def auto_recal_loop():
                 if not busy:
                     set_setting("auto_recal_last", now.strftime("%Y-%m-%d"))
                     _run_backtest(["--refresh"], "monthly check")
+                    threading.Thread(target=_refresh_learning, daemon=True).start()
                     diff = _recal_diff() or [] if RECAL_STATE["rc"] == 0 else []
                     if diff:
                         worker_pool.submit(_send_recal_email, diff)
         except Exception as e:
             log.warning("auto_recal_loop error: %s", e)
         time.sleep(1800)
+
+LEARN_PY = Path(__file__).parent / "learn.py"
+
+def _refresh_learning():
+    """Monthly, after the recalibration: fresh reference-stock data, the fair yearly replay and
+    the timing test behind the Portfolio test cards (~45 min on one core, at night)."""
+    if not LEARN_PY.exists():
+        return
+    for args in (["all", "--refresh"], ["timing"]):
+        try:
+            proc = subprocess.run([sys.executable, str(LEARN_PY), *args], cwd=str(LEARN_PY.parent),
+                                  capture_output=True, text=True, timeout=4 * 3600)
+            if proc.returncode != 0:
+                log.warning("learn.py %s failed: %s", args[0], (proc.stderr or proc.stdout)[-400:])
+                return
+        except Exception as e:
+            log.warning("learn.py %s failed: %s", args[0], e)
+            return
+    log.info("monthly learning refresh done")
 
 def _send_recal_email(diff):
     link = f"{PUBLIC_URL}/?tab=settings" if PUBLIC_URL else None
@@ -2689,16 +2723,16 @@ def api_portfolio_sim():
     with get_db() as conn:
         runs = [dict(r) for r in conn.execute(
             "SELECT ts,strategy_cagr,untouched_cagr,spy_cagr FROM sim_backtest_runs ORDER BY id DESC LIMIT 8")]
-    replay = None
-    rp = Path(__file__).parent / "backtest_results" / "learn" / "replay.json"
-    if rp.exists():
+    def _learn_json(name):
+        fp = Path(__file__).parent / "backtest_results" / "learn" / name
         try:
-            replay = json.loads(rp.read_text(encoding="utf-8"))
+            return json.loads(fp.read_text(encoding="utf-8")) if fp.exists() else None
         except Exception:
-            replay = None
+            return None
+    replay, timing = _learn_json("replay.json"), _learn_json("timing.json")
     return jsonify({"backtest": bt, "backtest_updating": bool(stale or PF_STATE["building"]),
                     "backtest_error": PF_STATE["error"], "backtest_runs": runs,
-                    "live": compute_live_portfolio(), "replay": replay})
+                    "live": compute_live_portfolio(), "replay": replay, "timing": timing})
 
 @app.route("/api/portfolio-sim/restart", methods=["POST"])
 @login_required
@@ -3114,9 +3148,21 @@ def _ai_system_prompt():
         "bounce-watch signal." if regime == "bear" else ""
     )
     return (
-        "You are the built-in assistant for Tripwire, a personal stock-monitoring dashboard. "
-        "You help the user understand market moves and manage the app.\n\n"
+        "You are the built-in assistant for Tripwire, a personal stock-monitoring dashboard for a long-term "
+        "stock picker. The owner chose these stocks carefully and holds them; Tripwire is an attention and "
+        "timing aid, not a trading system. You help them understand moves, check their reasons for owning a "
+        "stock, and manage the app.\n\n"
         f"Today is {datetime.now().strftime('%Y-%m-%d')}.\n\n"
+        "What the evidence says (use it, don't overstate it):\n"
+        "- Signals are measured against the average of the owner's own stocks after ~0.4% trading costs, "
+        "not the S&P 500. In a fair year-by-year replay, trading in and out on every signal trailed simply "
+        "holding in most years, so never present a signal as a reason to trade actively.\n"
+        "- STRONG DIP (internal label STRONG BOUNCE WATCH): sharp drops on these stocks tended to recover. It "
+        "is not a sell signal. If the owner was already planning to add the stock, right after a strong dip "
+        "has been a slightly better moment than an ordinary day; waiting for dips cost more than it saved.\n"
+        "- STRONG MOMENTUM (internal label STRONG BUY): an unusual surge, often news; a prompt to re-check the "
+        "thesis and valuation, not a reason to chase.\n"
+        "- Use the display names STRONG DIP / STRONG MOMENTUM when talking to the owner.\n\n"
         "You can: read the watchlist/alerts/news/settings; add, remove, and recategorize stocks; "
         "adjust or enable/disable any monitoring rule; change app settings; run checks; and use web search for research.\n\n"
         "Rule types: volatility (unusual daily move), support_resistance, consecutive_down, volume (volume spike), "
@@ -4154,90 +4200,93 @@ const GUIDE_FIG_NOISE=`<svg viewBox="0 0 640 170" class="guide-fig" role="img" a
   <text x="14" y="30" font-size="13" fill="#9CA3AF">most days: ordinary wiggles, Tripwire stays quiet</text>
   <text x="470" y="60" font-size="13" fill="#10B981">rebound in the days after</text>
 </svg>`;
-const GUIDE_FIG_FLOW=`<div class="guide-flow">
-  <div class="gf-step">📈<b>Watch</b><span>every minute in market hours</span></div><div class="gf-arrow">→</div>
-  <div class="gf-step">🔎<b>Check 7 rules</b><span>is this move unusual for this stock?</span></div><div class="gf-arrow">→</div>
-  <div class="gf-step">🗳<b>Vote</b><span>2+ of the 4 proven rules agree</span></div><div class="gf-arrow">→</div>
-  <div class="gf-step">⚡<b>STRONG signal</b><span>banner + email, act by date</span></div><div class="gf-arrow">→</div>
-  <div class="gf-step">🙋<b>You decide</b><span>"I acted" / "I passed"</span></div><div class="gf-arrow">→</div>
-  <div class="gf-step">📬<b>Follow-up</b><span>5 trading days later: did it work?</span></div>
-</div>`;
-const GUIDE_FIG_VOTE=`<div class="guide-vote">
-  <div class="gv-title">NVDA today — the 4 voting rules</div>
-  <div class="gv-row"><span class="gv-chip on">Unusual move ▲</span><span class="gv-chip on">Volume spike ▲</span><span class="gv-chip">Support/resistance</span><span class="gv-chip">RSI</span></div>
-  <div class="gv-result">2 of 4 agree, both pointing up → <b>STRONG BUY</b>. With only 1 → "trending", not yet a signal.</div>
-</div>`;
 const GUIDE_FIG_EXCESS=`<svg viewBox="0 0 640 150" class="guide-fig" role="img" aria-label="Bar chart: stock plus 3 percent, your stocks plus 1 percent, difference plus 2 points before costs">
   <text x="10" y="22" font-size="13" fill="#9CA3AF">5 trading days after a signal</text>
   <rect x="150" y="38" width="300" height="26" rx="4" fill="#F59E0B"/><text x="10" y="56" font-size="13" fill="#E4E0D8">the stock</text><text x="460" y="56" font-size="13" fill="#F59E0B">+3%</text>
   <rect x="150" y="76" width="100" height="26" rx="4" fill="#6B7280"/><text x="10" y="94" font-size="13" fill="#E4E0D8">your stocks (avg)</text><text x="260" y="94" font-size="13" fill="#9CA3AF">+1%</text>
   <text x="10" y="134" font-size="14" fill="#10B981">beat your stocks by +2 points, +1.6 after 0.4% costs  ✓</text>
 </svg>`;
+const GUIDE_FIG_FLOW=`<div class="guide-flow">
+  <div class="gf-step">📈<b>Watch</b><span>every minute in market hours</span></div><div class="gf-arrow">→</div>
+  <div class="gf-step">🔎<b>Check 7 rules</b><span>is this move unusual for this stock?</span></div><div class="gf-arrow">→</div>
+  <div class="gf-step">🗳<b>Vote</b><span>2+ of the 4 proven rules agree</span></div><div class="gf-arrow">→</div>
+  <div class="gf-step">⚡<b>STRONG signal</b><span>banner + email, worth a look until…</span></div><div class="gf-arrow">→</div>
+  <div class="gf-step">🙋<b>You decide</b><span>"I acted" / "I passed"</span></div><div class="gf-arrow">→</div>
+  <div class="gf-step">📬<b>Follow-up</b><span>5 trading days later: how did it turn out?</span></div>
+</div>`;
+const GUIDE_FIG_VOTE=`<div class="guide-vote">
+  <div class="gv-title">NVDA today — the 4 voting rules</div>
+  <div class="gv-row"><span class="gv-chip on">Unusual move ▼</span><span class="gv-chip on">RSI oversold ▼</span><span class="gv-chip">Support/resistance</span><span class="gv-chip">Volume spike</span></div>
+  <div class="gv-result">2 of 4 agree, both pointing to a sharp drop → <b>STRONG DIP</b>. With only 1 → "dip forming", not yet a signal.</div>
+</div>`;
 
 const GUIDE_SECTIONS=[
   {id:'why', icon:'🎯', title:'Why — the purpose',
-   short:`<p>Stock prices move every minute, and almost all of it is noise. Watching screens all day makes it easy to react to the wrong moves, like panic-selling a dip that recovers two days later.</p>
-     <p>Tripwire watches your stocks for you and stays quiet on ordinary days. It speaks up only when something unusual happens that, over five years of history, was typically followed by the stock <b>doing better than the market</b> in the next few days. Then it tells you what happened, how reliable that has been, and by when to decide.</p>
-     <p>It is a second pair of eyes that gives you information, not financial advice, and it never trades for you.</p>`,
+   short:`<p>You pick your stocks carefully and hold them. The hard part is keeping an eye on all of them, telling a meaningful move from everyday noise, and not reacting on emotion, like panic-selling a drop that recovers a few days later.</p>
+     <p>Tripwire watches your stocks, stays quiet on ordinary days and tells you when something unusual happens, with the evidence and the news. That helps you <b>check your reasons</b>, <b>avoid panic</b>, and pick <b>a slightly better moment for purchases you were already planning</b>.</p>
+     <p>It is a second pair of eyes, not a trading system, and not financial advice. It never trades for you.</p>`,
    long:`<h4>The problem it solves</h4>
-     <p>Most people who invest in individual stocks face three problems: they can't watch the market all day, they can't tell an important move from normal wiggling, and in the moment emotion wins (fear on a drop, greed on a spike).</p>
+     <p>A long-term stock picker faces three everyday problems: you can't watch the market all day, you can't easily tell an important move from normal wiggling, and in the moment emotion wins (fear on a drop, excitement on a spike).</p>
      ${GUIDE_FIG_NOISE}
      <h4>An example</h4>
-     <p>NVDA falls 6% on a Tuesday. Is it the start of a crash, or a buying chance? Instead of guessing, Tripwire checks: is a 6% drop unusual <i>for NVDA</i>? Is volume unusually high too? Has the price broken below its recent range? If several of these agree, you get one clear message, for example "STRONG BOUNCE WATCH: in the past, drops like this on NVDA were followed by a rebound ahead of the market 63% of the time". If it's just one weak hint, you get nothing, or at most a quiet "trending" note on the stock's tile.</p>
+     <p>NVDA falls 6% on a Tuesday. Crisis or opportunity? Tripwire checks whether several independent rules agree that this drop is unusual <i>for NVDA</i>. If they do, you get a <b>STRONG DIP</b> message with the news and the history: on your stocks, sharp drops like this tended to recover. So it's a reminder not to panic-sell, and if you were planning to add NVDA anyway, right after a strong dip has historically been a slightly better moment to buy than an ordinary day.</p>
+     <h4>What the testing showed (and why the app is built this way)</h4>
+     <ul><li><b>Trading in and out on signals doesn't pay.</b> In a fair year-by-year replay, moving money between your stocks on every signal would have trailed simply holding them in most years. Your stock picks drive your returns, not the short-term signals.</li>
+     <li><b>Don't wait for dips.</b> Strong dips come in only about 1 month in 6, and your stocks tend to rise meanwhile, so waiting for one cost more than it saved.</li>
+     <li><b>But use one when it comes.</b> If you were going to buy anyway, buying right after a strong dip got you slightly more shares than buying on an ordinary day: under 1% extra, showing over the following month rather than within days.</li></ul>
      <h4>What it is not</h4>
      <ul><li><b>Not a trading robot.</b> It never buys or sells anything.</li>
-     <li><b>Not a guarantee.</b> "63% of the time" also means 37% of the time it didn't work.</li>
-     <li><b>Not a replacement for choosing good companies.</b> The Portfolio test tab shows honestly how much the signals add on top of simply holding your stocks. So far most of the gain comes from which stocks you hold, and the signals add a little.</li></ul>
-     <h4>Why "tripwire"?</h4>
-     <p>Like a wire across a path: nothing happens until something crosses it. You get your attention back and spend it only when it counts.</p>`},
+     <li><b>Not a crystal ball.</b> The edges are small; they help on average, not every time.</li>
+     <li><b>Not a reason to trade more often.</b> The Portfolio test shows honestly what trading every signal would have done.</li></ul>`},
   {id:'what', icon:'🧰', title:'What — the product',
-   short:`<p>A dashboard of your watchlist that is checked every minute while the US market is open. Seven rules look for unusual behaviour: a big move, a volume spike, the price breaking out of its usual range, or the stock being very overbought or oversold.</p>
-     <p>When at least two of the four rules with a proven track record agree, you get a <b>STRONG signal</b>. It appears as a banner at the top of the Stocks page and arrives as an email with the evidence and an <b>act-by date</b> (4 trading days). You mark "I acted" or "I passed", and 5 trading days later Tripwire emails you how it turned out.</p>`,
+   short:`<p>Tripwire checks your watchlist every minute while the US market is open. Seven rules look for unusual behaviour: a big move, a volume spike, the price breaking out of its usual range, or the stock being very stretched up or down.</p>
+     <p>When at least two of the four rules with a proven track record agree, you get a <b>STRONG signal</b>: a <b>STRONG DIP</b> (a sharp, unusual drop) or <b>STRONG MOMENTUM</b> (an unusual surge). It appears at the top of the Stocks page and arrives by email with the evidence, the news and a "worth a look until" date. You mark "I acted" or "I passed", and 5 trading days later Tripwire emails you how it turned out.</p>`,
    long:`<h4>From price to decision</h4>
      ${GUIDE_FIG_FLOW}
-     <h4>The signals, in plain words</h4>
-     <ul><li><b>STRONG BUY</b>: several rules see strong upward momentum. Historically such stocks kept beating the market for a few days.</li>
-     <li><b>STRONG BOUNCE WATCH</b>: several rules see a sharp drop. Surprisingly, such drops were usually followed by a rebound, so this is a possible "buy the dip" moment, not a sell signal.</li>
-     <li><b>Trending</b>: only one rule sees something. Worth a glance, not yet a signal, and no email.</li></ul>
+     <h4>The signals, and what to do with them</h4>
+     <ul><li><b>STRONG DIP</b>: a sharp, unusual drop. Check the news. If your reasons for owning it still hold, it's not a reason to sell, because such drops tended to recover. If you were planning to add this stock anyway, now has been a slightly better moment than an ordinary day.</li>
+     <li><b>STRONG MOMENTUM</b>: an unusual surge, often news or a re-rating. A good moment to re-check your thesis and valuation. Not a reason to chase.</li>
+     <li><b>Momentum building / Dip forming</b>: only one rule sees something. Shown on the tile, no email.</li></ul>
      <h4>The tabs</h4>
-     <ul><li><b>Stocks</b>: the answer first ("Nothing needs you today" or the signals awaiting your call), then one tile per stock. The tile shows the same signal as the banner, plus which rules are triggered <i>right now</i>. Click a tile for its chart and details.</li>
-     <li><b>Alerts</b>: the record: active signals on top, then every rule that fired, per stock, with the numbers behind it.</li>
-     <li><b>Assistant</b>: ask questions in plain English ("why did MU jump today?"). It can look things up, search the news and, if you ask, adjust settings.</li>
-     <li><b>Performance</b>: the app grading itself: how many signals actually beat your own stocks after costs, and how your own "acted / passed" choices did.</li>
-     <li><b>Portfolio test</b>: $1,000 following every signal, compared with the same stocks never traded and with the S&P 500, over the last 5 years and live from today.</li>
-     <li><b>Settings</b>: notifications, email, and recalibration. <b>Glossary</b>: every term explained.</li></ul>
+     <ul><li><b>Stocks</b>: the answer first ("Nothing needs your attention today", or the signals worth a look), then one tile per stock. The tile shows the same signal as the banner, plus which rules are triggered <i>right now</i>. Click a tile for its chart and details.</li>
+     <li><b>Alerts</b>: active signals on top, then every rule that fired, per stock, with the numbers behind it.</li>
+     <li><b>Assistant</b>: ask in plain English ("why did MU jump today?"). It looks things up and searches the news.</li>
+     <li><b>Performance</b>: the app grading itself: how signals did against your own stocks, with honest "likely" ranges, and how your "acted / passed" choices did.</li>
+     <li><b>Portfolio test</b>: an honesty check. What $1,000 would have done if you traded every signal, compared with simply holding your stocks: over the last 5 years, in a fair year-by-year replay, and live from today.</li>
+     <li><b>Guide</b> and <b>Glossary</b>: this manual and every term explained. <b>Settings</b>: notifications, email and recalibration.</li></ul>
      <h4>Emails you'll get</h4>
      <ul><li>A <b>signal brief</b> for each STRONG signal, with "I acted / I passed" buttons.</li>
      <li>A <b>follow-up</b> about 5 trading days later with the outcome.</li>
-     <li>Once a month, <b>suggested rule updates</b>, only if the data says the rules should change. Nothing changes until you press Apply.</li></ul>`},
+     <li>Once a month, <b>suggested rule updates</b>, only if the data clearly supports a change. Nothing changes until you press Apply.</li></ul>`},
   {id:'how', icon:'⚙️', title:'How — the method',
    short:`<p><b>1. Compare:</b> every minute, each stock's latest price is compared with <i>its own</i> recent history, because a 3% move is dramatic for a bank and ordinary for a chip maker.</p>
      <p><b>2. Vote:</b> four rules with a proven record vote. Two or more agreeing makes a STRONG signal.</p>
-     <p><b>3. Tested on history:</b> every threshold was chosen by replaying 5 years of real prices and keeping what was followed by beating your own stocks, after costs, over 1–5 days.</p>
-     <p><b>4. Self-checking:</b> each signal is scored 5 trading days later, and once a month the thresholds are re-tested on fresh data.</p>`,
+     <p><b>3. Tested against your stocks:</b> every threshold was chosen by replaying years of real prices and keeping only what was followed by the stock beating <i>the average of your watchlist</i> by more than trading costs.</p>
+     <p><b>4. Honest checks:</b> each signal is scored 5 trading days later, a fair year-by-year replay tests the whole method, and once a month the thresholds are re-tested on fresh data.</p>`,
    long:`<h4>The four voting rules, with examples</h4>
      <ul><li><b>Unusual move</b>: today's change is several times bigger than this stock's normal day. If AAPL usually moves about 1% a day, a 4% day stands out.</li>
      <li><b>Volume spike</b>: far more shares traded than usual (for example 3× the 20-day average), which often means news or big investors are involved.</li>
-     <li><b>Support / resistance</b>: the price breaks clearly above its recent high or below its recent low, i.e. out of the range it has been stuck in.</li>
-     <li><b>RSI</b>: a standard gauge of how stretched a stock is. Very high means it's running hot; very low means it's been sold off hard.</li></ul>
+     <li><b>Support / resistance</b>: the price breaks clearly above its recent high or below its recent low.</li>
+     <li><b>RSI</b>: a standard gauge of how stretched a stock is: very high means running hot, very low means sold off hard.</li></ul>
      <p>Three more rules (an opening gap, several down days in a row, moving-average crossings) are shown for context but don't vote, because on their own they had almost no track record.</p>
      ${GUIDE_FIG_VOTE}
-     <h4>"Beating the market": how every signal is judged</h4>
-     <p>Acting on a signal moves money out of your other stocks, so a signal only helps if the stock then does better than <i>those</i> stocks, by more than the ~0.4% trading costs. So every signal is judged against the average of your watchlist over the next 5 trading days:</p>
+     <h4>Judged against your own stocks</h4>
+     <p>Acting on a signal means moving money from your other stocks (or choosing this stock over them), so a signal only helps if the stock then does better than <i>those</i> stocks, by more than the ~0.4% trading costs. Every signal is judged that way over the next 5 trading days:</p>
      ${GUIDE_FIG_EXCESS}
-     <p>This applies to both signal types: a BOUNCE WATCH counts as right when the stock recovers <i>ahead of</i> your other stocks. The S&amp;P 500 comparison is still shown as secondary information.</p>
-     <h4>How the thresholds were chosen (backtesting)</h4>
-     <p>Think of testing a weather rule like "dark clouds mean rain tomorrow" against 5 years of weather records before trusting it. Tripwire did the same with prices: for every rule and many possible thresholds, it replayed 5 years of history, noted every time the rule would have fired, and checked what the stock did over the next 5 days compared with the market. Only settings that worked, and kept working on the most recent part of the history they weren't tuned on, were kept.</p>
-     <h4>Why "act within 4 trading days"?</h4>
-     <p>The edge was measured over 1–5 days. After that the pattern has played out, so an old signal is no longer evidence of anything. That's why every signal carries an act-by date and then expires.</p>
+     <p>The S&amp;P 500 comparison is still shown as secondary information.</p>
+     <h4>How the thresholds were chosen, and checked fairly</h4>
+     <p>Think of testing a weather rule like "dark clouds mean rain" against years of weather records before trusting it. Tripwire replayed years of prices for every rule and threshold and kept only settings that worked. Because choosing settings on the same years you test them on flatters the result, the <b>fair yearly replay</b> goes further: for each year it chooses the settings using only the years before, then tests them on that unseen year, the way it would have worked in real time.</p>
+     <h4>Why "worth a look until"?</h4>
+     <p>The effect was measured over 1–5 days. After about 4 trading days the pattern has played out, so an old signal is no longer evidence of anything. That's why every signal expires.</p>
      <h4>Keeping itself honest</h4>
-     <ul><li><b>Follow-ups and Performance:</b> the real results of live signals, compared with what the backtest promised.</li>
-     <li><b>Monthly re-test:</b> it re-runs the backtest on fresh data and suggests updates, which you approve.</li>
+     <ul><li><b>Likely ranges:</b> Performance shows how much each number could be luck; with few signals the range is wide.</li>
+     <li><b>Frozen baseline:</b> the rules as of a fixed date, replayed next to today's, so every change must visibly beat them.</li>
+     <li><b>No churn:</b> the monthly re-test only proposes a change when it beats the current setting by more than noise, and you approve it.</li>
      <li><b>Sensitivity dial</b> (per stock): Conservative means fewer, stronger signals; Sensitive means more signals, but weaker ones.</li></ul>
      <h4>Limits to keep in mind</h4>
-     <ul><li><b>A rising market:</b> the history used was mostly a rising market, so in a prolonged downturn the "rebound" pattern is less reliable (a BEAR REGIME note appears when that's the case).</li>
+     <ul><li><b>Small edges:</b> they help on average, not every time, and need many signals to show.</li>
+     <li><b>Market regime:</b> most of the history was a rising market; in a long downturn "drops tend to recover" is less reliable (a BEAR REGIME note appears then).</li>
      <li><b>Earnings:</b> moves around earnings behave differently and are flagged.</li>
-     <li><b>No fees or taxes:</b> results don't include them, apart from a small trading cost in the Portfolio test.</li>
      <li><b>The past is a guide, not a promise.</b></li></ul>`},
 ];
 
@@ -4304,8 +4353,8 @@ function linkifyGlossary(text){
 
 const GLOSSARY=[
   ['alert','Alert','A rule "fires" (alerts) when its condition crosses the configured threshold — e.g. today\'s move exceeds the volatility threshold. Every alert is logged to the Alerts tab; whether it also sends a push/email/WhatsApp depends on your notification settings.'],
-  ['strong','STRONG signal','When at least two independent rules agree on the same direction (a two-thirds majority of the voting rules), Tripwire escalates to a <b>STRONG BUY</b> or <b>STRONG BOUNCE WATCH</b>. STRONG signals carried the strongest backtested edge (~+1.9% over 5 days, 61% hit) and are what outbound notifications default to. Only the four rules with a proven edge vote (volatility, support/resistance, volume, RSI); gap, consecutive-down and MA-cross still alert individually but don\'t vote.'],
-  ['bounce','Bounce watch','What used to be a "SELL" signal. Backtesting this watchlist found that downside triggers (a gap down, an oversold RSI, a support break) were historically followed by a <b>rebound within a few days</b>, not a continued decline — so a downside signal is framed as a "bounce watch" (a possible dip-buy setup) rather than a sell. This is calibrated on a bull-heavy period; in a sustained bear market the bounce tendency weakens.'],
+  ['strong','STRONG signal','When at least two of the four voting rules (volatility, support/resistance, volume, RSI) agree on the same direction, Tripwire raises a <b>STRONG DIP</b> (a sharp, unusual drop) or <b>STRONG MOMENTUM</b> (an unusual surge). Only STRONG signals are emailed by default. They are prompts to look, check the news and your reasons for owning the stock, not trade orders: in a fair year-by-year replay, trading in and out on every signal trailed simply holding your stocks.'],
+  ['bounce','Dip (formerly "bounce watch")','A sharp, unusual drop. Backtesting found that on these stocks such drops were usually followed by a <b>recovery within days</b>, not a continued decline, so a dip is never a sell signal. If you were already planning to add the stock, right after a strong dip has been a slightly better moment than an ordinary day. But do not wait for dips: they come in only about 1 month in 6, and waiting cost more than it saved. In a long bear market the recovery tendency weakens (a BEAR REGIME note appears then).'],
   ['cagr','Per year (CAGR)','The steady yearly growth rate that would turn the starting value into the end value. +13%/yr for 5 years roughly doubles money. Shown only after 90 days, because annualising a few weeks exaggerates wildly.'],
   ['never-traded','Never traded','The Portfolio test\'s reference line: the same $1,000 split equally across the same stocks and simply held. The gap between "following the app" and this line is what the app\'s signals add or cost, separate from how good the stock picks themselves were.'],
   ['backtested','Backtested','Every threshold in Tripwire was chosen by replaying ~5 years of daily prices and measuring what actually happened after each trigger (see the Backtesting doc). The "Backtested: +x% over 5d" line on a rule is that rule\'s measured historical edge, not a guess.'],
@@ -4385,15 +4434,18 @@ function computeSignal(rules){
   return{label:'PENDING',cls:'sig-pending'};
 }
 
+// Display names (internal labels read like orders; Tripwire is an attention/timing aid). Mirrors SIGNAL_DISPLAY in Python.
+const SIGNAL_DISPLAY={'STRONG BUY':'STRONG MOMENTUM','STRONG BOUNCE WATCH':'STRONG DIP','TRENDING BUY':'MOMENTUM BUILDING','BOUNCE WATCH':'DIP FORMING','PENDING':'MIXED'};
+function showLabel(l){ return SIGNAL_DISPLAY[l]||l; }
 function signalBadge(sig){
   if(!sig) return '';
-  return `<span class="sig-badge ${sig.cls}">${sig.label}</span>`;
+  return `<span class="sig-badge ${sig.cls}">${showLabel(sig.label)}</span>`;
 }
 
 function ruleSigBadge(signal){
   if(!signal||signal==='NEUTRAL') return '<span class="sig-badge rule-dir sig-neutral">NEUTRAL</span>';
-  if(signal==='BUY') return '<span class="sig-badge rule-dir sig-buy">▲ BUY</span>';
-  if(signal==='SELL') return '<span class="sig-badge rule-dir sig-sell">⚠ BOUNCE WATCH</span>';
+  if(signal==='BUY') return '<span class="sig-badge rule-dir sig-buy">▲ MOMENTUM</span>';
+  if(signal==='SELL') return '<span class="sig-badge rule-dir sig-sell">▼ DIP</span>';
   return '';
 }
 
@@ -4437,7 +4489,7 @@ function renderGrid(){
 
     return `<div class="stock-card${selCls}${alertCls}" onclick="selectStock('${s.symbol}')">
       ${(!guestMode||s.guest_added)?`<button class="remove-btn" onclick="removeStock('${s.symbol}',event)">✕</button>`:''}
-      ${ev&&!ev.decision?'<div class="alert-dot" title="Needs your call"></div>':''}
+      ${ev&&!ev.decision?'<div class="alert-dot" title="New signal, not looked at yet"></div>':''}
       <div class="card-top">
         <span class="stock-symbol">${s.symbol}${s.guest_added?'<span class="guest-tag" title="Added by a guest — shown here, but never emails or WhatsApps the owner">guest</span>':''}</span>
         <span class="stock-cat">${(s.category||'').replace('_vol',' vol')}</span>
@@ -4538,7 +4590,7 @@ function openSignalBySymbol(){
   for(const e of openSignals()) if(!m[e.symbol]||e.ts>m[e.symbol].ts) m[e.symbol]=e;
   return m;
 }
-function strongBadgeHTML(ev){ return `<span class="sig-badge ${ev.buy?'sig-strong-buy':'sig-strong-sell'}">${ev.label}</span>`; }
+function strongBadgeHTML(ev){ return `<span class="sig-badge ${ev.buy?'sig-strong-buy':'sig-strong-sell'}">${showLabel(ev.label)}</span>`; }
 function decisionHTML(ev){
   const ids=ev.ids.join(',');
   if(ev.decision){
@@ -4554,7 +4606,7 @@ function signalRowHTML(ev,where){
   return `<div class="today-item">
     <span class="today-sym" onclick="goToStock('${ev.symbol}')">${ev.symbol}</span>
     ${strongBadgeHTML(ev)}
-    <span class="today-meta">fired ${fmtFired(ev.ts)} · act by ${actByDate(ev.ts)}${eventEdge(ev.symbol,ev.rules)}${why}</span>
+    <span class="today-meta">fired ${fmtFired(ev.ts)} · worth a look until ${actByDate(ev.ts)}${eventEdge(ev.symbol,ev.rules)}${why}</span>
     ${decisionHTML(ev)}
   </div>`;
 }
@@ -4567,7 +4619,7 @@ function goToStock(sym){
 // The open signal on a tile / detail panel: the banner's badge, plus its deadline or your decision
 function signalStripHTML(ev){
   if(!ev) return '';
-  const meta=ev.decision==='acted'?'✓ you acted':ev.decision==='passed'?'you passed':`act by ${actByDate(ev.ts)}`;
+  const meta=ev.decision==='acted'?'✓ you acted':ev.decision==='passed'?'you passed':`worth a look until ${actByDate(ev.ts)}`;
   return `<div class="card-signal-row">${strongBadgeHTML(ev)}<span class="card-sig-meta${ev.decision?'':' due'}">${meta}</span></div>`;
 }
 // What the rules say at the latest check. Only a STRONG reading gets a full badge; a lean from a
@@ -4579,7 +4631,7 @@ function liveReadingHTML(sig,ev){
     return `<div class="card-signal-row">${signalBadge(sig)}<span class="card-sig-meta">at the latest check</span></div>`;
   }
   const buy=sig.label==='TRENDING BUY';
-  return `<span class="lean-pill ${buy?'buy':'watch'}" title="Only one core rule points this way — not a signal">leaning ${buy?'buy':'bounce watch'} · not confirmed</span>`;
+  return `<span class="lean-pill ${buy?'buy':'watch'}" title="Only one core rule points this way — not a signal">leaning ${buy?'momentum':'dip'} · not confirmed</span>`;
 }
 function showSignal(key){
   switchTab('alerts',tabBtn('alerts'));
@@ -4603,7 +4655,7 @@ async function markDecision(ids,decision){
   await postJSON('/api/decision',{ids:String(ids).split(',').map(Number),decision});
   showToast(decision==='acted'?'Marked: you acted. The follow-up in ~5 trading days will show how it went.'
           :decision==='passed'?'Marked: you passed. The follow-up in ~5 trading days will show how it went.'
-          :'Decision cleared — the signal needs your call again.',4500);
+          :'Cleared — mark it again once you have looked.',4500);
   await loadAll();
   if(document.getElementById('pane-analytics').style.display!=='none') loadAnalytics();
 }
@@ -4624,13 +4676,13 @@ function renderTriage(){
   const needs=needsCall();
   let html;
   if(needs.length){
-    html=`<div class="today-head needs">⚡ ${needs.length} signal${needs.length>1?'s need':' needs'} you — act by ${actByDate(needs[0].ts)}</div>`+
+    html=`<div class="today-head needs">⚡ ${needs.length} signal${needs.length>1?'s':''} worth a look — until ${actByDate(needs[0].ts)}</div>`+
       needs.map(e=>signalRowHTML(e,'banner')).join('');
   }else{
-    html=`<div class="today-head calm">✓ Nothing needs you today</div>`;
+    html=`<div class="today-head calm">✓ Nothing needs your attention today</div>`;
   }
   const bits=[];
-  if(trend.length) bits.push(`${trend.length} trending (not yet confirmed)`);
+  if(trend.length) bits.push(`${trend.length} early sign${trend.length>1?'s':''} (not yet confirmed)`);
   if(infoCount) bits.push(`${infoCount} with minor activity`);
   html+=`<div class="today-sub">${bits.join(' · ')}${bits.length?' · ':''}<a class="today-more" href="javascript:void(0)" onclick="toggleDetailMode()">${detailMode?'Less detail ▴':'More detail ▾'}</a></div>`;
   if(!detailMode){ el.innerHTML=`<div class="triage-box">${html}</div>`; return; }
@@ -4648,7 +4700,7 @@ function renderTriage(){
     const cls=sig.label.includes('BUY')?'buy':sig.label.includes('WATCH')?'watch':'trend';
     const e=bestEdge(s);
     const edge=e!=null?`<span class="tedge">${e>=0?'+':''}${e.toFixed(1)}% 5d</span>`:'';
-    return `<span class="triage-chip ${cls}" onclick="selectStock('${s.symbol}')"><span class="tsym">${s.symbol}</span> ${sig.label} ${edge}</span>`;
+    return `<span class="triage-chip ${cls}" onclick="selectStock('${s.symbol}')"><span class="tsym">${s.symbol}</span> ${showLabel(sig.label)} ${edge}</span>`;
   };
   let rows='';
   if(strong.length) rows+=`<div class="triage-row"><span class="triage-label">Strong right now</span>${strong.map(x=>chip(x.s,x.sig)).join('')}</div>`;
@@ -5093,7 +5145,7 @@ function renderAlerts(){
   const inCards=new Set(open.flatMap(e=>e.alerts.map(a=>a.id)));
   let html=`<div class="alerts-sec">Signals · last ${ACTION_WINDOW_TRADING_DAYS} trading days</div>`;
   html+=open.length?open.map(signalCardHTML).join('')
-    :'<div class="no-alerts" style="padding:14px">✓ No open signals — nothing needs your call.</div>';
+    :'<div class="no-alerts" style="padding:14px">✓ No open signals — nothing needs your attention.</div>';
 
   // 2. Everything else, by stock, newest first, collapsed: single-rule alerts and past signals
   const groups={}, order=[];
@@ -5151,7 +5203,7 @@ const SETTINGS_FORM=[
   {group:'Notifications',rows:[
     {key:'daily_digest_enabled',label:'Daily digest instead of instant pings',type:'toggle',hint:'When on, suppresses instant push/email/WhatsApp and sends one summary per day instead (email + WhatsApp) — a better fit for the 1–5 day signal horizon. Alerts still appear live in the app.'},
     {key:'digest_hour',label:'Digest hour (0–23, local time)',type:'number',hint:'Hour of day the daily digest is sent.'},
-    {key:'notify_strong_only',label:'Only push/email/WhatsApp for STRONG signals',type:'toggle',hint:'When on (default), outbound notifications only fire when at least 2 independent rules agree (STRONG BUY / STRONG BOUNCE WATCH). Every alert still appears in the Alerts tab regardless. Ignored while daily digest is on.'},
+    {key:'notify_strong_only',label:'Only push/email/WhatsApp for STRONG signals',type:'toggle',hint:'When on (default), outbound notifications only fire when at least 2 independent rules agree (STRONG DIP / STRONG MOMENTUM). Every alert still appears in the Alerts tab regardless. Ignored while daily digest is on.'},
     {key:'browser_notifications_enabled',label:'Browser notifications',type:'toggle'},
     {key:'alert_sound_enabled',label:'Alert sound',type:'toggle'},
     {key:'notify_email_enabled',label:'Email notifications',type:'toggle'},
@@ -5402,12 +5454,12 @@ async function loadAnalytics(){
     <tbody>${stockBody}</tbody></table></div>`:'';
 
   // Money + your own decisions
-  const eur=v=>(v>=0?'+':'−')+'€'+Math.abs(Math.round(v)).toLocaleString('en-GB');
+  const usd=v=>(v>=0?'+':'−')+'$'+Math.abs(Math.round(v)).toLocaleString('en-US');
   const m=d.money, dec=d.decisions||{};
   const moneyCard=m?`<div class="analytics-card"><h3>In money</h3>
-    <div class="perf-money" style="color:${m.vs_market>=0?'#10B981':'#EF4444'}">${eur(m.vs_market)} vs your stocks</div>
-    ${m.vs_market_ci?`<div class="ci-range" style="margin:-4px 0 6px">likely between ${eur(m.vs_market_ci[0])} and ${eur(m.vs_market_ci[1])}</div>`:''}
-    <div class="set-hint">Putting €1,000 into each of the ${m.n} STRONG signal${m.n>1?'s':''} for 5 trading days (BUY and BOUNCE WATCH alike), taken from your other stocks, would have left you ${eur(m.vs_market)} compared with leaving that money where it was, after trading costs; ${eur(m.raw)} in plain gains/losses. Before taxes; past signals only.</div></div>`:'';
+    <div class="perf-money" style="color:${m.vs_market>=0?'#10B981':'#EF4444'}">${usd(m.vs_market)} vs your stocks</div>
+    ${m.vs_market_ci?`<div class="ci-range" style="margin:-4px 0 6px">likely between ${usd(m.vs_market_ci[0])} and ${usd(m.vs_market_ci[1])}</div>`:''}
+    <div class="set-hint">Putting $1,000 into each of the ${m.n} STRONG signal${m.n>1?'s':''} for 5 trading days (dips and momentum alike), taken from your other stocks, would have left you ${usd(m.vs_market)} compared with leaving that money where it was, after trading costs; ${usd(m.raw)} in plain gains/losses. Before taxes; past signals only.</div></div>`:'';
   const decLine=(lbl,g)=>g?`<div class="al-sum"><strong>${lbl}:</strong> <span class="${g.avg_excess>=0?'up':'dn'}">${g.avg_excess>=0?'+':''}${g.avg_excess}%</span> vs your stocks on average${g.excess_ci?` <span class="ci-range">(likely ${g.excess_ci[0]}% to ${g.excess_ci[1]}%)</span>`:''} · ${g.hit}% beat it · ${g.n} signal${g.n>1?'s':''}</div>`:'';
   let decBody;
   if(dec.acted||dec.passed){
@@ -5432,7 +5484,7 @@ async function loadAnalytics(){
   const recentBody=(d.recent||[]).map(r=>{
     const buy=r.label.includes('BUY');
     return `<tr><td style="text-align:left">${r.date}</td><td style="text-align:left">${r.symbol}</td>
-      <td style="text-align:left"><span class="${buy?'rt-buy':'rt-watch'}">${r.label}</span></td>
+      <td style="text-align:left"><span class="${buy?'rt-buy':'rt-watch'}">${showLabel(r.label)}</span></td>
       <td class="${r.ret>=0?'up':'dn'}">${r.ret>=0?'+':''}${r.ret}%</td>
       <td class="muted">${r.market>=0?'+':''}${r.market}%</td>
       <td class="${r.excess>=0?'up':'dn'}">${r.excess>=0?'✓ +':'✗ '}${r.excess}</td>
@@ -5441,7 +5493,7 @@ async function loadAnalytics(){
   const recentCard=(d.recent||[]).length?`<div class="analytics-card"><h3>Recent signals, 5 trading days later</h3>
     <div class="al-wrap" style="max-height:none"><table class="outcome-table"><thead><tr><th style="text-align:left">Date</th><th style="text-align:left">Stock</th><th style="text-align:left">Signal</th><th>Stock</th><th>Your stocks</th><th>vs your stocks</th><th>You</th></tr></thead>
     <tbody>${recentBody}</tbody></table></div>
-    <div class="set-hint" style="margin-top:8px">✓ = over the next 5 trading days the stock beat your watchlist's average by more than the 0.4% trading costs. A BOUNCE WATCH is a rebound call, so it counts as right when the stock recovers ahead of your other stocks.</div></div>`:'';
+    <div class="set-hint" style="margin-top:8px">✓ = over the next 5 trading days the stock beat your watchlist's average by more than the 0.4% trading costs. A dip counts as right when the stock recovers ahead of your other stocks.</div></div>`:'';
 
   pane.innerHTML=`<h2 class="perf-title">📊 Performance</h2>
     <div class="set-hint" style="margin:-6px 0 14px">How Tripwire's own signals actually played out — the app scoring itself on forward data. One move that tripped several rules counts as one signal.${pend?' '+d.outcomes_pending+' alert'+(d.outcomes_pending>1?'s':'')+' still maturing.':''}</div>
@@ -5449,7 +5501,7 @@ async function loadAnalytics(){
 }
 
 // ── Portfolio test tab ────────────────────────────────────────────────────────
-const PF_LINES=[['strategy','Following the app','#F59E0B',''],['untouched','Same stocks, never traded','#93C5FD','6 5'],['spy','S&P 500','#6B7280','2 4']];
+const PF_LINES=[['strategy','Trading every signal','#F59E0B',''],['untouched','Same stocks, never traded','#93C5FD','6 5'],['spy','S&P 500','#6B7280','2 4']];
 let pfPoll=null;
 const usd=v=>(v<0?'−':'')+'$'+Math.abs(Math.round(v)).toLocaleString('en-US');
 const pctS=v=>v==null?'—':(v>=0?'+':'')+v.toFixed(1)+'%';
@@ -5461,7 +5513,8 @@ async function loadPortfolio(){
   const pane=document.getElementById('pane-portfolio');
   if(!pane||pane.style.display==='none') return;
   pane.innerHTML=`<h2 class="perf-title">💼 Portfolio test</h2>
-    <div class="set-hint" style="margin:-6px 0 14px">What would $1,000 have done if you followed every STRONG signal? It starts split equally across your watchlist. Each signal moves 10% of the portfolio into that stock for 5 trading days, taken from the other stocks and returned to them afterwards. The comparison with <b>the same stocks, never traded</b> shows what the app's rules add on top of your stock picks; the S&P 500 shows the market.</div>
+    <div class="set-hint" style="margin:-6px 0 14px">Two honest checks of what Tripwire's signals are good for. <b>Timing</b> (first card): do dips help with purchases you were already planning? <b>Trading every signal</b> (the rest): $1,000 split equally across your watchlist, where each STRONG signal moves 10% into that stock for 5 trading days, taken from the other stocks and returned afterwards. Compared with <b>the same stocks, never traded</b>, it shows whether trading on signals beats simply holding your picks. It mostly doesn't, which is why Tripwire is built as an attention and timing aid, not a trading system.</div>
+    ${timingCardHTML(d.timing)}
     <div class="pf-grid">${pfColumn('backtest',d)}${pfColumn('live',d)}</div>
     ${replayCardHTML(d.replay)}
     <div class="pf-note">Rules: at most 10 signal slices at once (more are skipped); a repeat signal on a boosted stock extends it; 0.1% trading cost on every buy and sell; no new money, no borrowing, no short selling; prices include dividends. Backtest buys at the next day's open, live at the alert price. Before taxes. Past results don't guarantee future ones.</div>`;
@@ -5547,6 +5600,10 @@ function pfColumn(kind,d){
 }
 
 const PF_EXPLAIN={
+  timing:`<p><b>The question:</b> if you plan to put money into one of your stocks, does a Tripwire dip signal help you get a better price?</p>
+    <p><b>Waiting:</b> for every stock and month over 15 years, buying on the first day of the month is compared with waiting for a STRONG dip and buying right after it, or buying at the month's end if no dip came.</p>
+    <p><b>Using a dip that comes:</b> buying right after a STRONG dip is compared with buying 4 weeks later. The same comparison on ordinary days is shown too, because stocks drift up and buying earlier usually wins anyway; the difference between the two is what the dip itself adds.</p>
+    <p>"More shares" means more stock for the same money: buying at $95 instead of $100 gets you about 5% more shares.</p>`,
   backtest:`<p><b>The question:</b> what would today's rules have done over the last 5 years?</p>
     <p><b>The lines:</b> <i>Following the app</i> acts on every STRONG signal. <i>Same stocks, never traded</i> is your stock picks alone. <i>S&amp;P 500</i> is the market. The gap between the first two is what the signals add or cost; the gap to the S&amp;P 500 is mostly your stock picking.</p>
     <p><b>The catch:</b> the rules were tuned on these same years, so this looks better than real life would have. The part right of the dotted line wasn't used for tuning and is the fairer stretch. For the honest real-time version, see the yearly replay below.</p>`,
@@ -5557,6 +5614,19 @@ const PF_EXPLAIN={
     <p><b>vs your stocks per signal:</b> the stock's 5-day result minus your watchlist's average, after trading costs. The money for a signal comes out of your other stocks, so this is what acting on it actually earns you.</p>
     <p><b>Years positive:</b> a method that wins big in one strong year can show a positive average while losing in most years. Counting the positive years shows whether it works consistently.</p>`,
 };
+// Timing aid: the evidence behind "don't wait for dips, but use one when it comes".
+function timingCardHTML(tm){
+  if(!tm||!tm.groups) return '';
+  const g=tm.groups['strong_dip|watchlist'], ad=((tm.after_dip||{}).watchlist||{})['21'], adr=((tm.after_dip||{}).reference||{})['21'];
+  if(!g) return '';
+  const s=v=>(v>0?'+':'')+v;
+  return `<div class="analytics-card"><h3>Timing: using dips for purchases you were already planning</h3>
+    ${pfExplain('timing')}
+    <div class="al-sum"><strong>Waiting for a STRONG dip instead of buying as planned:</strong> <span class="${g.vs_first_day_pct>=0?'up':'dn'}">${s(g.vs_first_day_pct)}%</span> shares on your stocks, on average. Dips came in only ${g.signalled_share}% of months, and your stocks tended to rise meanwhile. <b>Don't wait for dips.</b></div>
+    ${ad?`<div class="al-sum"><strong>When a STRONG dip does come, buying right then vs 4 weeks later:</strong> <span class="up">${s(ad.dip_pct)}%</span> more shares (better ${ad.dip_better_share}% of the time, ${ad.dip_days} dips). On an ordinary day the same comparison gives ${s(ad.ordinary_pct)}%, so the dip itself adds about <b>${s(ad.dip_bonus_pts)} pts</b>${adr?` (${s(adr.dip_bonus_pts)} pts on the ${adr.dip_days.toLocaleString('en-US')} dips of the broader reference stocks)`:''}. <b>Use a dip when it comes.</b></div>`:''}
+    <div class="set-hint" style="margin-top:6px">Tested ${escapeHTML(tm.generated)} on 15 years of prices. Before taxes; past results only.</div></div>`;
+}
+
 function pfExplain(kind){
   return `<details class="pf-explain" ontoggle="if(this.open) track('Opened explanation: ${kind}')"><summary>What does this show?</summary>${PF_EXPLAIN[kind]}</details>`;
 }
@@ -5614,11 +5684,11 @@ function multiLineSVG(eq,markerDate,lines){
 let chatBusy=false, chatHistoryLoaded=false;
 const CHAT_SUGGESTIONS=[
   'Why did my most active stock move today?',
-  'Give me a narrative summary of my whole watchlist',
-  'Make NVDA volatility rule less sensitive',
-  'Enable the RSI rule on all my high-vol stocks',
-  'Set the check interval to 5 minutes',
+  'I plan to add to one of my stocks this month. Is there a dip worth using?',
+  'Does today\'s news change the reasons to own any of my stocks?',
+  'Give me a short narrative summary of my whole watchlist',
   'Research upcoming earnings across my watchlist',
+  'Make NVDA\'s alerts less sensitive',
 ];
 
 // Prices always with two decimals ($329.40, not $329.4); thousands separated.
@@ -5668,7 +5738,7 @@ async function loadChatHistory(){
 const GUEST_CHAT_SUGGESTIONS=[
   'Why did the most active stock move today?',
   'Give me a short summary of the whole watchlist',
-  'What does a STRONG BUY signal mean here?',
+  'What does a STRONG DIP signal mean for me?',
   'Any upcoming earnings on the watchlist?',
 ];
 function renderSuggestions(){
