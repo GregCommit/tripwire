@@ -4075,9 +4075,10 @@ function handleStartParams(){
   startParamsHandled=true;
   const p=new URLSearchParams(location.search);
   const tab=p.get('tab'), sym=(p.get('stock')||'').toUpperCase();
+  // Tidy the address first: switching tab may add the back-gesture history entry on top.
+  if(tab||sym) history.replaceState(null,'','/');
   if(tab&&TAB_NAMES[tab]) switchTab(tab,tabBtn(tab));
   if(sym&&stocks.some(s=>s.symbol===sym)&&selectedSym!==sym) selectStock(sym);
-  if(tab||sym) history.replaceState(null,'','/');
 }
 
 async function loadAll(){
@@ -4193,7 +4194,7 @@ function beep(){
 // Links inside the content (a glossary term, "Why? ›", the Intro button…) jump to another tab;
 // each jump remembers the tab and scroll position it came from, so the floating button can go
 // back there. Picking a tab from the tab bar (fromTabBar) is a fresh start and clears the trail.
-let currentTab='stocks', backTrail=[], goingBack=false;
+let currentTab='stocks', backTrail=[], goingBack=false, backGuard=false, backViaButton=false;
 function switchTab(name,btn,fromTabBar){
   if(fromTabBar) backTrail=[];
   else if(name!==currentTab&&!goingBack){
@@ -4223,22 +4224,38 @@ function switchTab(name,btn,fromTabBar){
 function updateBackButton(){
   const b=document.getElementById('float-back');
   if(!b) return;
-  const to=backTrail[backTrail.length-1];
+  const to=backTrail[backTrail.length-1], show=!!to||currentTab!=='stocks';
   b.textContent=to?'← Back to '+(TAB_NAMES[to.tab]||to.tab):'← Stocks';
-  b.classList.toggle('show',!!to||currentTab!=='stocks');
+  b.classList.toggle('show',show);
+  // The phone's back gesture (and the browser's Back button) follows the same trail: while the
+  // button shows, one extra history entry sits on top, so going back lands here, not off the app.
+  if(show&&!backGuard){ history.pushState({twBack:true},''); backGuard=true; }
 }
+// The button goes through the browser history too, so the button and the gesture stay in step.
 function goBack(){
+  if(backGuard){ backViaButton=true; history.back(); }
+  else stepBack('Floating button');
+}
+function stepBack(how){
   const to=backTrail.pop();
   if(!to){
-    track('Floating button: back to Stocks');
+    track(how+': back to Stocks');
     switchTab('stocks',tabBtn('stocks'),true);
     window.scrollTo(0,0);
     return;
   }
-  track('Floating button: back to '+(TAB_NAMES[to.tab]||to.tab));
+  track(how+': back to '+(TAB_NAMES[to.tab]||to.tab));
   goingBack=true; switchTab(to.tab,tabBtn(to.tab)); goingBack=false;
   restoreScroll(to.y);
 }
+history.scrollRestoration='manual';   // stepBack places the scroll itself
+window.addEventListener('popstate',e=>{
+  if(e.state&&e.state.twBack){ backGuard=true; return; }   // went forward onto our entry again
+  backGuard=false;
+  const how=backViaButton?'Floating button':'Back gesture'; backViaButton=false;
+  if(backTrail.length||currentTab!=='stocks') stepBack(how);
+  else history.back();   // nothing left to go back to inside the app: carry on leaving it
+});
 // Some tabs reload their data when opened, so the page can be briefly too short to reach the
 // old position; keep trying for ~2 seconds, and stop if the user starts scrolling themselves.
 function restoreScroll(y){
