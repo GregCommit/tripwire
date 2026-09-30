@@ -444,6 +444,28 @@ def episode_starts(trigger):
 # the typical outcome as a miss. Must match SIGNAL_DIR in app.py (live outcome scoring).
 SIGNAL_DIR = {"BUY": 1.0, "SELL": 1.0}
 
+# What a signal is measured against. "your_stocks": the equal-weight average of the owner's
+# watchlist, minus the round-trip trading cost — acting on a signal moves money out of those
+# stocks, so that is the bar it has to clear. The fair yearly replay (learn.py) showed tuning to
+# beat the S&P 500 instead produced ~10x more signals that lost money against the owner's own
+# stocks in 4 of 5 years. Must match TARGET in app.py (live outcome scoring).
+TARGET = "your_stocks"
+ROUND_TRIP_COST = 0.004   # 0.1% on each of the four trades a signal slice needs
+
+def _target_cost():
+    return ROUND_TRIP_COST if TARGET == "your_stocks" else 0.0
+
+def target_close(data):
+    """Price series every signal is measured against (see TARGET)."""
+    if TARGET != "your_stocks":
+        return data[BENCHMARK]["close"]
+    if LIVE_PARAMS_PATH.exists():
+        syms = list(json.loads(LIVE_PARAMS_PATH.read_text(encoding="utf-8")))
+    else:
+        syms = list(get_watchlist())
+    rets = pd.DataFrame({s: data[s]["close"].pct_change() for s in syms if s in data})
+    return (1 + rets.mean(axis=1, skipna=True).fillna(0)).cumprod()
+
 def event_returns(df, trigger, signal, fwd, spy_fwd, eval_start_idx):
     """Return a DataFrame of episode-start events with signal-direction excess returns."""
     starts = episode_starts(trigger)
@@ -463,7 +485,7 @@ def event_returns(df, trigger, signal, fwd, spy_fwd, eval_start_idx):
         for h in FWD_HORIZONS:
             raw = fwd[h][t]; braw = spy_fwd[h][t]
             rec[f"ret{h}"] = raw
-            rec[f"exc{h}"] = dir_mult * (raw - (braw if np.isfinite(braw) else 0.0))
+            rec[f"exc{h}"] = dir_mult * (raw - (braw if np.isfinite(braw) else 0.0)) - _target_cost()
             rec[f"dirret{h}"] = dir_mult * raw
         # Max adverse excursion over 1..5d (worst signal-direction cumulative return)
         c = df["close"].to_numpy(dtype=float)
@@ -549,6 +571,7 @@ def params_label(rule, params):
 def run_grid(years):
     data = load_frames(years)
     wl = get_watchlist()
+    bench = target_close(data)
     rows = []
     all_events = []
     for sym, cat in wl.items():
@@ -557,7 +580,7 @@ def run_grid(years):
         df = trim_history(data[sym], years)
         cache = ticker_cache(df)
         esi = eval_start_index(df, years)
-        fwd, spy_fwd = build_forward(df, data[BENCHMARK]["close"])
+        fwd, spy_fwd = build_forward(df, bench)
         n_eval = len(df) - esi
         short_hist = df.index[esi] > (pd.Timestamp(datetime.now().date()) - pd.Timedelta(days=int(years*365.25)) + pd.Timedelta(days=30))
         log(f"  {sym} [{cat}] eval days={n_eval} start={df.index[esi].date()}"
@@ -623,11 +646,49 @@ def pick_best(subdf):
     best = cand.iloc[0]
     return best, "ok"
 
+# ── Hysteresis: only replace a live threshold when the new one is clearly better than noise ──
+RULE_KEYS = {"volatility": ["volatility_multiplier", "volatility_lookback"],
+             "support_resistance": ["support_resist_pct", "support_resist_lookback"],
+             "consecutive_down": ["consecutive_down_days"],
+             "volume": ["volume_multiplier", "volume_lookback"], "gap": ["gap_pct"],
+             "rsi": ["rsi_period", "rsi_overbought", "rsi_oversold"],
+             "ma_cross": ["ma_short", "ma_long", "ma_cross_lookback"]}
+SWITCH_Z = 1.64   # one-sided 95%: the improvement must exceed 1.64 standard errors
+ENABLE_T = 2.0    # a rule that is off in the app is only switched on with a t-stat >= 2
+
+def _se5(row):
+    """Standard error of a grid row's mean 5-day excess, recovered from its t-stat."""
+    m, t = row.get("mean_exc5"), row.get("t5")
+    if pd.isna(m) or pd.isna(t) or t == 0:
+        return np.inf
+    return abs(m / t)
+
+def _live_rule_row(grid, sym, rule, live):
+    """The grid row that matches the threshold currently live in the app, if it is a grid point."""
+    keys = RULE_KEYS[rule]
+    if not live or any(k not in live for k in keys):
+        return None
+    sub = grid[(grid["symbol"] == sym) & (grid["rule"] == rule)]
+    for _, r in sub.iterrows():
+        p = json.loads(r["params_json"])
+        if all(abs(float(p[k]) - float(live[k])) < 1e-9 for k in keys):
+            return r
+    return None
+
+def _live_enabled(rule, live):
+    return bool(live.get(list(_enable_flag(rule))[0], True))
+
 def select(years):
     grid = pd.read_csv(RESULTS_DIR / "grid_summary.csv")
     pooled = pooled_by_category(grid)
     pooled.to_csv(RESULTS_DIR / "pooled_summary.csv", index=False)
     wl = get_watchlist()
+    live_all = {}
+    if LIVE_PARAMS_PATH.exists():
+        live_all = {s: v.get("params", {}) for s, v in json.loads(LIVE_PARAMS_PATH.read_text(encoding="utf-8")).items()}
+    else:
+        log("[warn] live_params.json missing — selecting without hysteresis (every best threshold is proposed)")
+    kept = 0
     recommendations = {}
     decisions = []   # human-readable audit rows
     rule_stats = {}  # symbol -> rule -> evidence summary for the UI (see BACKTESTING.md)
@@ -662,9 +723,43 @@ def select(years):
                         adopt_level = "category"; chosen = json.loads(match.iloc[0]["params_json"])
                         note = f"category fallback: exc5={pbest['mean_exc5']*100:.2f}% n={int(pbest['n'])} ({reason})"
                         evidence_row = pbest
+            # Hysteresis against what is live: noise must not churn thresholds every month.
+            live = live_all.get(sym)
+            if live:
+                cur = _live_rule_row(grid, sym, rule, live)
+                live_on = _live_enabled(rule, live)
+                keep = False
+                if live_on and cur is not None and cur["n"] >= MIN_N:
+                    if chosen is None:
+                        keep = pd.notna(cur["mean_exc5"]) and cur["mean_exc5"] > 0
+                        why = f"kept live threshold (still +{cur['mean_exc5']*100:.2f}%); not disabled"
+                    elif evidence_row is not None and not all(
+                            abs(float(chosen[k]) - float(live[k])) < 1e-9 for k in RULE_KEYS[rule]):
+                        gain = evidence_row["mean_exc5"] - cur["mean_exc5"]
+                        se = float(np.sqrt(_se5(evidence_row) ** 2 + _se5(cur) ** 2))
+                        keep = not (gain > SWITCH_Z * se)
+                        why = (f"kept live threshold: new {evidence_row['mean_exc5']*100:.2f}% vs live "
+                               f"{cur['mean_exc5']*100:.2f}% is within noise (needs +{SWITCH_Z*se*100:.2f} pts)")
+                    if keep:
+                        chosen = {k: live[k] for k in RULE_KEYS[rule]}
+                        adopt_level = "kept"; note = why; evidence_row = cur
+                elif not live_on and chosen is not None and evidence_row is not None:
+                    t = evidence_row.get("t5")
+                    if pd.isna(t) or t < ENABLE_T:
+                        adopt_level = "kept-off"; chosen = None
+                        note = f"kept off: edge t={t:.2f} below {ENABLE_T} needed to switch a rule on"
+                        evidence_row = None
+                elif live_on and cur is None and chosen is not None:
+                    # live threshold is off the grid (hand-set or a sensitivity preset): leave it alone
+                    chosen = {k: live[k] for k in RULE_KEYS[rule] if k in live}
+                    adopt_level = "kept"; note = "kept hand-set/preset threshold (not on the test grid)"
+                    evidence_row = None
+                if adopt_level in ("kept", "kept-off"):
+                    kept += 1
             if chosen is None:
-                adopt_level = "disable"
-                note = f"disable: {reason}"
+                if adopt_level != "kept-off":
+                    adopt_level = "disable"
+                    note = f"disable: {reason}"
                 rec.update(_disable_flag(rule))
             else:
                 rec.update(chosen)
@@ -686,6 +781,8 @@ def select(years):
     (RESULTS_DIR / "recommended_params.json").write_text(json.dumps(recommendations, indent=2))
     pd.DataFrame(decisions).to_csv(RESULTS_DIR / "decisions.csv", index=False)
     (RESULTS_DIR / "rule_stats.json").write_text(json.dumps(rule_stats, indent=2))
+    if live_all:
+        log(f"Hysteresis: {kept} rule settings kept as live (new candidates not clearly better than noise)")
     log(f"Selection -> {RESULTS_DIR/'recommended_params.json'} ({len(recommendations)} tickers)")
     log(f"Decisions -> {RESULTS_DIR/'decisions.csv'}")
     log(f"Rule stats -> {RESULTS_DIR/'rule_stats.json'}")
@@ -761,7 +858,7 @@ def _make_ensemble_events_fn(df, esi, fwd, spy_fwd, weight_map=None):
                 rec = {"date": df.index[t], "pos": t, "signal": "BUY" if "BUY" in label else "SELL", "label": label}
                 for h in FWD_HORIZONS:
                     braw = spy_fwd[h][t]
-                    rec[f"exc{h}"] = d*(fwd[h][t]-(braw if np.isfinite(braw) else 0))
+                    rec[f"exc{h}"] = d*(fwd[h][t]-(braw if np.isfinite(braw) else 0)) - _target_cost()
                 path = [d*(close[t+k]/close[t]-1) for k in range(1, HEADLINE_H+1) if t+k < n]
                 rec["mae"] = min(path) if path else np.nan
                 recs.append(rec)
@@ -779,7 +876,7 @@ def _run_combo_generic(years, weight_map, mode_prefix, out_name):
             continue
         df = trim_history(data[sym], years); cache = ticker_cache(df)
         esi = eval_start_index(df, years)
-        fwd, spy_fwd = build_forward(df, data[BENCHMARK]["close"])
+        fwd, spy_fwd = build_forward(df, target_close(data))
         winners, sig_active = _ticker_winners_and_signals(sym, df, cache, grid)
         if len(winners) < 2:
             rows.append({"symbol": sym, "mode": mode_prefix, "n": 0, "note": f"only {len(winners)} winning rule(s)"})
@@ -1012,7 +1109,7 @@ def build_report(years):
     </style>"""
     H = ['<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Tripwire Backtest</title>',
          css, f"<h1>⚡ Tripwire Rule Backtest</h1>",
-         f"<div class='note'>Generated {datetime.now():%Y-%m-%d %H:%M} · {years}-year window · headline metric = mean {HEADLINE_H}-day signal-direction excess return vs {BENCHMARK} · events de-clustered to episode starts · N≥{MIN_N} + positive OOS required to adopt a per-ticker threshold.</div>"]
+         f"<div class='note'>Generated {datetime.now():%Y-%m-%d %H:%M} · {years}-year window · headline metric = mean {HEADLINE_H}-day return vs {'your watchlist average after a ' + str(ROUND_TRIP_COST*100) + '% round-trip cost' if TARGET == 'your_stocks' else BENCHMARK} · events de-clustered to episode starts · N≥{MIN_N} + positive OOS required to adopt a per-ticker threshold.</div>"]
 
     # Per-rule effectiveness (pooled overall)
     H.append("<h2>Rule effectiveness — best threshold per rule (pooled across all tickers)</h2>")
@@ -1084,6 +1181,7 @@ def build_report(years):
 # compute_signal(), then runs the shared rulebook in portfolio_sim.py.
 
 LIVE_PARAMS_PATH = RESULTS_DIR / "live_params.json"
+BASELINE_PATH = RESULTS_DIR / "baseline_params.json"
 PORTFOLIO_OUT = RESULTS_DIR / "portfolio_backtest.json"
 ENABLE_FLAG = {"volatility": "enable_volatility", "support_resistance": "enable_support_resistance",
                "consecutive_down": "use_consecutive", "volume": "enable_volume", "gap": "enable_gap",
@@ -1123,30 +1221,60 @@ def run_portfolio(years):
     calendar = [d.strftime("%Y-%m-%d") for d in spy_df.index[eval_start_index(spy_df, years):]]
     start = calendar[0]
     spy = {d.strftime("%Y-%m-%d"): float(c) for d, c in zip(spy_df.index, spy_df["close"]) if d.strftime("%Y-%m-%d") >= start}
-    bars, signals, missing = {}, [], []
-    for sym, info in sorted(live.items()):
+    bars, frames, missing = {}, {}, []
+    for sym in sorted(live):
         if sym not in data:
             missing.append(sym); continue
         df = trim_history(data[sym], years)
-        labels = strong_labels(df, info["params"], ticker_cache(df))
-        dates = [d.strftime("%Y-%m-%d") for d in df.index]
+        frames[sym] = (df, ticker_cache(df), [d.strftime("%Y-%m-%d") for d in df.index])
+        dates = frames[sym][2]
         bars[sym] = {d: (float(o), float(c)) for d, o, c in zip(dates, df["open"], df["close"]) if d >= start}
-        signals += [{"date": d, "sym": sym, "label": lab, "price": None}
-                    for d, lab in zip(dates, labels) if lab and d >= start]
+
+    def signals_for(param_map):
+        out = []
+        for sym, (df, cache, dates) in frames.items():
+            p = (param_map.get(sym) or {}).get("params")
+            if not p:
+                continue
+            out += [{"date": d, "sym": sym, "label": lab, "price": None}
+                    for d, lab in zip(dates, strong_labels(df, p, cache)) if lab and d >= start]
+        return out
+
+    signals = signals_for(live)
     res = portfolio_sim.simulate(bars, spy, calendar, list(bars), signals)
     fair_from = calendar[int(len(calendar) * (1 - OOS_FRAC))]
     res["fair_from"] = fair_from
     res["fair_summary"] = portfolio_sim.summarize(res["equity"], res["start_value"], from_date=fair_from)
+
+    # Frozen baseline: the rules as they were when the baseline was frozen, replayed on the same
+    # data, so every later improvement must visibly beat it. Only the stocks still on the
+    # watchlist count, with the same starting split as the current portfolio.
+    res["baseline"] = None
+    if BASELINE_PATH.exists():
+        bl = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
+        bl_params = {s: v for s, v in bl.get("params", {}).items() if s in frames}
+        same = all(bl_params.get(s, {}).get("params") == live[s]["params"] for s in frames)
+        b = res if same else portfolio_sim.simulate(bars, spy, calendar, list(bars), signals_for(bl_params))
+        res["baseline"] = {"frozen": bl.get("frozen"), "same_as_current": same,
+                           "summary": b["summary"],
+                           "fair_summary": portfolio_sim.summarize(b["equity"], b["start_value"], from_date=fair_from),
+                           "equity": {e["date"]: e["strategy"] for e in b["equity"]}}
     res["signal_days"] = len(signals)
     res["trades_total"] = len(res["trades"])
     res["trades"] = res["trades"][-60:]
     eq = res["equity"]
     keep = {0, len(eq) - 1} | {i for i, e in enumerate(eq) if e["date"] == fair_from} | set(range(0, len(eq), 5))
     res["equity"] = [e for i, e in enumerate(eq) if i in keep]
+    if res["baseline"]:
+        bl_eq = res["baseline"].pop("equity")
+        for e in res["equity"]:
+            e["baseline"] = bl_eq.get(e["date"])
     res.update({"generated": datetime.now().strftime("%Y-%m-%d %H:%M"), "years": years,
                 "params_source": source, "missing_data": missing})
     PORTFOLIO_OUT.write_text(json.dumps(res), encoding="utf-8")
     s = res["summary"]
+    if res["baseline"] and not res["baseline"]["same_as_current"]:
+        log(f"Frozen baseline ({res['baseline']['frozen']}): ${res['baseline']['summary']['strategy']['end']}")
     log(f"Portfolio test {res['start_date']} -> {res['end_date']}: app ${s['strategy']['end']} | "
         f"never traded ${s['untouched']['end']} | S&P 500 ${s['spy']['end']} | "
         f"{res['trades_total']} slices, {len(res['skipped'])} skipped, {res['extended']} extensions")

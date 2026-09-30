@@ -28,6 +28,10 @@ log = logging.getLogger("tripwire")
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("TRIPWIRE_SECRET_KEY", "tripwire-dev-secret-change-me")
+# Stay logged in for 30 days (phones otherwise ask for the password every time the browser closes).
+app.permanent_session_lifetime = timedelta(days=30)
+app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
+                  SESSION_COOKIE_SECURE=os.environ.get("TRIPWIRE_PUBLIC_URL", "").startswith("https://"))
 CORS(app)
 
 AUTH_PASSWORD = os.environ.get("TRIPWIRE_PASSWORD")
@@ -119,7 +123,8 @@ def init_db():
             ("alerts", "followup_sent", "INTEGER"),   # 1 once the 5-day follow-up was emailed
             # Outcome tracking: filled in ~5 trading days after each alert (see resolve_outcomes)
             ("alerts", "outcome_ret", "REAL"),        # stock return since alert price, %
-            ("alerts", "outcome_excess", "REAL"),     # signal-direction excess vs SPY, %
+            ("alerts", "outcome_excess", "REAL"),     # vs the owner's stocks after costs, % (main score)
+            ("alerts", "outcome_excess_spy", "REAL"), # vs the S&P 500, % (secondary)
             ("alerts", "outcome_correct", "INTEGER"), # 1 if signal-direction excess > 0
             ("alerts", "outcome_ts", "INTEGER"),      # when it was resolved
         ]:
@@ -369,7 +374,7 @@ def _rule_stats_line(symbol, rule_type):
     st = _rule_stats_for(symbol, rule_type)
     if not st:
         return ""
-    parts = [f"{st['exc5']:+.1f}% avg vs SPY over 5d"]
+    parts = [f"{st['exc5']:+.1f}% avg vs your stocks after costs over 5d"]
     if st.get("hit5") is not None:
         parts.append(f"{st['hit5']:.0f}% hit rate")
     parts.append(f"n={st['n']}")
@@ -624,9 +629,63 @@ def _daily_close_series(symbol):
     except Exception:
         return {}
 
+# Signals are judged against the owner's own stocks, after costs: acting on one moves money out
+# of the rest of the watchlist, so beating the S&P 500 isn't enough (the fair yearly replay showed
+# S&P-tuned signals lost against the watchlist in 4 of 5 years). Must match TARGET in backtest.py.
+TARGET_COST_PCT = 0.4   # round trip, in % (0.1% on each of the four trades a signal slice needs)
+
+def _window_ret(series, adate, h=None):
+    """% return of a {date: close} series from the first trading day on/after adate to h days later."""
+    h = h or OUTCOME_HORIZON_DAYS
+    if not series:
+        return None
+    ds = series.get("__dates") or sorted(k for k in series if not k.startswith("__"))
+    i = next((i for i, d in enumerate(ds) if d >= adate), None)
+    if i is None or i + h >= len(ds):
+        return None
+    return (series[ds[i + h]] / series[ds[i]] - 1.0) * 100
+
+def _watchlist_series():
+    out = {}
+    for s in _owner_stocks():
+        ser = _daily_close_series(s["symbol"])
+        if ser:
+            ser = dict(ser); ser["__dates"] = sorted(ser)
+            out[s["symbol"]] = ser
+    return out
+
+def _watchlist_window_ret(wl_series, adate):
+    """Equal-weight average % return of the owner's watchlist over the same window."""
+    rets = [x for x in (_window_ret(ser, adate) for ser in wl_series.values()) if x is not None]
+    return sum(rets) / len(rets) if rets else None
+
+def _rescore_target_once():
+    """Outcomes scored before the switch measured against the S&P 500 only. Keep that figure as
+    the secondary one and recompute the main score against the owner's stocks after costs."""
+    if get_setting("target_rescored", "") == "1":
+        return
+    wl = _watchlist_series()
+    with get_db() as conn:
+        rows = conn.execute("SELECT id,timestamp,outcome_ret,outcome_excess,outcome_excess_spy FROM alerts "
+                            "WHERE outcome_ts IS NOT NULL AND outcome_excess IS NOT NULL").fetchall()
+        n = 0
+        for r in rows:
+            wl_ret = _watchlist_window_ret(wl, datetime.fromtimestamp(r["timestamp"]).strftime("%Y-%m-%d"))
+            if wl_ret is None or r["outcome_ret"] is None:
+                continue
+            spy_ex = r["outcome_excess_spy"] if r["outcome_excess_spy"] is not None else r["outcome_excess"]
+            ex = r["outcome_ret"] - wl_ret - TARGET_COST_PCT
+            conn.execute("UPDATE alerts SET outcome_excess=?, outcome_excess_spy=?, outcome_correct=? WHERE id=?",
+                         (round(ex, 2), spy_ex, 1 if ex > 0 else 0, r["id"]))
+            n += 1
+        conn.commit()
+    set_setting("target_rescored", "1")
+    log.info("Re-scored %d outcomes against the watchlist after costs", n)
+
 def resolve_outcomes():
     """For alerts old enough to have matured (>= OUTCOME_HORIZON_DAYS trading days) but not yet
-    scored, compute the stock's return since the alert and its signal-direction excess vs SPY."""
+    scored: the stock's return, its result vs the owner's stocks after costs (main score) and vs
+    the S&P 500 (secondary)."""
     cutoff = int(time.time()) - int((OUTCOME_HORIZON_DAYS + 3) * 86400)  # calendar buffer for weekends
     with get_db() as conn:
         rows = conn.execute(
@@ -637,6 +696,7 @@ def resolve_outcomes():
     if not rows:
         return 0
     spy = _daily_close_series("SPY")
+    wl_series = _watchlist_series()
     resolved = 0
     for r in rows:
         try:
@@ -656,20 +716,18 @@ def resolve_outcomes():
         entry = r["price"] or series[dates[start_i]]
         exit_close = series[dates[start_i + OUTCOME_HORIZON_DAYS]]
         ret = (exit_close / entry - 1.0) * 100 if entry else 0.0
-        excess = None; correct = None
+        excess = excess_spy = None; correct = None
         if sdir is not None:
-            spy_ret = 0.0
-            if spy:
-                sd = sorted(spy.keys())
-                si = next((i for i, d in enumerate(sd) if d >= adate), None)
-                if si is not None and si + OUTCOME_HORIZON_DAYS < len(sd):
-                    spy_ret = (spy[sd[si + OUTCOME_HORIZON_DAYS]] / spy[sd[si]] - 1.0) * 100
-            excess = sdir * (ret - spy_ret)
+            spy_ret = _window_ret(spy, adate) or 0.0
+            excess_spy = sdir * (ret - spy_ret)
+            wl_ret = _watchlist_window_ret(wl_series, adate)
+            excess = sdir * (ret - (wl_ret if wl_ret is not None else spy_ret)) - TARGET_COST_PCT
             correct = 1 if excess > 0 else 0
         with get_db() as conn:
             conn.execute(
-                "UPDATE alerts SET outcome_ret=?, outcome_excess=?, outcome_correct=?, outcome_ts=? WHERE id=?",
-                (round(ret, 2), round(excess, 2) if excess is not None else None, correct, int(time.time()), r["id"])
+                "UPDATE alerts SET outcome_ret=?, outcome_excess=?, outcome_excess_spy=?, outcome_correct=?, outcome_ts=? WHERE id=?",
+                (round(ret, 2), round(excess, 2) if excess is not None else None,
+                 round(excess_spy, 2) if excess_spy is not None else None, correct, int(time.time()), r["id"])
             )
             conn.commit()
         resolved += 1
@@ -681,8 +739,9 @@ def outcome_loop():
     time.sleep(90)  # let first checks/history settle
     try:
         _rescore_bounce_watch_once()
+        _rescore_target_once()
     except Exception as e:
-        log.warning("bounce-watch rescore failed: %s", e)
+        log.warning("outcome rescore failed: %s", e)
     while True:
         try:
             resolve_outcomes()
@@ -1068,7 +1127,7 @@ def _evidence_plain(sym, rule_type):
     st = _rule_stats_for(sym, rule_type)
     if not st:
         return ""
-    s = f"In the backtest, this rule on {sym} was followed by {st['exc5']:+.1f}% vs the market over 5 days on average"
+    s = f"In the backtest, this rule on {sym} was followed by {st['exc5']:+.1f}% vs your stocks (after trading costs) over 5 days on average"
     if st.get("hit5") is not None:
         s += f", beating it {st['hit5']:.0f}% of the time"
     s += f" ({st['n']} cases)"
@@ -1163,7 +1222,7 @@ def _event_outcome(rows):
     for r in rows:
         if r.get("outcome_excess") is not None and r.get("outcome_ret") is not None:
             ex = r["outcome_excess"]  # SIGNAL_DIR is +1 for every signal: excess = stock - market
-            return r["outcome_ret"], round(r["outcome_ret"] - ex, 2), ex
+            return r["outcome_ret"], round(r["outcome_ret"] - ex - TARGET_COST_PCT, 2), ex
     return None
 
 def send_followups():
@@ -1191,16 +1250,16 @@ def send_followups():
     if not items:
         return 0
     beat = sum(1 for _, _, (_, _, ex) in items if ex > 0)
-    subject = f"📬 How your signals played out — {beat} of {len(items)} beat the market"
+    subject = f"📬 How your signals played out — {beat} of {len(items)} beat your stocks"
     t, h = ["5 trading days later:", ""], ['<h2 style="margin:0 0 10px">How your signals played out</h2>',
                                           '<p style="color:#555;margin:0 0 14px">5 trading days after each signal:</p>']
     for eid, rows, (ret, mkt, ex) in items:
         r0 = rows[0]; label = _event_label(rows)
         day = _fmt_day(datetime.fromtimestamp(r0["timestamp"]).date())
-        verdict = f"✓ beat the market by {ex:.1f} pts" if ex > 0 else f"✗ lagged the market by {abs(ex):.1f} pts"
+        verdict = f"✓ beat your stocks by {ex:.1f} pts after costs" if ex > 0 else f"✗ trailed your stocks by {abs(ex):.1f} pts after costs"
         dec = r0.get("decision")
         you = {"acted": "You acted.", "passed": "You passed."}.get(dec, "Not marked yet.")
-        t.append(f"{day} · {r0['symbol']} {label}: stock {ret:+.1f}%, market {mkt:+.1f}% → {verdict}. {you}")
+        t.append(f"{day} · {r0['symbol']} {label}: stock {ret:+.1f}%, your stocks {mkt:+.1f}% → {verdict}. {you}")
         links = ""
         if not dec and decision_link(eid, "acted"):
             t.append(f"   I acted: {decision_link(eid, 'acted')}   I passed: {decision_link(eid, 'passed')}")
@@ -1208,11 +1267,11 @@ def send_followups():
                      + h_esc(decision_link(eid, "passed")) + '">I passed</a>')
         color = "#059669" if ex > 0 else "#DC2626"
         h.append(f'<p style="margin:0 0 12px"><b>{h_esc(r0["symbol"])} {h_esc(label)}</b> <span style="color:#666">({h_esc(day)})</span><br>'
-                 f'stock {ret:+.1f}%, market {mkt:+.1f}% → <b style="color:{color}">{h_esc(verdict)}</b>. '
+                 f'stock {ret:+.1f}%, your stocks {mkt:+.1f}% → <b style="color:{color}">{h_esc(verdict)}</b>. '
                  f'<span style="color:#555">{h_esc(you)}</span>{links}</p>')
-    t += ["", "BOUNCE WATCH counts as right when the stock rebounds ahead of the market.",
+    t += ["", "Right = the stock beat the average of your watchlist by more than the 0.4% trading costs.",
           "Full record: Tripwire → Performance."]
-    h.append('<p style="color:#666;font-size:13px">BOUNCE WATCH counts as right when the stock rebounds ahead of the market. '
+    h.append('<p style="color:#666;font-size:13px">Right = the stock beat the average of your watchlist by more than the 0.4% trading costs. '
              'Full record: Tripwire → Performance.</p>')
     _send_email(subject, "\n".join(t), _email_shell("".join(h)))
     return len(items)
@@ -1838,6 +1897,7 @@ def login():
         if role:
             nxt = session.get("next", "")
             session.clear()
+            session.permanent = True
             session["authed"] = True
             session["role"] = role
             session["vid"] = secrets.token_hex(6)
@@ -2105,6 +2165,25 @@ def api_alerts_export():
     return Response(buf.getvalue(), mimetype="text/csv",
                     headers={"Content-Disposition": "attachment; filename=tripwire_alerts.csv"})
 
+def _mean_ci(xs, z=1.96):
+    """95% range for an average; None with fewer than 2 values."""
+    xs = [x for x in xs if x is not None]
+    if len(xs) < 2:
+        return None
+    m, sd = statistics.mean(xs), statistics.stdev(xs)
+    h = z * sd / len(xs) ** 0.5
+    return [round(m - h, 2), round(m + h, 2)]
+
+def _wilson(k, n, z=1.96):
+    """95% range (Wilson) for a hit rate in percent; sensible even for small n."""
+    if not n:
+        return None
+    p = k / n
+    d = 1 + z * z / n
+    c = (p + z * z / (2 * n)) / d
+    h = z * ((p * (1 - p) / n + z * z / (4 * n * n)) ** 0.5) / d
+    return [round(max(0.0, c - h) * 100, 1), round(min(1.0, c + h) * 100, 1)]
+
 @app.route("/api/analytics")
 @login_required
 def api_analytics():
@@ -2147,13 +2226,17 @@ def api_analytics():
     def _grp(items):
         if not items:
             return None
-        return {"n": len(items), "avg_excess": round(sum(i["excess"] for i in items) / len(items), 2),
-                "hit": round(100 * sum(1 for i in items if i["excess"] > 0) / len(items), 1)}
+        ex = [i["excess"] for i in items]
+        k = sum(1 for x in ex if x > 0)
+        return {"n": len(items), "avg_excess": round(sum(ex) / len(ex), 2), "excess_ci": _mean_ci(ex),
+                "hit": round(100 * k / len(ex), 1), "hit_ci": _wilson(k, len(ex))}
     strong_sigs = [s for s in signals if s["strong"]]
     money = None
     if strong_sigs:
+        ci = _mean_ci([s["excess"] for s in strong_sigs])
         money = {"n": len(strong_sigs), "stake": 1000,
                  "vs_market": round(sum(s["excess"] for s in strong_sigs) * 10, 0),
+                 "vs_market_ci": [round(c * len(strong_sigs) * 10) for c in ci] if ci else None,
                  "raw": round(sum(s["ret"] for s in strong_sigs) * 10, 0)}
     decisions = {"acted": _grp([s for s in strong_sigs if s["decision"] == "acted"]),
                  "passed": _grp([s for s in strong_sigs if s["decision"] == "passed"]),
@@ -2172,10 +2255,13 @@ def api_analytics():
     outcomes = []
     for r in orows:
         base = bt.get(r["rule_type"], [])
+        rex = [x["outcome_excess"] for x in scored if x["rule_type"] == r["rule_type"]]
         outcomes.append({
             "rule_type": r["rule_type"], "n": r["n"],
             "live_excess": round(r["avg_exc"], 2) if r["avg_exc"] is not None else None,
+            "live_excess_ci": _mean_ci(rex),
             "live_hit": round(r["hit"] * 100, 1) if r["hit"] is not None else None,
+            "live_hit_ci": _wilson(sum(1 for x in rex if x > 0), len(rex)),
             "bt_excess": round(sum(s.get("exc5", 0) for s in base) / len(base), 2) if base else None,
             "bt_hit": round(sum(s.get("hit5", 0) for s in base) / len(base), 1) if base else None,
         })
@@ -2184,25 +2270,32 @@ def api_analytics():
     recent_list = [{
         "ids": s["ids"], "symbol": s["symbol"], "label": s["label"], "strong": s["strong"],
         "date": datetime.fromtimestamp(s["ts"]).strftime("%b %d"),
-        "ret": s["ret"], "market": round(s["ret"] - s["excess"], 2), "excess": s["excess"],
+        "ret": s["ret"], "market": round(s["ret"] - s["excess"] - TARGET_COST_PCT, 2), "excess": s["excess"],
         "decision": s["decision"],
     } for s in reversed(signals[-15:])]
 
     # Overall backtested hit rate across all rules that have live outcomes, for calibration drift.
     live_hits = [o["live_hit"] for o in outcomes if o["live_hit"] is not None]
     bt_hits   = [o["bt_hit"]   for o in outcomes if o["bt_hit"]   is not None]
+    sig_ex = [s["excess"] for s in signals]
+    sig_k = sum(1 for x in sig_ex if x > 0)
     headline = {
         "n": head["n"] or 0,
         "pct_correct": round(head["hit"] * 100, 1) if head["hit"] is not None else None,
+        "pct_correct_ci": _wilson(sig_k, len(sig_ex)),
         "avg_excess": round(head["avg_exc"], 2) if head["avg_exc"] is not None else None,
+        "avg_excess_ci": _mean_ci(sig_ex),
     }
     calibration = None
     if headline["n"] >= 10 and live_hits and bt_hits:
-        live_overall = sum(live_hits) / len(live_hits)
+        live_overall = headline["pct_correct"]
         bt_overall = sum(bt_hits) / len(bt_hits)
+        lo, hi = headline["pct_correct_ci"] or (live_overall, live_overall)
         calibration = {
-            "live_hit": round(live_overall, 1), "bt_hit": round(bt_overall, 1),
-            "drifting": live_overall < bt_overall - 8,  # meaningfully below backtest
+            "live_hit": round(live_overall, 1), "bt_hit": round(bt_overall, 1), "live_hit_ci": [lo, hi],
+            # drifting only when the backtest's promise lies above the whole plausible live range
+            "drifting": bt_overall > hi,
+            "uncertain": lo <= bt_overall <= hi and (hi - lo) > 20,
         }
     return jsonify({
         "headline": headline,
@@ -2332,6 +2425,10 @@ def _run_backtest(args, phase):
     RECAL_STATE.update({"running": True, "phase": phase, "rc": None, "started": int(time.time())})
     refresh = "--refresh" in args
     live_stats = RULE_STATS_PATH.read_bytes() if refresh and RULE_STATS_PATH.exists() else None
+    if refresh:
+        # select() only proposes changes that beat these live thresholds by more than noise
+        LIVE_PARAMS_JSON.parent.mkdir(parents=True, exist_ok=True)
+        LIVE_PARAMS_JSON.write_text(json.dumps(_live_params_snapshot()), encoding="utf-8")
     try:
         proc = subprocess.run([sys.executable, str(BACKTEST_PY), *args],
                               cwd=str(BACKTEST_PY.parent), capture_output=True, text=True, timeout=1800)
@@ -2415,6 +2512,7 @@ threading.Thread(target=auto_recal_loop, daemon=True).start()
 # ── Portfolio test: $1,000 following the app's STRONG signals (rulebook in portfolio_sim.py) ──
 PORTFOLIO_JSON = Path(__file__).parent / "backtest_results" / "portfolio_backtest.json"
 LIVE_PARAMS_JSON = Path(__file__).parent / "backtest_results" / "live_params.json"
+BASELINE_JSON = Path(__file__).parent / "backtest_results" / "baseline_params.json"
 PF_STATE = {"building": False, "error": None}
 _pf_lock = threading.Lock()
 _live_pf_cache = {"ts": 0.0, "data": None}
@@ -2443,6 +2541,10 @@ def build_backtest_portfolio():
         snap = _live_params_snapshot()
         LIVE_PARAMS_JSON.parent.mkdir(parents=True, exist_ok=True)
         LIVE_PARAMS_JSON.write_text(json.dumps(snap), encoding="utf-8")
+        if not BASELINE_JSON.exists():
+            # Freeze today's rules once: every later improvement has to beat this line.
+            BASELINE_JSON.write_text(json.dumps({"frozen": datetime.now().strftime("%Y-%m-%d"), "params": snap}),
+                                     encoding="utf-8")
         proc = subprocess.run([sys.executable, str(BACKTEST_PY), "portfolio"], cwd=str(BACKTEST_PY.parent),
                               capture_output=True, text=True, timeout=900)
         if proc.returncode != 0:
@@ -2587,9 +2689,16 @@ def api_portfolio_sim():
     with get_db() as conn:
         runs = [dict(r) for r in conn.execute(
             "SELECT ts,strategy_cagr,untouched_cagr,spy_cagr FROM sim_backtest_runs ORDER BY id DESC LIMIT 8")]
+    replay = None
+    rp = Path(__file__).parent / "backtest_results" / "learn" / "replay.json"
+    if rp.exists():
+        try:
+            replay = json.loads(rp.read_text(encoding="utf-8"))
+        except Exception:
+            replay = None
     return jsonify({"backtest": bt, "backtest_updating": bool(stale or PF_STATE["building"]),
                     "backtest_error": PF_STATE["error"], "backtest_runs": runs,
-                    "live": compute_live_portfolio()})
+                    "live": compute_live_portfolio(), "replay": replay})
 
 @app.route("/api/portfolio-sim/restart", methods=["POST"])
 @login_required
@@ -3248,6 +3357,7 @@ input,select{outline:none}
 .today-more{color:#93C5FD;text-decoration:none}
 .today-detail{margin-top:10px;padding-top:10px;border-top:1px dashed #1E2235}
 .perf-money{font-size:28px;font-weight:800;margin:2px 0 6px}
+.ci-range{font-size:11px;color:#9CA3AF;font-weight:400}
 @media (max-width:600px){ .today-actions{margin-left:0;width:100%} .today-actions .dec-btn{flex:1;padding:8px} }
 .triage-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
 .triage-row:last-child{margin-bottom:0}
@@ -3346,14 +3456,14 @@ input,select{outline:none}
 .price-cell{background:#0A0C12;border:1px solid #1E2235;border-radius:8px;padding:10px 12px}
 .price-cell-label{font-size:14px;color:#6B7280;margin-bottom:4px;letter-spacing:.7px;text-transform:uppercase}
 .price-cell-val{font-size:16px;font-weight:800;letter-spacing:-.5px}
-.price-cell-sub{font-size:17px;color:#6B7280;margin-top:2px}
+.price-cell-sub{font-size:11px;color:#6B7280;margin-top:2px}
 
 /* Range grid */
 .ranges-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:18px}
 .range-cell{background:#0A0C12;border:1px solid #1E2235;border-radius:8px;padding:10px 12px}
 .range-cell-label{font-size:14px;color:#6B7280;letter-spacing:.7px;text-transform:uppercase;margin-bottom:6px}
 .range-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:3px}
-.range-row span:first-child{font-size:15px;color:#6B7280}
+.range-row span:first-child{font-size:11px;color:#6B7280}
 .range-row span:last-child{font-size:13px;font-weight:700}
 .range-bar-wrap{height:4px;background:#1E2235;border-radius:2px;margin-top:6px;position:relative}
 .range-bar-fill{height:100%;border-radius:2px}
@@ -3371,8 +3481,8 @@ input,select{outline:none}
 .badge-alert{background:#F59E0B15;color:#F59E0B;border:1px solid #F59E0B33}
 .badge-disabled{background:#6B728015;color:#6B7280;border:1px solid #6B728033}
 .rule-desc{font-size:12px;color:#9CA3AF;margin-bottom:6px;line-height:1.5}
-.rule-rationale{font-size:17px;color:#6B7280;background:#12151F;border-left:2px solid #374151;padding:7px 10px;border-radius:0 6px 6px 0;margin-bottom:10px;line-height:1.5;font-style:italic}
-.rule-params-line{font-size:17px;color:#3B82F6;margin-bottom:10px}
+.rule-rationale{font-size:11px;color:#6B7280;background:#12151F;border-left:2px solid #374151;padding:7px 10px;border-radius:0 6px 6px 0;margin-bottom:10px;line-height:1.5;font-style:italic}
+.rule-params-line{font-size:11px;color:#3B82F6;margin-bottom:10px}
 .evidence-line{font-size:15px;color:#60A5FA;background:#3B82F60D;border:1px solid #3B82F62A;border-radius:6px;padding:6px 10px;margin-bottom:10px;line-height:1.5}
 .low-conf-badge{display:inline-block;margin-left:8px;font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:#F59E0B;background:#F59E0B15;border:1px solid #F59E0B44;border-radius:4px;padding:1px 6px}
 .bear-caveat{font-size:15px;color:#F87171;background:#EF44440D;border:1px solid #EF44442A;border-radius:6px;padding:6px 10px;margin-top:6px;margin-bottom:10px;line-height:1.5}
@@ -3382,7 +3492,7 @@ input,select{outline:none}
 .val-cell-val{font-size:14px;font-weight:700}
 .rule-msg{font-size:12px;background:#12151F;border-radius:6px;padding:8px 11px;color:#9CA3AF;margin-top:6px}
 .rule-msg.alert-msg{color:#F59E0B;background:#F59E0B0A;border:1px solid #F59E0B22}
-.edit-toggle{background:#1E2235;color:#E4E0D8;border-radius:4px;padding:3px 10px;font-size:17px}
+.edit-toggle{background:#1E2235;color:#E4E0D8;border-radius:4px;padding:3px 10px;font-size:11px}
 .edit-panel{background:#12151F;border:1px solid #1E2235;border-radius:8px;padding:14px;margin-top:10px}
 .edit-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
 .edit-row label{font-size:12px;color:#9CA3AF}
@@ -3398,7 +3508,7 @@ input,select{outline:none}
 .alert-group-hdr:hover{background:#1A1D27}
 .alert-group-sym{font-size:16px;font-weight:800;letter-spacing:-.5px}
 .alert-group-cnt{font-size:12px;color:#F59E0B;background:#F59E0B15;border:1px solid #F59E0B33;border-radius:10px;padding:1px 9px;font-weight:700}
-.alert-group-cat{font-size:17px;color:#6B7280}
+.alert-group-cat{font-size:11px;color:#6B7280}
 .alert-group-chevron{margin-left:auto;color:#6B7280;font-size:12px;transition:transform .2s}
 .alert-group-chevron.open{transform:rotate(180deg)}
 .alert-entries{display:none;border-top:1px solid #1E2235}
@@ -3406,20 +3516,20 @@ input,select{outline:none}
 .alert-entry{padding:14px 18px;border-bottom:1px solid #0F1117}
 .alert-entry:last-child{border-bottom:none}
 .alert-entry-header{display:flex;align-items:center;gap:10px;margin-bottom:6px}
-.alert-entry-time{font-size:17px;color:#4B5563;font-family:monospace}
-.alert-entry-rule{font-size:17px;color:#F59E0B;background:#F59E0B0F;border-radius:4px;padding:1px 8px;font-weight:700;text-transform:uppercase;letter-spacing:.4px}
-.alert-entry-price{font-size:17px;color:#9CA3AF;margin-left:auto}
+.alert-entry-time{font-size:11px;color:#4B5563;font-family:monospace}
+.alert-entry-rule{font-size:11px;color:#F59E0B;background:#F59E0B0F;border-radius:4px;padding:1px 8px;font-weight:700;text-transform:uppercase;letter-spacing:.4px}
+.alert-entry-price{font-size:11px;color:#9CA3AF;margin-left:auto}
 .window-chip{font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;border-radius:4px;padding:1px 7px}
 .window-chip.window-open{background:#3B82F615;color:#60A5FA;border:1px solid #3B82F633}
 .window-chip.window-closed{background:#6B728015;color:#6B7280;border:1px solid #6B728033}
 .alert-entry.window-expired{opacity:.62}
 .alert-entry-msg{font-size:13px;color:#E4E0D8;margin-bottom:6px;font-weight:500}
-.alert-entry-detail{font-size:17px;color:#6B7280;line-height:1.6}
+.alert-entry-detail{font-size:11px;color:#6B7280;line-height:1.6}
 .alert-detail-vals{display:flex;gap:12px;flex-wrap:wrap;margin-top:6px}
-.alert-detail-val{background:#0A0C12;border-radius:4px;padding:3px 8px;font-size:17px}
+.alert-detail-val{background:#0A0C12;border-radius:4px;padding:3px 8px;font-size:11px}
 .alert-detail-val span:first-child{color:#6B7280}
 .alert-detail-val span:last-child{color:#E4E0D8;font-weight:600;margin-left:4px}
-.alert-rationale{font-size:17px;color:#6B7280;background:#0A0C12;border-left:2px solid #374151;padding:6px 10px;border-radius:0 4px 4px 0;margin-top:6px;line-height:1.5;font-style:italic}
+.alert-rationale{font-size:11px;color:#6B7280;background:#0A0C12;border-left:2px solid #374151;padding:6px 10px;border-radius:0 4px 4px 0;margin-top:6px;line-height:1.5;font-style:italic}
 .news-synthesis{background:#130F1F;border-left:2px solid #7C3AED;padding:8px 12px;border-radius:0 6px 6px 0;margin-top:8px;line-height:1.6}
 .news-synthesis-label{font-size:15px;font-weight:700;color:#7C3AED;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:4px}
 .news-synthesis-text{font-size:12px;color:#C4B5FD;font-style:italic}
@@ -3431,7 +3541,7 @@ input,select{outline:none}
 .no-alerts{color:#6B7280;font-size:14px;padding:30px;text-align:center}
 
 /* Signal badges */
-.sig-badge{display:inline-block;border-radius:6px;padding:3px 12px;font-size:17px;font-weight:800;letter-spacing:.6px;text-transform:uppercase}
+.sig-badge{display:inline-block;border-radius:6px;padding:3px 12px;font-size:11px;font-weight:800;letter-spacing:.6px;text-transform:uppercase}
 .sig-strong-buy{background:#10B98125;color:#10B981;border:2px solid #10B98166}
 /* "Bounce watch" (formerly SELL) is amber, not red — backtesting found downside triggers on
    this watchlist historically bounce within days rather than continue lower; see BACKTESTING.md */
@@ -3448,7 +3558,7 @@ input,select{outline:none}
 .group-signal{margin-left:auto;margin-right:8px}
 
 /* Market phase pill */
-#market-phase{font-size:17px;font-weight:700;border-radius:10px;padding:2px 9px;letter-spacing:.3px}
+#market-phase{font-size:11px;font-weight:700;border-radius:10px;padding:2px 9px;letter-spacing:.3px}
 .mp-regular{background:#10B98118;color:#10B981;border:1px solid #10B98140}
 .mp-pre,.mp-post{background:#F59E0B15;color:#F59E0B;border:1px solid #F59E0B40}
 .mp-closed{background:#6B728015;color:#9CA3AF;border:1px solid #6B728040}
@@ -3471,7 +3581,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
   background:#1E2235;color:#E4E0D8;border:1px solid #3B82F655;border-radius:10px;padding:10px 16px;font-size:13px;
   box-shadow:0 8px 24px #0008;z-index:1000;transition:opacity .2s,transform .2s;max-width:calc(100vw - 32px);text-align:center}
 #toast.show{opacity:1;transform:translate(-50%,0)}
-#regime-pill{font-size:17px;font-weight:800;border-radius:10px;padding:2px 9px;letter-spacing:.3px;background:#EF444418;color:#F87171;border:1px solid #EF444444}
+#regime-pill{font-size:11px;font-weight:800;border-radius:10px;padding:2px 9px;letter-spacing:.3px;background:#EF444418;color:#F87171;border:1px solid #EF444444}
 #calib-stamp.calib-stale{color:#F87171;font-weight:800}
 
 /* Earnings chip on cards */
@@ -3499,7 +3609,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
    the compact pill it's styled to be. */
 .set-row label.switch{flex:none}
 .set-row input[type=text],.set-row input[type=number],.set-row input[type=password],.set-row select{background:#0A0C12;border:1px solid #1E2235;color:#E4E0D8;border-radius:6px;padding:7px 10px;font-size:13px;width:200px;max-width:55%}
-.set-hint{font-size:17px;color:#6B7280;margin:-6px 0 12px 0;line-height:1.5}
+.set-hint{font-size:11px;color:#6B7280;margin:-6px 0 12px 0;line-height:1.5}
 .settings-actions{display:flex;gap:10px;align-items:center;margin-top:8px}
 #btn-save-settings{background:#F59E0B;color:#000;border-radius:7px;padding:9px 20px;font-weight:700;font-size:13px}
 #btn-test-notify{background:#1E2235;color:#E4E0D8;border-radius:7px;padding:9px 16px;font-size:13px}
@@ -3530,6 +3640,10 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .pf-movers h4{font-size:11px;color:#9CA3AF;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px}
 .pf-movers div div{font-size:13px;padding:2px 0}
 .pf-col details summary{cursor:pointer;color:#93C5FD;font-size:12px;margin:8px 0}
+.ctx-tag{font-size:10px;font-weight:600;color:#9CA3AF;border:1px solid #374151;border-radius:6px;padding:1px 6px;margin-left:6px;vertical-align:middle;white-space:nowrap}
+.pf-explain{margin:-4px 0 12px}
+.pf-explain summary{cursor:pointer;color:#93C5FD;font-size:12px}
+.pf-explain p{font-size:13px;line-height:1.55;color:#D1D5DB;margin:6px 0}
 .pf-note{font-size:12px;color:#6B7280;margin-top:10px;line-height:1.5}
 
 /* Glossary */
@@ -3580,7 +3694,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .outcome-table{width:100%;border-collapse:collapse;font-size:13px}
 .outcome-table th{text-align:right;color:#9CA3AF;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.4px;padding:6px 8px;border-bottom:1px solid #1E2235}
 .outcome-table td{text-align:right;padding:7px 8px;border-bottom:1px solid #12151F}
-.an-stat-lbl{font-size:17px;color:#6B7280;text-transform:uppercase;letter-spacing:.5px}
+.an-stat-lbl{font-size:11px;color:#6B7280;text-transform:uppercase;letter-spacing:.5px}
 .abar-row{display:flex;align-items:center;gap:10px;margin-bottom:7px}
 .abar-label{font-size:12px;color:#9CA3AF;width:110px;text-align:right;flex-shrink:0}
 .abar-track{flex:1;background:#0A0C12;border-radius:4px;height:18px;overflow:hidden}
@@ -3655,9 +3769,9 @@ button:disabled{opacity:.45;cursor:not-allowed}
   <button class="tab" onclick="switchTab('assistant',this)">🤖 Assistant</button>
   <button class="tab" onclick="switchTab('analytics',this)">📊 Performance</button>
   <button class="tab" onclick="switchTab('portfolio',this)">💼 Portfolio test</button>
-  <button class="tab" onclick="switchTab('settings',this)">Settings</button>
   <button class="tab" onclick="switchTab('guide',this)">📘 Guide</button>
   <button class="tab" onclick="switchTab('glossary',this)" id="tab-glossary-btn">📖 Glossary</button>
+  <button class="tab" onclick="switchTab('settings',this)">Settings</button>
 </div>
 
 <div id="toast" role="status" aria-live="polite"></div>
@@ -3807,8 +3921,8 @@ function rangeBarHTML(lo, hi, current, label, loLabel, hiLabel, color) {
   const curClr = parseFloat(pct) < 15 ? '#EF4444' : parseFloat(pct) > 85 ? '#F59E0B' : color||'#10B981';
   return `<div class="range-cell">
     <div class="range-cell-label">${label}</div>
-    <div class="range-row"><span>${loLabel}</span><span class="dn">$${lo}</span></div>
-    <div class="range-row"><span>${hiLabel}</span><span class="up">$${hi}</span></div>
+    <div class="range-row"><span>${loLabel}</span><span class="dn">$${fmtPx(lo)}</span></div>
+    <div class="range-row"><span>${hiLabel}</span><span class="up">$${fmtPx(hi)}</span></div>
     <div class="range-bar-wrap">
       <div class="range-bar-fill" style="width:${clampedPct}%;background:${curClr}22;position:relative;height:100%"></div>
       <div class="range-bar-dot" style="left:${clampedPct}%;background:${curClr}"></div>
@@ -3874,7 +3988,7 @@ function ruleStatsFor(sym,ruleType){
 function ruleStatsLine(sym,ruleType){
   const st=ruleStatsFor(sym,ruleType);
   if(!st) return '';
-  const parts=[`${st.exc5>=0?'+':''}${st.exc5.toFixed(1)}% avg vs SPY over 5d`];
+  const parts=[`${st.exc5>=0?'+':''}${st.exc5.toFixed(1)}% avg vs your stocks after costs over 5d`];
   if(st.hit5!=null) parts.push(`${Math.round(st.hit5)}% hit`);
   parts.push(`n=${st.n}`);
   if(st.mae!=null) parts.push(`worst case ${st.mae>=0?'+':''}${st.mae.toFixed(1)}%`);
@@ -4023,6 +4137,8 @@ function switchTab(name,btn){
     if(el) el.style.display=(n===name)?'':'none';
   });
   if(name==='guide') renderGuide();
+  // On a phone the tab row scrolls sideways; keep the chosen tab in view (e.g. Settings, far right).
+  if(btn&&btn.scrollIntoView) btn.scrollIntoView({block:'nearest',inline:'nearest'});
   if(name==='settings') loadSettings();
   if(name==='analytics') loadAnalytics();
   if(name==='portfolio') loadPortfolio();
@@ -4051,11 +4167,11 @@ const GUIDE_FIG_VOTE=`<div class="guide-vote">
   <div class="gv-row"><span class="gv-chip on">Unusual move ▲</span><span class="gv-chip on">Volume spike ▲</span><span class="gv-chip">Support/resistance</span><span class="gv-chip">RSI</span></div>
   <div class="gv-result">2 of 4 agree, both pointing up → <b>STRONG BUY</b>. With only 1 → "trending", not yet a signal.</div>
 </div>`;
-const GUIDE_FIG_EXCESS=`<svg viewBox="0 0 640 150" class="guide-fig" role="img" aria-label="Bar chart: stock plus 3 percent, market plus 1 percent, difference plus 2 points">
+const GUIDE_FIG_EXCESS=`<svg viewBox="0 0 640 150" class="guide-fig" role="img" aria-label="Bar chart: stock plus 3 percent, your stocks plus 1 percent, difference plus 2 points before costs">
   <text x="10" y="22" font-size="13" fill="#9CA3AF">5 trading days after a signal</text>
   <rect x="150" y="38" width="300" height="26" rx="4" fill="#F59E0B"/><text x="10" y="56" font-size="13" fill="#E4E0D8">the stock</text><text x="460" y="56" font-size="13" fill="#F59E0B">+3%</text>
-  <rect x="150" y="76" width="100" height="26" rx="4" fill="#6B7280"/><text x="10" y="94" font-size="13" fill="#E4E0D8">S&amp;P 500</text><text x="260" y="94" font-size="13" fill="#9CA3AF">+1%</text>
-  <text x="10" y="134" font-size="14" fill="#10B981">signal "beat the market" by +2 points  ✓</text>
+  <rect x="150" y="76" width="100" height="26" rx="4" fill="#6B7280"/><text x="10" y="94" font-size="13" fill="#E4E0D8">your stocks (avg)</text><text x="260" y="94" font-size="13" fill="#9CA3AF">+1%</text>
+  <text x="10" y="134" font-size="14" fill="#10B981">beat your stocks by +2 points, +1.6 after 0.4% costs  ✓</text>
 </svg>`;
 
 const GUIDE_SECTIONS=[
@@ -4087,7 +4203,7 @@ const GUIDE_SECTIONS=[
      <ul><li><b>Stocks</b>: the answer first ("Nothing needs you today" or the signals awaiting your call), then one tile per stock. The tile shows the same signal as the banner, plus which rules are triggered <i>right now</i>. Click a tile for its chart and details.</li>
      <li><b>Alerts</b>: the record: active signals on top, then every rule that fired, per stock, with the numbers behind it.</li>
      <li><b>Assistant</b>: ask questions in plain English ("why did MU jump today?"). It can look things up, search the news and, if you ask, adjust settings.</li>
-     <li><b>Performance</b>: the app grading itself: how many signals actually beat the market, and how your own "acted / passed" choices did.</li>
+     <li><b>Performance</b>: the app grading itself: how many signals actually beat your own stocks after costs, and how your own "acted / passed" choices did.</li>
      <li><b>Portfolio test</b>: $1,000 following every signal, compared with the same stocks never traded and with the S&P 500, over the last 5 years and live from today.</li>
      <li><b>Settings</b>: notifications, email, and recalibration. <b>Glossary</b>: every term explained.</li></ul>
      <h4>Emails you'll get</h4>
@@ -4097,7 +4213,7 @@ const GUIDE_SECTIONS=[
   {id:'how', icon:'⚙️', title:'How — the method',
    short:`<p><b>1. Compare:</b> every minute, each stock's latest price is compared with <i>its own</i> recent history, because a 3% move is dramatic for a bank and ordinary for a chip maker.</p>
      <p><b>2. Vote:</b> four rules with a proven record vote. Two or more agreeing makes a STRONG signal.</p>
-     <p><b>3. Tested on history:</b> every threshold was chosen by replaying 5 years of real prices and keeping what was followed by beating the market over 1–5 days.</p>
+     <p><b>3. Tested on history:</b> every threshold was chosen by replaying 5 years of real prices and keeping what was followed by beating your own stocks, after costs, over 1–5 days.</p>
      <p><b>4. Self-checking:</b> each signal is scored 5 trading days later, and once a month the thresholds are re-tested on fresh data.</p>`,
    long:`<h4>The four voting rules, with examples</h4>
      <ul><li><b>Unusual move</b>: today's change is several times bigger than this stock's normal day. If AAPL usually moves about 1% a day, a 4% day stands out.</li>
@@ -4107,9 +4223,9 @@ const GUIDE_SECTIONS=[
      <p>Three more rules (an opening gap, several down days in a row, moving-average crossings) are shown for context but don't vote, because on their own they had almost no track record.</p>
      ${GUIDE_FIG_VOTE}
      <h4>"Beating the market": how every signal is judged</h4>
-     <p>A stock rising 3% isn't impressive if the whole market rose 3%. So every signal is judged against the S&P 500 over the next 5 trading days:</p>
+     <p>Acting on a signal moves money out of your other stocks, so a signal only helps if the stock then does better than <i>those</i> stocks, by more than the ~0.4% trading costs. So every signal is judged against the average of your watchlist over the next 5 trading days:</p>
      ${GUIDE_FIG_EXCESS}
-     <p>This applies to both signal types: a BOUNCE WATCH counts as right when the stock recovers <i>ahead of</i> the market.</p>
+     <p>This applies to both signal types: a BOUNCE WATCH counts as right when the stock recovers <i>ahead of</i> your other stocks. The S&amp;P 500 comparison is still shown as secondary information.</p>
      <h4>How the thresholds were chosen (backtesting)</h4>
      <p>Think of testing a weather rule like "dark clouds mean rain tomorrow" against 5 years of weather records before trusting it. Tripwire did the same with prices: for every rule and many possible thresholds, it replayed 5 years of history, noted every time the rule would have fired, and checked what the stock did over the next 5 days compared with the market. Only settings that worked, and kept working on the most recent part of the history they weren't tuned on, were kept.</p>
      <h4>Why "act within 4 trading days"?</h4>
@@ -4166,7 +4282,7 @@ const GLOSSARY_LINK_RULES=[
   [/\boverbought\b/i,'obos'],[/\boversold\b/i,'obos'],[/\bOB\/OS\b/i,'obos'],
   [/\bcross-?over\b/i,'crossover'],[/\bgolden cross\b/i,'crossover'],[/\bdeath cross\b/i,'crossover'],
   [/\bgap\b/i,'gap'],
-  [/\bexcess return\b/i,'excess'],[/\bvs\.? SPY\b/i,'excess'],
+  [/\bexcess return\b/i,'excess'],[/\bvs\.? SPY\b/i,'excess'],[/\bresult vs your stocks\b/i,'excess'],[/\bvs your stocks after costs\b/i,'excess'],
   [/\bhit rate\b/i,'hitrate'],
   [/\bvolatility\b/i,'volatility'],
   [/\bsupport\b/i,'sr'],[/\bresistance\b/i,'sr'],
@@ -4193,7 +4309,7 @@ const GLOSSARY=[
   ['cagr','Per year (CAGR)','The steady yearly growth rate that would turn the starting value into the end value. +13%/yr for 5 years roughly doubles money. Shown only after 90 days, because annualising a few weeks exaggerates wildly.'],
   ['never-traded','Never traded','The Portfolio test\'s reference line: the same $1,000 split equally across the same stocks and simply held. The gap between "following the app" and this line is what the app\'s signals add or cost, separate from how good the stock picks themselves were.'],
   ['backtested','Backtested','Every threshold in Tripwire was chosen by replaying ~5 years of daily prices and measuring what actually happened after each trigger (see the Backtesting doc). The "Backtested: +x% over 5d" line on a rule is that rule\'s measured historical edge, not a guess.'],
-  ['excess','Excess return (vs SPY)','A rule\'s forward return with the S&P 500 (SPY) subtracted over the same window, so the rule isn\'t credited for a move that was really just the whole market rising. +2% excess means the stock beat SPY by 2 points over the measured days.'],
+  ['excess','Result vs your stocks','A signal\'s 5-day result with the average of your watchlist and the ~0.4% round-trip trading cost subtracted. Acting on a signal moves money out of your other stocks, so this is what it actually earns you: +2% means the stock beat your other stocks by 2 points after costs. The S&P 500 comparison is shown separately, as secondary information.'],
   ['hitrate','Hit rate','The percent of a rule\'s historical triggers where the signal was "right" (a positive signal-direction excess return). 55–62% is typical for the strong rules — an edge, not a crystal ball.'],
   ['mae','Worst case (MAE)','Maximum Adverse Excursion — the average worst intraday drawdown within the window after a trigger. It answers "if I acted on this, how far underwater might I have gone before the edge played out?"'],
   ['window','4-day action window','The thresholds are tuned to a 1–5 trading-day edge, so a signal is only considered actionable for about four trading days. Older alerts are greyed as "window closed" and stop counting toward the combined signal.'],
@@ -4328,14 +4444,14 @@ function renderGrid(){
       </div>
       ${s.price!=null?`
         <div class="card-priceline">
-          <span class="stock-price">$${s.price}</span>
+          <span class="stock-price">$${fmtPx(s.price)}</span>
           <span class="stock-pct ${pctCls}">${sign}${s.pct}%</span>
         </div>
         <div class="stock-ext">
-          ${s.pre_market?`<span class="pre-clr">Pre $${s.pre_market}</span>`:''}
-          ${s.post_market?`<span class="post-clr">Post $${s.post_market}</span>`:''}
+          ${s.pre_market?`<span class="pre-clr">Pre $${fmtPx(s.pre_market)}</span>`:''}
+          ${s.post_market?`<span class="post-clr">Post $${fmtPx(s.post_market)}</span>`:''}
         </div>
-        <div class="stock-time">${s.date} ${s.time}</div>
+        <div class="stock-time">${fmtQuoteTime(s.date,s.time)}</div>
         ${earningsChip(s)}
         ${signalStripHTML(ev)}
         ${rulesHTML}
@@ -4552,8 +4668,10 @@ function infoEventsLineHTML(s){
   return `<div class="info-tier-line">⚡ activity: ${text}</div>`;
 }
 
+// On tiles, only upcoming earnings worth noticing (within 2 weeks); further out it was noise on
+// every card. The detail panel still shows the date.
 function earningsChip(s){
-  if(s.earnings_in_days==null||s.earnings_in_days<0) return '';
+  if(s.earnings_in_days==null||s.earnings_in_days<0||s.earnings_in_days>14) return '';
   const d=s.earnings_in_days;
   const txt=d===0?'Earnings today':d===1?'Earnings tomorrow':'Earnings in '+d+'d';
   return `<div class="earnings-chip${d<=5?' soon':''}">📅 ${txt}</div>`;
@@ -4572,9 +4690,9 @@ function cardRuleDetail(r){
   }
   if(r.rule_type==='support_resistance'){
     if(r.actual_value==null) return r.message||'';
-    if(r.triggered&&r.actual_value<r.support) return `$${r.actual_value} below support $${r.support}`;
-    if(r.triggered&&r.actual_value>r.resistance) return `$${r.actual_value} above resistance $${r.resistance}`;
-    return `$${r.actual_value} in range $${r.support}–$${r.resistance}`;
+    if(r.triggered&&r.actual_value<r.support) return `$${fmtPx(r.actual_value)} below support $${fmtPx(r.support)}`;
+    if(r.triggered&&r.actual_value>r.resistance) return `$${fmtPx(r.actual_value)} above resistance $${fmtPx(r.resistance)}`;
+    return `$${fmtPx(r.actual_value)} in range $${fmtPx(r.support)}–$${fmtPx(r.resistance)}`;
   }
   if(r.rule_type==='consecutive_down'){
     if(r.actual_value==null) return r.message||'';
@@ -4624,7 +4742,7 @@ function renderDetail(s){
     <div id="detail-header">
       <div>
         <div id="detail-title">${s.symbol} <span style="font-size:13px;color:#6B7280;font-weight:400">${(s.category||'').replace('_vol',' vol')}</span></div>
-        <div id="detail-meta">Updated ${s.date} ${s.time}${s.alert?' · <span style="color:#F59E0B">⚠ Rule triggered now</span>':''}</div>
+        <div id="detail-meta">Updated ${fmtQuoteTime(s.date,s.time)}${s.alert?' · <span style="color:#F59E0B">⚠ Rule triggered now</span>':''}</div>
         ${signalStripHTML(openSignalBySymbol()[s.symbol])}
         ${liveReadingHTML(computeSignal(s.rules),openSignalBySymbol()[s.symbol])}
       </div>
@@ -4730,6 +4848,7 @@ function renderDetailChart(sym){
   if(!pts.length){ box.innerHTML='<div style="color:#6B7280;font-size:13px;padding:30px;text-align:center">No chart data for this range.</div>'; return; }
   box.innerHTML=priceLineSVG(pts,xlabel);
 }
+function axisDate(s){ return /^\d{4}-\d{2}-\d{2}$/.test(String(s))?fmtDay(s):s; }
 function priceLineSVG(pts,xlabel){
   const W=760,H=220,pT=14,pB=26,pL=52,pR=12;
   const plotW=W-pL-pR, plotH=H-pT-pB;
@@ -4756,8 +4875,8 @@ function priceLineSVG(pts,xlabel){
     `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:${H}px" preserveAspectRatio="none">`+
     `<defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${stroke}" stop-opacity="0.22"/><stop offset="100%" stop-color="${stroke}" stop-opacity="0"/></linearGradient></defs>`+
     `${grid}<path d="${area}" fill="url(#${gid})"/><path d="${line}" fill="none" stroke="${stroke}" stroke-width="1.6"/>`+
-    `<text x="${pL}" y="${H-6}" fill="#4B5563" font-size="10">${pts[0].label}</text>`+
-    `<text x="${W-pR}" y="${H-6}" fill="#4B5563" font-size="10" text-anchor="end">${pts[pts.length-1].label}</text>`+
+    `<text x="${pL}" y="${H-6}" fill="#4B5563" font-size="10">${axisDate(pts[0].label)}</text>`+
+    `<text x="${W-pR}" y="${H-6}" fill="#4B5563" font-size="10" text-anchor="end">${axisDate(pts[pts.length-1].label)}</text>`+
     `</svg>`;
 }
 
@@ -4772,18 +4891,18 @@ function ruleHTML(sym,r,idx,historyClosed,params){
 
   const vals=[];
   if(r.actual_value!=null){
-    const unit=r.rule_type==='volatility'?'%':r.rule_type==='consecutive_down'?' days':'';
+    const unit=r.rule_type==='volatility'?'%':r.rule_type==='consecutive_down'?(r.actual_value==1?' day':' days'):'';
     vals.push(`<div class="val-cell"><div class="val-cell-label">Actual</div><div class="val-cell-val" style="color:${r.triggered?'#F59E0B':'#E4E0D8'}">${r.actual_value}${unit}</div></div>`);
   }
   if(r.threshold!=null){
-    const unit=r.rule_type==='volatility'?'%':r.rule_type==='consecutive_down'?' days':'';
+    const unit=r.rule_type==='volatility'?'%':r.rule_type==='consecutive_down'?(r.threshold==1?' day':' days'):'';
     vals.push(`<div class="val-cell"><div class="val-cell-label">Threshold</div><div class="val-cell-val">${r.threshold}${unit}</div></div>`);
   }
   if(r.avg_daily_vol!=null) vals.push(`<div class="val-cell"><div class="val-cell-label">Avg Daily Vol</div><div class="val-cell-val">${r.avg_daily_vol}%</div></div>`);
-  if(r.support!=null)       vals.push(`<div class="val-cell"><div class="val-cell-label">Support</div><div class="val-cell-val up">$${r.support}</div></div>`);
-  if(r.resistance!=null)    vals.push(`<div class="val-cell"><div class="val-cell-label">Resistance</div><div class="val-cell-val dn">$${r.resistance}</div></div>`);
-  if(r.period_low!=null)    vals.push(`<div class="val-cell"><div class="val-cell-label">Period Low</div><div class="val-cell-val">$${r.period_low}</div></div>`);
-  if(r.period_high!=null)   vals.push(`<div class="val-cell"><div class="val-cell-label">Period High</div><div class="val-cell-val">$${r.period_high}</div></div>`);
+  if(r.support!=null)       vals.push(`<div class="val-cell"><div class="val-cell-label">Support</div><div class="val-cell-val up">$${fmtPx(r.support)}</div></div>`);
+  if(r.resistance!=null)    vals.push(`<div class="val-cell"><div class="val-cell-label">Resistance</div><div class="val-cell-val dn">$${fmtPx(r.resistance)}</div></div>`);
+  if(r.period_low!=null)    vals.push(`<div class="val-cell"><div class="val-cell-label">Period Low</div><div class="val-cell-val">$${fmtPx(r.period_low)}</div></div>`);
+  if(r.period_high!=null)   vals.push(`<div class="val-cell"><div class="val-cell-label">Period High</div><div class="val-cell-val">$${fmtPx(r.period_high)}</div></div>`);
 
   let chart='';
   if(r.rule_type==='volatility') chart=chartVolatility(historyClosed,r.threshold,r.actual_value);
@@ -4809,7 +4928,7 @@ function ruleHTML(sym,r,idx,historyClosed,params){
 
   return `<div class="rule-card${alertCls}">
     <div class="rule-header">
-      <div class="rule-title">${r.label}</div>
+      <div class="rule-title">${r.label}${CONTEXT_ONLY_RULES[r.rule_type]?' <span class="ctx-tag" title="Shown for context only: this rule never sends alerts or counts toward a signal">context only · never alerts</span>':''}</div>
       <div class="rule-header-right">
         ${badge}
         ${rSig}
@@ -4998,7 +5117,7 @@ function renderAlerts(){
           <span class="alert-group-cnt">${entries.length} alert${entries.length>1?'s':''}</span>
           <span class="alert-group-cat">${s?(s.category||'').replace('_vol',' vol'):''}</span>
           <span class="alert-group-latest">latest ${fmtFired(last.ts)} · ${RULE_TITLE[last.rule_type]||last.rule_type}</span>
-          ${unacked>0?`<button class="btn-reset" style="padding:3px 10px;font-size:17px;margin-right:6px" onclick="ackSymbol(event,'${sym}')">✓ Ack</button>`:''}
+          ${unacked>0?`<button class="btn-reset" style="padding:3px 10px;font-size:11px;margin-right:6px" onclick="ackSymbol(event,'${sym}')">✓ Ack</button>`:''}
           <span class="alert-group-chevron ${isOpen?'open':''}" id="ag-chev-${sym}">▼</span>
         </div>
         <div class="alert-entries ${isOpen?'open':''}" id="ag-entries-${sym}">
@@ -5227,49 +5346,56 @@ async function loadAnalytics(){
 
   if(!h.n){
     pane.innerHTML=`<h2 class="perf-title">📊 Performance</h2>
-      <div class="analytics-card"><div class="set-hint">No signals have matured yet. Once an alert is ~5 trading days old, Tripwire scores what actually happened (the stock's move and its ${linkifyGlossary('excess return')} vs the S&P 500) and reports here whether its signals are working.</div>${pend}</div>`;
+      <div class="analytics-card"><div class="set-hint">No signals have matured yet. Once an alert is ~5 trading days old, Tripwire scores what actually happened (the stock's move against your other stocks, after costs: its ${linkifyGlossary('result vs your stocks')}) and reports here whether its signals are working.</div>${pend}</div>`;
     return;
   }
 
   // Headline
   const hitClr=h.pct_correct>=55?'#10B981':h.pct_correct>=50?'#F59E0B':'#EF4444';
   const excClr=h.avg_excess>=0?'#10B981':'#EF4444';
+  const rng=(ci,signed)=>{
+    if(!ci) return '';
+    const f=v=>(signed&&v>=0?'+':'')+v+'%';
+    return `<span class="ci-range" title="95% likely range: with this many signals, the true value is probably between these two numbers">likely ${f(ci[0])} to ${f(ci[1])}</span>`;
+  };
   const headlineHTML=`<div class="perf-headline">
-    <div class="perf-hero"><div class="perf-hero-num" style="color:${hitClr}">${h.pct_correct}%</div><div class="perf-hero-lbl">of ${h.n} signals beat the market over the next 5 days</div></div>
-    <div class="perf-hero"><div class="perf-hero-num" style="color:${excClr}">${h.avg_excess>=0?'+':''}${h.avg_excess}%</div><div class="perf-hero-lbl">avg ${linkifyGlossary('excess return')} vs S&P 500 over 5 days</div></div>
-  </div>`;
+    <div class="perf-hero"><div class="perf-hero-num" style="color:${hitClr}">${h.pct_correct}%</div><div class="perf-hero-lbl">of ${h.n} signals beat your stocks after costs, over 5 days<br>${rng(h.pct_correct_ci,false)}</div></div>
+    <div class="perf-hero"><div class="perf-hero-num" style="color:${excClr}">${h.avg_excess>=0?'+':''}${h.avg_excess}%</div><div class="perf-hero-lbl">avg ${linkifyGlossary('result vs your stocks')} after costs, 5 days<br>${rng(h.avg_excess_ci,true)}</div></div>
+  </div>
+  <div class="set-hint" style="margin:-6px 0 12px">"Likely" ranges show how much these numbers could be luck: with few signals the range is wide, and a range that spans zero means the signals haven't yet proven an edge.</div>`;
 
   // Calibration nudge
   let calibHTML='';
   if(d.calibration){
     const c=d.calibration;
-    if(c.drifting){
-      calibHTML=`<div class="perf-drift">⚠ Live hit rate (${c.live_hit}%) is tracking below the backtested ${c.bt_hit}% — the market may have shifted. Consider <a class="gloss-link" href="javascript:void(0)" onclick="switchTab('settings',tabBtn('settings'));setTimeout(()=>document.getElementById('btn-recal-run')&&document.getElementById('btn-recal-run').scrollIntoView({block:'center'}),300);return false;">recalibrating</a>.</div>`;
+    if(c.uncertain&&!c.drifting){
+      calibHTML=`<div class="perf-ok" style="color:#9CA3AF">… Too few signals to judge yet: live hit rate ${c.live_hit}% (likely ${c.live_hit_ci[0]}–${c.live_hit_ci[1]}%) vs the backtested ${c.bt_hit}%. Both are consistent so far.</div>`;
+    }else if(c.drifting){
+      calibHTML=`<div class="perf-drift">⚠ Live hit rate (${c.live_hit}%, likely ${c.live_hit_ci[0]}–${c.live_hit_ci[1]}%) is clearly below the backtested ${c.bt_hit}%, beyond what luck explains. The market may have shifted. Consider <a class="gloss-link" href="javascript:void(0)" onclick="switchTab('settings',tabBtn('settings'));setTimeout(()=>document.getElementById('btn-recal-run')&&document.getElementById('btn-recal-run').scrollIntoView({block:'center'}),300);return false;">recalibrating</a>.</div>`;
     }else{
       calibHTML=`<div class="perf-ok">✓ Live hit rate (${c.live_hit}%) is in line with the backtested ${c.bt_hit}% — calibration looks healthy.</div>`;
     }
   }
 
   // Per-rule live vs backtested
-  const cell=(live,bt,suffix)=>{
+  // Green/red only when the backtest figure lies outside the live range; otherwise it's noise.
+  const cell=(live,bt,ci,signed)=>{
     if(live==null) return '<td class="muted">—</td>';
-    const cls=bt==null?'':(live>=bt-0.01?'up':'dn');
-    return `<td class="${cls}">${live>=0?'+':''}${live}${suffix}<span class="muted" style="font-size:11px"> vs ${bt!=null?(bt>=0?'+':'')+bt+suffix:'—'}</span></td>`;
+    const f=v=>(signed&&v>=0?'+':'')+v+'%';
+    const cls=(bt==null||!ci)?'':bt>ci[1]?'dn':bt<ci[0]?'up':'';
+    return `<td class="${cls}">${f(live)}<span class="muted" style="font-size:11px"> vs ${bt!=null?f(bt):'—'}</span>${ci?`<br><span class="ci-range">likely ${f(ci[0])} to ${f(ci[1])}</span>`:''}</td>`;
   };
-  const ruleBody=(d.outcomes||[]).map(r=>`<tr>
-    <td style="text-align:left">${RULE_DISPLAY_NAME[r.rule_type]||r.rule_type}</td>
-    <td>${r.n}</td>${cell(r.live_hit,r.bt_hit,'%')}${cell(r.live_excess,r.bt_excess,'%')}
-  </tr>`).join('');
+  const ruleBody=(d.outcomes||[]).map(r=>`<tr><td style="text-align:left">${RULE_DISPLAY_NAME[r.rule_type]||r.rule_type}</td><td>${r.n}</td>${cell(r.live_hit,r.bt_hit,r.live_hit_ci,false)}${cell(r.live_excess,r.bt_excess,r.live_excess_ci,true)}</tr>`).join('');
   const ruleCard=`<div class="analytics-card"><h3>By rule — live vs backtested</h3>
     <table class="outcome-table"><thead><tr><th style="text-align:left">Rule</th><th>Scored</th><th>${linkifyGlossary('Hit rate')}</th><th>Avg ${linkifyGlossary('excess return')} 5d</th></tr></thead>
     <tbody>${ruleBody}</tbody></table>
-    <div class="set-hint" style="margin-top:8px">Green = live is meeting or beating the backtest; red = underperforming. Small "Scored" counts are noisy.</div></div>`;
+    <div class="set-hint" style="margin-top:8px">Green or red only when the backtested figure lies outside the live "likely" range, i.e. the live result is clearly better or worse than promised. Uncoloured means the difference could be luck.</div></div>`;
 
   // Per-stock realized edge
   const stockBody=(d.by_stock||[]).map(s=>{
     const cls=s.avg_excess>=0?'up':'dn';
     return `<tr><td style="text-align:left">${s.symbol}</td><td>${s.n}</td>
-      <td class="${cls}">${s.avg_excess>=0?'+':''}${s.avg_excess}%</td><td>${s.hit}%</td></tr>`;
+      <td class="${cls}">${s.avg_excess>=0?'+':''}${s.avg_excess}%${s.excess_ci?`<br><span class="ci-range">likely ${s.excess_ci[0]}% to ${s.excess_ci[1]}%</span>`:''}</td><td>${s.hit}%</td></tr>`;
   }).join('');
   const stockCard=(d.by_stock||[]).length?`<div class="analytics-card"><h3>By stock — which signals paid off</h3>
     <table class="outcome-table"><thead><tr><th style="text-align:left">Stock</th><th>Scored</th><th>Avg ${linkifyGlossary('excess return')} 5d</th><th>${linkifyGlossary('Hit rate')}</th></tr></thead>
@@ -5279,9 +5405,10 @@ async function loadAnalytics(){
   const eur=v=>(v>=0?'+':'−')+'€'+Math.abs(Math.round(v)).toLocaleString('en-GB');
   const m=d.money, dec=d.decisions||{};
   const moneyCard=m?`<div class="analytics-card"><h3>In money</h3>
-    <div class="perf-money" style="color:${m.vs_market>=0?'#10B981':'#EF4444'}">${eur(m.vs_market)} vs the market</div>
-    <div class="set-hint">Putting €1,000 into each of the ${m.n} STRONG signal${m.n>1?'s':''} for 5 trading days (BUY and BOUNCE WATCH alike — both are calls that the stock will do well) would have left you ${eur(m.vs_market)} compared with the same money in the S&P 500; ${eur(m.raw)} in plain gains/losses. Before fees and taxes; past signals only.</div></div>`:'';
-  const decLine=(lbl,g)=>g?`<div class="al-sum"><strong>${lbl}:</strong> <span class="${g.avg_excess>=0?'up':'dn'}">${g.avg_excess>=0?'+':''}${g.avg_excess}%</span> vs the market on average · ${g.hit}% beat it · ${g.n} signal${g.n>1?'s':''}</div>`:'';
+    <div class="perf-money" style="color:${m.vs_market>=0?'#10B981':'#EF4444'}">${eur(m.vs_market)} vs your stocks</div>
+    ${m.vs_market_ci?`<div class="ci-range" style="margin:-4px 0 6px">likely between ${eur(m.vs_market_ci[0])} and ${eur(m.vs_market_ci[1])}</div>`:''}
+    <div class="set-hint">Putting €1,000 into each of the ${m.n} STRONG signal${m.n>1?'s':''} for 5 trading days (BUY and BOUNCE WATCH alike), taken from your other stocks, would have left you ${eur(m.vs_market)} compared with leaving that money where it was, after trading costs; ${eur(m.raw)} in plain gains/losses. Before taxes; past signals only.</div></div>`:'';
+  const decLine=(lbl,g)=>g?`<div class="al-sum"><strong>${lbl}:</strong> <span class="${g.avg_excess>=0?'up':'dn'}">${g.avg_excess>=0?'+':''}${g.avg_excess}%</span> vs your stocks on average${g.excess_ci?` <span class="ci-range">(likely ${g.excess_ci[0]}% to ${g.excess_ci[1]}%)</span>`:''} · ${g.hit}% beat it · ${g.n} signal${g.n>1?'s':''}</div>`:'';
   let decBody;
   if(dec.acted||dec.passed){
     decBody=decLine('When you acted',dec.acted)+decLine('When you passed',dec.passed);
@@ -5312,9 +5439,9 @@ async function loadAnalytics(){
       <td>${decCell(r)}</td></tr>`;
   }).join('');
   const recentCard=(d.recent||[]).length?`<div class="analytics-card"><h3>Recent signals, 5 trading days later</h3>
-    <div class="al-wrap" style="max-height:none"><table class="outcome-table"><thead><tr><th style="text-align:left">Date</th><th style="text-align:left">Stock</th><th style="text-align:left">Signal</th><th>Stock</th><th>Market</th><th>vs market</th><th>You</th></tr></thead>
+    <div class="al-wrap" style="max-height:none"><table class="outcome-table"><thead><tr><th style="text-align:left">Date</th><th style="text-align:left">Stock</th><th style="text-align:left">Signal</th><th>Stock</th><th>Your stocks</th><th>vs your stocks</th><th>You</th></tr></thead>
     <tbody>${recentBody}</tbody></table></div>
-    <div class="set-hint" style="margin-top:8px">✓ = the stock beat the S&P 500 over the next 5 trading days. A BOUNCE WATCH is a rebound call, so it counts as right when the stock recovers ahead of the market.</div></div>`:'';
+    <div class="set-hint" style="margin-top:8px">✓ = over the next 5 trading days the stock beat your watchlist's average by more than the 0.4% trading costs. A BOUNCE WATCH is a rebound call, so it counts as right when the stock recovers ahead of your other stocks.</div></div>`:'';
 
   pane.innerHTML=`<h2 class="perf-title">📊 Performance</h2>
     <div class="set-hint" style="margin:-6px 0 14px">How Tripwire's own signals actually played out — the app scoring itself on forward data. One move that tripped several rules counts as one signal.${pend?' '+d.outcomes_pending+' alert'+(d.outcomes_pending>1?'s':'')+' still maturing.':''}</div>
@@ -5336,6 +5463,7 @@ async function loadPortfolio(){
   pane.innerHTML=`<h2 class="perf-title">💼 Portfolio test</h2>
     <div class="set-hint" style="margin:-6px 0 14px">What would $1,000 have done if you followed every STRONG signal? It starts split equally across your watchlist. Each signal moves 10% of the portfolio into that stock for 5 trading days, taken from the other stocks and returned to them afterwards. The comparison with <b>the same stocks, never traded</b> shows what the app's rules add on top of your stock picks; the S&P 500 shows the market.</div>
     <div class="pf-grid">${pfColumn('backtest',d)}${pfColumn('live',d)}</div>
+    ${replayCardHTML(d.replay)}
     <div class="pf-note">Rules: at most 10 signal slices at once (more are skipped); a repeat signal on a boosted stock extends it; 0.1% trading cost on every buy and sell; no new money, no borrowing, no short selling; prices include dividends. Backtest buys at the next day's open, live at the alert price. Before taxes. Past results don't guarantee future ones.</div>`;
   clearTimeout(pfPoll);
   if(d.backtest_updating) pfPoll=setTimeout(loadPortfolio,8000);
@@ -5352,6 +5480,7 @@ function pfColumn(kind,d){
   if(kind==='live'&&(!r||!r.summary)){
     return `<div class="pf-col"><div class="pf-kind">${title}</div>
       <div class="pf-period">Started ${r?fmtDay(r.start):'today'}</div>
+      ${pfExplain('live')}
       <div class="pf-big">$1,000</div>
       <div class="pf-sub muted">Values appear after the first market close. The first trade appears when the next STRONG signal fires.</div>
       ${pfRestartLink()}</div>`;
@@ -5369,7 +5498,19 @@ function pfColumn(kind,d){
   const row=(key,label,color,x)=>`<tr><td><span class="pf-dot" style="background:${color}"></span>${label}</td>
     <td class="r"><b>${usd(x.end)}</b></td><td class="r ${x.total_pct>=0?'up':'dn'}">${pctS(x.total_pct)}</td>
     <td class="r muted">${x.cagr_pct!=null?pctS(x.cagr_pct)+'/yr':''}</td></tr>`;
-  const rows=PF_LINES.map(([k,l,c])=>row(k,l,c,s[k])).join('');
+  // Frozen baseline (backtest side): a 4th line once the current rules differ from it.
+  const bl=kind==='backtest'&&r.baseline&&!r.baseline.same_as_current?r.baseline:null;
+  const lines=bl?[PF_LINES[0],['baseline',`Frozen baseline rules (${fmtDay(bl.frozen)})`,'#A78BFA','3 3'],...PF_LINES.slice(1)]:PF_LINES;
+  const rows=lines.map(([k,l,c])=>row(k,l,c,k==='baseline'?bl.summary.strategy:s[k])).join('');
+  let blNote='';
+  if(kind==='backtest'&&r.baseline){
+    if(bl){
+      const g=perYear&&bl.summary.strategy.cagr_pct!=null?+(st.cagr_pct-bl.summary.strategy.cagr_pct).toFixed(1):+(st.total_pct-bl.summary.strategy.total_pct).toFixed(1);
+      blNote=`<div class="pf-fair" style="border-color:#A78BFA55;color:#DDD6FE">Compared with the rules frozen on ${fmtDay(bl.frozen)}: ${g>=0?'+':''}${g}${perYear?' pts per year':' pts'} — ${g>0.25?'the changes since then helped':g<-0.25?'the changes since then made it worse':'no real difference'}.</div>`;
+    }else{
+      blNote=`<div class="set-hint" style="margin-bottom:8px">Baseline frozen on ${fmtDay(r.baseline.frozen)}. The current rules are still identical to it; any future improvement must beat it here before it goes live.</div>`;
+    }
+  }
   let fair='';
   if(kind==='backtest'&&r.fair_summary){
     const f=r.fair_summary;
@@ -5393,15 +5534,50 @@ function pfColumn(kind,d){
     :`Since ${fmtDay(r.start_date)} · ${s.strategy.cagr_pct==null?'per-year figures appear after 90 days':''}`;
   return `<div class="pf-col">
     <div class="pf-kind">${title}</div><div class="pf-period">${period}</div>
+    ${pfExplain(kind)}
     <div class="pf-big" style="color:${clr}">$1,000 → ${usd(st.end)} ${arrow}</div>
     <div class="pf-sub"><span style="color:${clr}">${st.change>=0?'+':''}${usd(st.change)} · ${pctS(st.total_pct)}</span>${perYear?` · ${pctS(st.cagr_pct)} per year`:''} <span class="muted">· worst drop ${st.worst_drop_pct}%</span></div>
     <table class="pf-rows">${rows}</table>
     <div class="pf-verdict ${verdictCls}">${verdict}</div>
-    ${fair}
-    <div class="pf-chart">${multiLineSVG(r.equity||[],kind==='backtest'?r.fair_from:null)}</div>
-    <div class="pf-legend">${PF_LINES.map(([k,l,c])=>`<span class="pf-dot" style="background:${c}"></span>${l}`).join(' &nbsp; ')}</div>
+    ${blNote}${fair}
+    <div class="pf-chart">${multiLineSVG(r.equity||[],kind==='backtest'?r.fair_from:null,lines)}</div>
+    <div class="pf-legend">${lines.map(([k,l,c])=>`<span class="pf-dot" style="background:${c}"></span>${l}`).join(' &nbsp; ')}</div>
     ${counts}${movers}${table}${history}${kind==='live'?pfRestartLink():''}
   </div>`;
+}
+
+const PF_EXPLAIN={
+  backtest:`<p><b>The question:</b> what would today's rules have done over the last 5 years?</p>
+    <p><b>The lines:</b> <i>Following the app</i> acts on every STRONG signal. <i>Same stocks, never traded</i> is your stock picks alone. <i>S&amp;P 500</i> is the market. The gap between the first two is what the signals add or cost; the gap to the S&amp;P 500 is mostly your stock picking.</p>
+    <p><b>The catch:</b> the rules were tuned on these same years, so this looks better than real life would have. The part right of the dotted line wasn't used for tuning and is the fairer stretch. For the honest real-time version, see the yearly replay below.</p>`,
+  live:`<p><b>The question:</b> what are the signals doing from now on, in real time?</p>
+    <p>It follows only the signals the app actually sends, at the price in the alert, so there's no hindsight at all. That makes it the most trustworthy number here, but it needs many months of signals before it means much. The per-year figure appears after 90 days.</p>`,
+  replay:`<p><b>The question:</b> what would each method have done if it had been running in real time?</p>
+    <p>For every year, the rules (or the learned model) were chosen using only the years before it, then tested on that year they had never seen. That is the honest counterpart to the flattering 5-year backtest.</p>
+    <p><b>vs your stocks per signal:</b> the stock's 5-day result minus your watchlist's average, after trading costs. The money for a signal comes out of your other stocks, so this is what acting on it actually earns you.</p>
+    <p><b>Years positive:</b> a method that wins big in one strong year can show a positive average while losing in most years. Counting the positive years shows whether it works consistently.</p>`,
+};
+function pfExplain(kind){
+  return `<details class="pf-explain" ontoggle="if(this.open) track('Opened explanation: ${kind}')"><summary>What does this show?</summary>${PF_EXPLAIN[kind]}</details>`;
+}
+
+// The fair yearly replay: each year's rules/model chosen from earlier years only, then scored
+// on that unseen year — the honest counterpart to the 5-year backtest above.
+function replayCardHTML(rp){
+  if(!rp||!rp.methods) return '';
+  const yrs=rp.test_years||[];
+  const rows=Object.values(rp.methods).map(m=>{
+    const cls=v=>v==null?'':v>0?'up':'dn';
+    const s=v=>v==null?'—':(v>0?'+':'')+v;
+    return `<tr><td style="text-align:left">${escapeHTML(m.label)}</td>
+      <td>${m.signal_days_per_year}</td><td>${m.right_pct??'—'}%</td>
+      <td class="${cls(m.vs_your_stocks_pct)}">${s(m.vs_your_stocks_pct)}%${m.vs_your_stocks_se!=null?`<br><span class="ci-range">±${m.vs_your_stocks_se}</span>`:''}</td>
+      <td class="${cls(m.added_pts_per_year)}"><b>${s(m.added_pts_per_year)}</b><br><span class="ci-range">${m.years_positive}/${yrs.length} years positive</span></td></tr>`;
+  }).join('');
+  return `<div class="analytics-card" style="margin-top:16px"><h3>Fair yearly replay, ${yrs[0]}–${yrs[yrs.length-1]}</h3>
+    ${pfExplain('replay')}
+    <div class="al-wrap" style="max-height:none"><table class="outcome-table"><thead><tr><th style="text-align:left">Approach</th><th>Signal days / yr</th><th>Right</th><th>vs your stocks per signal</th><th>$1,000 portfolio vs never trading (pts/yr)</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="set-hint" style="margin-top:6px">Replayed ${escapeHTML(rp.generated)}. Positive = following the signals beat simply holding your stocks.</div></div>`;
 }
 
 function pfRestartLink(){
@@ -5415,22 +5591,23 @@ async function restartLiveTest(){
   loadPortfolio();
 }
 
-function multiLineSVG(eq,markerDate){
+function multiLineSVG(eq,markerDate,lines){
+  lines=lines||PF_LINES;
   if(eq.length<2) return '<div class="set-hint">Not enough days yet for a chart.</div>';
   const W=760,H=240,pT=12,pB=26,pL=58,pR=10, plotW=W-pL-pR, plotH=H-pT-pB;
-  const vals=eq.flatMap(e=>[e.strategy,e.untouched,e.spy]);
+  const vals=eq.flatMap(e=>lines.map(([k])=>e[k]).filter(v=>v!=null));
   const lo=Math.min(...vals), hi=Math.max(...vals), span=(hi-lo)||1;
   const x=i=>pL+(i/(eq.length-1))*plotW, y=v=>pT+plotH-((v-lo)/span)*plotH;
   const grid=[0,0.5,1].map(f=>{const v=lo+span*f;return `<line x1="${pL}" x2="${W-pR}" y1="${y(v)}" y2="${y(v)}" stroke="#1E2235"/><text x="${pL-6}" y="${y(v)+4}" text-anchor="end" font-size="11" fill="#6B7280">${usd(v)}</text>`;}).join('');
   const base=lo<=1000&&hi>=1000?`<line x1="${pL}" x2="${W-pR}" y1="${y(1000)}" y2="${y(1000)}" stroke="#374151" stroke-dasharray="3 3"/>`:'';
-  const lines=[...PF_LINES].reverse().map(([k,,c,dash])=>`<polyline fill="none" stroke="${c}" stroke-width="${k==='strategy'?2.4:1.6}" ${dash?`stroke-dasharray="${dash}"`:''} points="${eq.map((e,i)=>x(i).toFixed(1)+','+y(e[k]).toFixed(1)).join(' ')}"/>`).join('');
+  const polys=[...lines].reverse().map(([k,,c,dash])=>`<polyline fill="none" stroke="${c}" stroke-width="${k==='strategy'?2.4:1.6}" ${dash?`stroke-dasharray="${dash}"`:''} points="${eq.map((e,i)=>e[k]==null?null:x(i).toFixed(1)+','+y(e[k]).toFixed(1)).filter(Boolean).join(' ')}"/>`).join('');
   let marker='';
   if(markerDate){
     const mi=eq.findIndex(e=>e.date>=markerDate);
     if(mi>0) marker=`<line x1="${x(mi)}" x2="${x(mi)}" y1="${pT}" y2="${pT+plotH}" stroke="#93C5FD" stroke-dasharray="2 3"/><text x="${x(mi)+4}" y="${pT+10}" font-size="10" fill="#93C5FD">not tuned on →</text>`;
   }
   const xl=[0,Math.floor((eq.length-1)/2),eq.length-1].map((i,j)=>`<text x="${x(i)}" y="${H-6}" font-size="11" fill="#6B7280" text-anchor="${['start','middle','end'][j]}">${fmtDay(eq[i].date)}</text>`).join('');
-  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Portfolio value over time">${grid}${base}${marker}${lines}${xl}</svg>`;
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Portfolio value over time">${grid}${base}${marker}${polys}${xl}</svg>`;
 }
 
 // ── Assistant tab ─────────────────────────────────────────────────────────────
@@ -5444,11 +5621,22 @@ const CHAT_SUGGESTIONS=[
   'Research upcoming earnings across my watchlist',
 ];
 
+// Prices always with two decimals ($329.40, not $329.4); thousands separated.
+function fmtPx(v){ return v==null?'—':Number(v).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+// "Tue 30 Sep, 07:00" instead of "2026-09-30 07:00"; today/yesterday spelled out.
+function fmtQuoteTime(date,time){
+  if(!date) return time||'';
+  const d=new Date(date+'T12:00:00'), t=new Date(), y=new Date(); y.setDate(t.getDate()-1);
+  const same=(a,b)=>a.toDateString()===b.toDateString();
+  const day=same(d,t)?'Today':same(d,y)?'Yesterday':d.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
+  return `${day}, ${time||''}`;
+}
 function escapeHTML(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function escAttr(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function mdLite(s){
   return escapeHTML(s)
     .replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>')
+    .replace(/(^|[^*\w])\*([^*\n]+)\*(?!\w)/g,'$1<em>$2</em>')
     .replace(/`([^`]+)`/g,'<code>$1</code>')
     .replace(/\n/g,'<br>');
 }
