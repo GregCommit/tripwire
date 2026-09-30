@@ -3627,6 +3627,20 @@ button:disabled{opacity:.45;cursor:not-allowed}
   background:#1E2235;color:#E4E0D8;border:1px solid #3B82F655;border-radius:10px;padding:10px 16px;font-size:13px;
   box-shadow:0 8px 24px #0008;z-index:1000;transition:opacity .2s,transform .2s;max-width:calc(100vw - 32px);text-align:center}
 #toast.show{opacity:1;transform:translate(-50%,0)}
+/* Intro button (top of Stocks) and the floating back button that follows the scroll */
+.intro-row{margin-bottom:10px}
+.intro-btn{display:inline-flex;align-items:center;gap:8px;background:#F59E0B14;border:1px solid #F59E0B66;color:#F59E0B;
+  border-radius:999px;padding:8px 16px;font-size:14px;font-weight:700;cursor:pointer}
+.intro-btn:hover{background:#F59E0B26}
+.intro-btn .intro-sub{color:#E4E0D8;font-weight:500}
+#float-back{position:fixed;left:20px;bottom:calc(20px + env(safe-area-inset-bottom));z-index:120;display:none;
+  background:#F59E0B;border:none;color:#000;border-radius:999px;padding:10px 18px;font-size:14px;
+  font-weight:700;box-shadow:0 6px 18px #000A;cursor:pointer;max-width:calc(100vw - 40px);white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+#float-back.show{display:block}
+#float-back:hover{background:#FBBF24}
+body.on-assistant #float-back{bottom:calc(100px + env(safe-area-inset-bottom))}
+@media (max-width:600px){ #float-back{left:14px;bottom:calc(14px + env(safe-area-inset-bottom))} }
 #regime-pill{font-size:11px;font-weight:800;border-radius:10px;padding:2px 9px;letter-spacing:.3px;background:#EF444418;color:#F87171;border:1px solid #EF444444}
 #calib-stamp.calib-stale{color:#F87171;font-weight:800}
 
@@ -3810,17 +3824,18 @@ button:disabled{opacity:.45;cursor:not-allowed}
 </div>
 
 <div id="tabs">
-  <button class="tab active" onclick="switchTab('stocks',this)">Stocks</button>
-  <button class="tab" onclick="switchTab('alerts',this)" id="tab-alerts-btn">Alerts</button>
-  <button class="tab" onclick="switchTab('assistant',this)">🤖 Assistant</button>
-  <button class="tab" onclick="switchTab('analytics',this)">📊 Performance</button>
-  <button class="tab" onclick="switchTab('portfolio',this)">💼 Portfolio test</button>
-  <button class="tab" onclick="switchTab('guide',this)">📘 Guide</button>
-  <button class="tab" onclick="switchTab('glossary',this)" id="tab-glossary-btn">📖 Glossary</button>
-  <button class="tab" onclick="switchTab('settings',this)">Settings</button>
+  <button class="tab active" onclick="switchTab('stocks',this,true)">Stocks</button>
+  <button class="tab" onclick="switchTab('alerts',this,true)" id="tab-alerts-btn">Alerts</button>
+  <button class="tab" onclick="switchTab('assistant',this,true)">🤖 Assistant</button>
+  <button class="tab" onclick="switchTab('analytics',this,true)">📊 Performance</button>
+  <button class="tab" onclick="switchTab('portfolio',this,true)">💼 Portfolio test</button>
+  <button class="tab" onclick="switchTab('guide',this,true)">📘 Guide</button>
+  <button class="tab" onclick="switchTab('glossary',this,true)" id="tab-glossary-btn">📖 Glossary</button>
+  <button class="tab" onclick="switchTab('settings',this,true)">Settings</button>
 </div>
 
 <div id="toast" role="status" aria-live="polite"></div>
+<button id="float-back" onclick="goBack()"></button>
 
 <div id="window-banner"><span id="calib-stamp"></span></div>
 
@@ -3828,6 +3843,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
   <div id="err-banner" class="err-banner" style="display:none"></div>
 
   <div id="pane-stocks">
+    <div class="intro-row"><button class="intro-btn" onclick="openIntro()">👋 Intro <span class="intro-sub">· what Tripwire is for</span> ›</button></div>
     <div id="triage-strip"></div>
     <div id="stock-grid"></div>
     <div id="add-bar">
@@ -4174,7 +4190,19 @@ function beep(){
 }
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
-function switchTab(name,btn){
+// Links inside the content (a glossary term, "Why? ›", the Intro button…) jump to another tab;
+// each jump remembers the tab and scroll position it came from, so the floating button can go
+// back there. Picking a tab from the tab bar (fromTabBar) is a fresh start and clears the trail.
+let currentTab='stocks', backTrail=[], goingBack=false;
+function switchTab(name,btn,fromTabBar){
+  if(fromTabBar) backTrail=[];
+  else if(name!==currentTab&&!goingBack){
+    backTrail.push({tab:currentTab,y:window.pageYOffset});
+    if(backTrail.length>10) backTrail.shift();
+  }
+  currentTab=name;
+  document.body.classList.toggle('on-assistant',name==='assistant');
+  updateBackButton();
   track('Opened tab: '+(TAB_NAMES[name]||name));
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   if(btn) btn.classList.add('active');
@@ -4190,6 +4218,44 @@ function switchTab(name,btn){
   if(name==='portfolio') loadPortfolio();
   if(name==='assistant') loadChatHistory();
   if(name==='glossary') renderGlossary();
+}
+// Back to where the last jump came from; with no jump to undo, back to the Stocks page.
+function updateBackButton(){
+  const b=document.getElementById('float-back');
+  if(!b) return;
+  const to=backTrail[backTrail.length-1];
+  b.textContent=to?'← Back to '+(TAB_NAMES[to.tab]||to.tab):'← Stocks';
+  b.classList.toggle('show',!!to||currentTab!=='stocks');
+}
+function goBack(){
+  const to=backTrail.pop();
+  if(!to){
+    track('Floating button: back to Stocks');
+    switchTab('stocks',tabBtn('stocks'),true);
+    window.scrollTo(0,0);
+    return;
+  }
+  track('Floating button: back to '+(TAB_NAMES[to.tab]||to.tab));
+  goingBack=true; switchTab(to.tab,tabBtn(to.tab)); goingBack=false;
+  restoreScroll(to.y);
+}
+// Some tabs reload their data when opened, so the page can be briefly too short to reach the
+// old position; keep trying for ~2 seconds, and stop if the user starts scrolling themselves.
+function restoreScroll(y){
+  let tries=0, userMoved=false;
+  const stop=()=>{userMoved=true;};
+  ['wheel','touchstart','keydown'].forEach(ev=>window.addEventListener(ev,stop,{once:true,passive:true}));
+  const go=()=>{
+    if(userMoved) return;
+    window.scrollTo(0,y);
+    if(Math.abs(window.pageYOffset-y)>4&&++tries<12) setTimeout(go,200);
+  };
+  setTimeout(go,0);
+}
+function openIntro(){
+  track('Opened intro');
+  switchTab('guide',tabBtn('guide'));
+  window.scrollTo(0,0);
 }
 
 // ── Guide tab: why / what / how, each a 30–60 second summary with a "read more" ─────
