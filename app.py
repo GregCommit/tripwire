@@ -453,6 +453,8 @@ extended_state = {}  # symbol -> {lifetime_high, lifetime_low, earnings_date, up
 def _fetch_quote_raw(symbol):
     ticker = yf.Ticker(symbol)
     hist = ticker.history(period="5d")
+    if not hist.empty:
+        hist = hist.dropna(subset=["Close"])   # overnight, Yahoo can send a bar with no price
     if hist.empty or len(hist) < 1:
         raise ValueError(f"No data for {symbol}")
     current = hist.iloc[-1]
@@ -754,6 +756,9 @@ def outcome_loop():
 threading.Thread(target=outcome_loop, daemon=True).start()
 
 def store_price(symbol, q):
+    c = q.get("close")
+    if c is None or c != c:   # never store a quote without a price (None or NaN)
+        return
     with get_db() as conn:
         conn.execute("""
             INSERT OR REPLACE INTO prices
@@ -766,7 +771,7 @@ def store_price(symbol, q):
 def get_latest(symbol):
     with get_db() as conn:
         row = conn.execute(
-            "SELECT * FROM prices WHERE symbol=? ORDER BY timestamp DESC LIMIT 1", (symbol,)
+            "SELECT * FROM prices WHERE symbol=? AND close IS NOT NULL ORDER BY timestamp DESC LIMIT 1", (symbol,)
         ).fetchone()
         return dict(row) if row else None
 
