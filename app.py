@@ -3886,6 +3886,17 @@ body.on-assistant #narr-player{bottom:calc(100px + env(safe-area-inset-bottom))}
 .analytics-card h3{font-size:13px;color:#F59E0B;margin-bottom:6px;letter-spacing:.5px;text-transform:uppercase}
 /* Performance scorecard */
 .perf-title{font-size:20px;font-weight:800;margin-bottom:2px}
+.rule-plain{font-size:14px;line-height:1.55;color:#D1D5DB;margin-top:8px}
+.rule-plain b{color:#E4E0D8;font-weight:600}
+.verdict{display:inline-block;font-size:11px;font-weight:800;letter-spacing:.3px;text-transform:uppercase;border-radius:6px;padding:1px 7px;margin-right:4px;border:1px solid}
+.v-good{color:#10B981;border-color:#10B98155;background:#10B98112}
+.v-mild{color:#9DB4D0;border-color:#9DB4D055;background:#9DB4D012}
+.v-weak{color:#9CA3AF;border-color:#4B556388;background:#4B556322}
+.v-bad{color:#F87171;border-color:#EF444455;background:#EF444412}
+.v-thin{color:#9CA3AF;border-color:#4B556388;border-style:dashed}
+.rules-synth{background:#0A0C12;border:1px solid #F59E0B44;border-radius:10px;padding:12px 14px;margin-bottom:12px;font-size:14px;line-height:1.55;color:#D1D5DB}
+.rules-synth>div+div{margin-top:6px}
+.rules-synth-title{font-size:11px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:#F59E0B}
 .perf-scope{font-size:13px;color:#9DB4D0;background:#9DB4D00F;border:1px solid #9DB4D033;border-radius:8px;padding:8px 12px;margin:0 0 14px}
 /* The trip wire, Tripwire's signature line (as in the icon): a thin wire between two anchor posts */
 .perf-title::after{content:"";display:block;width:132px;height:8px;margin:8px 0 10px;
@@ -4228,10 +4239,67 @@ function lowConfidenceBadge(sym,ruleType){
   if(st.short_history||st.n<30) return '<span class="low-conf-badge" title="Short trading history or small sample size">low confidence</span>';
   return '';
 }
-function evidenceLineHTML(sym,ruleType){
-  const line=ruleStatsLine(sym,ruleType);
+// Every rule's track record in plain English, right where the numbers appear: a one-word
+// verdict, what happened after it fired on this stock, and what that means for the owner now.
+// The compact numbers stay underneath for anyone who wants them.
+function ruleVerdict(st){
+  if(!st) return null;
+  if(st.short_history||st.n<30) return {word:'Too little history',cls:'v-thin'};
+  const e=st.exc5, h=st.hit5==null?50:st.hit5;
+  if(e>=0.5&&h>=55) return {word:'Useful',cls:'v-good'};
+  if(e>=0.2&&h>=50) return {word:'Small edge',cls:'v-mild'};
+  if(e>-0.5) return {word:'Weak',cls:'v-weak'};
+  return {word:'Unhelpful',cls:'v-bad'};
+}
+// What a trigger means for a long-term holder, by rule and side (BUY = upside, SELL = downside).
+function ruleMeaning(sym,ruleType,signal){
+  if(CONTEXT_ONLY_RULES[ruleType]) return 'Shown for context only: it never makes a signal on its own.';
+  if(ruleType==='rsi'&&signal==='SELL') return `${sym} is running hot. That is not a sell signal: at most it hints the stock may cool off a little.`;
+  if(ruleType==='rsi'&&signal==='BUY') return `${sym} has been sold off hard. Not a reason to panic-sell: check the news and whether your reasons for owning it still hold.`;
+  if(signal==='SELL') return `An unusual drop. Never a sell signal on its own: check the news and whether your reasons for owning ${sym} still hold.`;
+  if(signal==='BUY') return `An unusual rise. Not a reason to chase: a good moment to re-check your thesis and valuation.`;
+  return '';
+}
+function rulePlainText(sym,ruleType){
+  const st=ruleStatsFor(sym,ruleType), v=ruleVerdict(st);
+  if(!v) return '';
+  if(v.cls==='v-thin') return `Only ${st.n} past case${st.n===1?'':'s'}${st.short_history?' (a short trading history)':''}, too few to trust either way.`;
+  const e=st.exc5, h=Math.round(st.hit5==null?50:st.hit5);
+  const what=Math.abs(e)<0.05?'did about the same as your other stocks'
+    :`${e>0?'beat':'trailed'} your other stocks by ${Math.abs(e).toFixed(1)}% on average`;
+  const plain={'v-good':'A genuinely useful signal for this stock.',
+    'v-mild':'A small edge: it helps on average, not every time.',
+    'v-weak':'In plain terms it barely moves the needle, close to a coin toss.',
+    'v-bad':'Historically it pointed the wrong way more often than not.'}[v.cls];
+  const dip=st.mae!=null&&st.mae<0?` Along the way, ${sym} typically sat about ${Math.abs(st.mae).toFixed(1)}% lower at its worst point.`:'';
+  return `When this rule fired on ${sym} in the past, the stock then ${what} over the next 5 trading days, after costs, and beat them ${h}% of the time (${st.n} cases). ${plain}${dip}`;
+}
+function evidenceLineHTML(sym,ruleType,signal,live){
+  const line=ruleStatsLine(sym,ruleType), v=ruleVerdict(ruleStatsFor(sym,ruleType));
   if(!line) return '';
-  return `<div class="evidence-line">📊 ${linkifyGlossary(line)}${lowConfidenceBadge(sym,ruleType)}</div>`;
+  const meaning=live?ruleMeaning(sym,ruleType,signal):'';
+  return `<div class="rule-plain"><span class="verdict ${v.cls}">${v.word}</span> ${rulePlainText(sym,ruleType)}${meaning?` <b>${meaning}</b>`:''}</div>
+    <div class="evidence-line">📊 ${linkifyGlossary(line)}${lowConfidenceBadge(sym,ruleType)}</div>`;
+}
+// The bottom line for one stock, shown above its rules: what is happening, how much to trust it.
+function rulesSynthesisHTML(s){
+  const rules=s.rules||[];
+  if(!rules.length) return '';
+  const sym=s.symbol, sig=computeSignal(rules);
+  const live=rules.filter(r=>r.triggered&&!r.disabled&&!CONTEXT_ONLY_RULES[r.rule_type]);
+  const names=live.map(r=>{ const v=ruleVerdict(ruleStatsFor(sym,r.rule_type)); return `${r.label}${v?` (${v.word.toLowerCase()})`:''}`; }).join(', ');
+  let head;
+  if(sig&&sig.label==='STRONG BOUNCE WATCH') head=`<b>${showLabel(sig.label)}: worth a look.</b> ${live.length} rules agree on a sharp drop: ${names}. Check the news. If your reasons for owning ${sym} still hold, it is not a reason to sell, and if you planned to buy more anyway, right after a strong dip has been a slightly better moment.`;
+  else if(sig&&sig.label==='STRONG BUY') head=`<b>${showLabel(sig.label)}: worth a look.</b> ${live.length} rules agree on an unusual rise: ${names}. A good moment to re-check your thesis and valuation. Not a reason to chase.`;
+  else if(live.length) head=`<b>Nothing to act on.</b> ${live.length===1?'One rule has':`${live.length} rules have`} triggered (${names}), but that is context, not a signal: it takes at least two of the main rules agreeing on the same direction.`;
+  else head=`<b>All quiet.</b> Nothing unusual for ${sym} right now.`;
+  const rated=rules.filter(r=>!r.disabled).map(r=>({r,st:ruleStatsFor(sym,r.rule_type)})).filter(x=>x.st&&!x.st.short_history&&x.st.n>=30);
+  rated.sort((a,b)=>b.st.exc5-a.st.exc5);
+  const best=rated[0];
+  const bestLine=best?`<div>Most reliable rule for ${sym} so far: <b>${best.r.label}</b>, ${ruleVerdict(best.st).word.toLowerCase()} (after it fired, ${sym} ${best.st.exc5>=0?'beat':'trailed'} your other stocks by ${Math.abs(best.st.exc5).toFixed(1)}% on average over 5 days).</div>`:'';
+  const off=rules.filter(r=>r.disabled).length;
+  const offLine=off?`<div>${off} rule${off>1?'s are':' is'} switched off for ${sym}, because testing found no reliable edge for ${off>1?'them':'it'} on this stock.</div>`:'';
+  return `<div class="rules-synth"><div class="rules-synth-title">In short</div><div>${head}</div>${bestLine}${offLine}</div>`;
 }
 
 const openEdits=new Set();   // rule Edit forms open right now ("NVDA:volatility")
@@ -5042,8 +5110,9 @@ function actByDate(ts){
 function fmtFired(ts){ return new Date(ts*1000).toLocaleString('en-GB',{weekday:'short',hour:'2-digit',minute:'2-digit'}); }
 function eventEdge(sym,rules){
   let best=null;
-  for(const rt of rules){ const st=(ruleStats[sym]||{})[rt]; if(st&&(best==null||st.exc5>best)) best=st.exc5; }
-  return best==null?'':` · backtested ${best>=0?'+':''}${best.toFixed(1)}% vs market over 5d`;
+  for(const rt of rules){ const st=(ruleStats[sym]||{})[rt]; if(st&&(best==null||st.exc5>best.exc5)) best=st; }
+  const v=ruleVerdict(best);
+  return v?` · past record: ${v.word.toLowerCase()}`:'';
 }
 async function markDecision(ids,decision){
   await postJSON('/api/decision',{ids:String(ids).split(',').map(Number),decision});
@@ -5226,6 +5295,7 @@ function renderDetail(s){
     ${sensitivityControlHTML(s)}
     <div class="section-label">Rules <span style="color:#4B5563;font-weight:400;text-transform:none;letter-spacing:0">— advanced: fine-tune individual thresholds via each rule's Edit button</span></div>
     <div id="rules-container">
+      ${rulesSynthesisHTML(s)}
       ${(s.rules||[]).map((r,i)=>ruleHTML(s.symbol,r,i,s.history_closes,s.params)).join('')}
       ${(!s.rules||s.rules.length===0)?'<div style="color:#6B7280;font-size:13px">No rule data yet — click Check Now</div>':''}
     </div>`;
@@ -5384,7 +5454,7 @@ function ruleHTML(sym,r,idx,historyClosed,params){
     </div>
     <div class="rule-desc">${linkifyGlossary(r.description||'')}</div>
     ${r.rationale?`<div class="rule-rationale">${linkifyGlossary(r.rationale)}</div>`:''}
-    ${evidenceLineHTML(sym,r.rule_type)}
+    ${evidenceLineHTML(sym,r.rule_type,r.signal,r.triggered&&!r.disabled)}
     ${r.triggered&&!r.disabled?bearRegimeCaveatHTML(r.signal):''}
     ${r.news_synthesis?`<div class="rule-news-synthesis"><div class="rule-news-label">📰 News Synthesis</div><div class="rule-news-text">${r.news_synthesis}</div></div>`:''}
     ${r.param_summary?`<div class="rule-params-line">⚙ ${r.param_summary}</div>`:''}
@@ -5518,7 +5588,7 @@ function alertEntryHTML(a,inSignal,hideNews){
     ${detail.description?`<div class="alert-entry-detail">${detail.description}</div>`:''}
     ${detailVals.length>0?`<div class="alert-detail-vals">${detailVals.join('')}</div>`:''}
     ${detail.rationale?`<div class="alert-rationale">${detail.rationale}</div>`:''}
-    ${evidenceLineHTML(a.symbol,a.rule_type)}
+    ${evidenceLineHTML(a.symbol,a.rule_type,detail.signal,true)}
     ${detail.bear_regime_caveat?`<div class="bear-caveat">🐻 ${detail.bear_regime_caveat}</div>`:''}
     ${detail.news_synthesis&&!hideNews?`<div class="news-synthesis"><div class="news-synthesis-label">📰 News Synthesis</div><div class="news-synthesis-text">${detail.news_synthesis}</div></div>`:''}
   </div>`;
