@@ -3897,6 +3897,8 @@ body.on-assistant #narr-player{bottom:calc(100px + env(safe-area-inset-bottom))}
 .rules-synth{background:#0A0C12;border:1px solid #F59E0B44;border-radius:10px;padding:12px 14px;margin-bottom:12px;font-size:14px;line-height:1.55;color:#D1D5DB}
 .rules-synth>div+div{margin-top:6px}
 .rules-synth-title{font-size:11px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:#F59E0B}
+.pane-frame{width:100%;height:calc(100vh - 150px);min-height:520px;border:none;display:block;background:#0A0C12}
+@media (max-width:600px){ .pane-frame{height:calc(100vh - 190px)} }
 .perf-scope{font-size:13px;color:#9DB4D0;background:#9DB4D00F;border:1px solid #9DB4D033;border-radius:8px;padding:8px 12px;margin:0 0 14px}
 /* The trip wire, Tripwire's signature line (as in the icon): a thin wire between two anchor posts */
 .perf-title::after{content:"";display:block;width:132px;height:8px;margin:8px 0 10px;
@@ -3992,6 +3994,8 @@ body.on-assistant #narr-player{bottom:calc(100px + env(safe-area-inset-bottom))}
   <button class="tab" onclick="switchTab('analytics',this,true)">📊 Performance</button>
   <button class="tab" onclick="switchTab('portfolio',this,true)">💼 Portfolio test</button>
   <button class="tab" onclick="switchTab('guide',this,true)">📘 Guide</button>
+  <button class="tab" onclick="switchTab('tour',this,true)">🎬 Tour</button>
+  <button class="tab" onclick="switchTab('training',this,true)">🎓 Training</button>
   <button class="tab" onclick="switchTab('glossary',this,true)" id="tab-glossary-btn">📖 Glossary</button>
   <button class="tab" onclick="switchTab('settings',this,true)">Settings</button>
 </div>
@@ -4065,6 +4069,8 @@ body.on-assistant #narr-player{bottom:calc(100px + env(safe-area-inset-bottom))}
   <div id="pane-settings" style="display:none"></div>
 
   <div id="pane-guide" style="display:none"></div>
+  <div id="pane-tour" style="display:none"><iframe class="pane-frame" data-src="/static/tour.html" title="Tripwire tour"></iframe></div>
+  <div id="pane-training" style="display:none"><iframe class="pane-frame" data-src="/static/training.html" title="Tripwire training"></iframe></div>
 
   <div id="pane-glossary" style="display:none"></div>
 </div>
@@ -4199,7 +4205,7 @@ function track(text){
   if(!guestMode) return;
   fetch('/api/track',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({d:text}),keepalive:true}).catch(()=>{});
 }
-const TAB_NAMES={stocks:'Stocks',alerts:'Alerts',assistant:'AI Assistant',analytics:'Performance',portfolio:'Portfolio test',settings:'Settings',guide:'Guide',glossary:'Glossary'};
+const TAB_NAMES={stocks:'Stocks',alerts:'Alerts',assistant:'AI Assistant',analytics:'Performance',portfolio:'Portfolio test',settings:'Settings',guide:'Guide',glossary:'Glossary',tour:'Tour',training:'Training'};
 function tabBtn(name){ return [...document.querySelectorAll('.tab')].find(b=>(b.getAttribute('onclick')||'').includes("'"+name+"'")); }
 
 let aiEnabled=false, guestMode=false, guestAiLeft=null, guestAiLimit=5, maxAlertId=0, notifPrimed=false, appSettings={};
@@ -4442,11 +4448,18 @@ function switchTab(name,btn,fromTabBar){
   track('Opened tab: '+(TAB_NAMES[name]||name));
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   if(btn) btn.classList.add('active');
-  ['stocks','alerts','assistant','analytics','portfolio','settings','guide','glossary'].forEach(n=>{
+  const tourWin=()=>{ try{ return document.querySelector('#pane-tour iframe').contentWindow; }catch(e){ return null; } };
+  if(name!=='tour'){ const w=tourWin(); if(w&&w.tourPause) w.tourPause(); }
+  ['stocks','alerts','assistant','analytics','portfolio','settings','guide','tour','training','glossary'].forEach(n=>{
     const el=document.getElementById('pane-'+n);
     if(el) el.style.display=(n===name)?'':'none';
   });
   if(name==='guide') renderGuide();
+  if(name==='tour'||name==='training'){
+    const f=document.querySelector('#pane-'+name+' iframe');
+    if(!f.src) f.src=f.dataset.src;
+    else if(name==='tour'){ const w=tourWin(); if(w&&w.tourPlay) w.tourPlay(); }
+  }
   // On a phone the tab row scrolls sideways; keep the chosen tab in view (e.g. Settings, far right).
   if(btn&&btn.scrollIntoView) btn.scrollIntoView({block:'nearest',inline:'nearest'});
   if(name==='settings') loadSettings();

@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tripwire tour</title>
+<style>
+/* Tripwire's 3-minute tour: mock-ups of each screen, with arrows and comment bubbles that
+   appear step by step. Auto-plays; the app pauses it when its tab is hidden. */
+:root{--bg:#0A0C12;--card:#12151F;--line:#1E2235;--line2:#2A2F45;--txt:#E4E0D8;--mute:#9CA3AF;--dim:#6B7280;
+  --amber:#F59E0B;--calm:#9DB4D0;--sky:#38BDF8;--up:#10B981;--dn:#EF4444;--link:#93C5FD}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--bg);color:var(--txt);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+body{padding:12px 12px 20px}
+#wrap{max-width:1000px;margin:0 auto}
+#stage-box{position:relative;width:100%;overflow:hidden;border:1px solid var(--line);border-radius:14px;background:var(--bg)}
+#stage{position:absolute;left:0;top:0;width:960px;height:560px;transform-origin:0 0}
+.slide{position:absolute;inset:0;opacity:0;transition:opacity .5s}
+.slide.on{opacity:1}
+#overlay{position:absolute;inset:0;pointer-events:none}
+.ring{position:absolute;border:3px solid var(--amber);border-radius:12px;box-shadow:0 0 0 6px #F59E0B22;opacity:0;transition:all .45s}
+.ring.on{opacity:1;animation:pulse 1.6s infinite}
+@keyframes pulse{50%{box-shadow:0 0 0 12px #F59E0B10}}
+.bubble{position:absolute;max-width:290px;background:#FFF7E6;color:#1F1300;border-radius:12px;padding:10px 13px;font-size:15px;line-height:1.35;
+  font-weight:600;box-shadow:0 8px 24px #000C;opacity:0;transform:scale(.9);transition:opacity .35s,transform .35s}
+.bubble.on{opacity:1;transform:scale(1)}
+.bubble .n{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--amber);color:#000;font-size:12px;font-weight:800;margin-right:6px}
+svg#arrows{position:absolute;inset:0;width:960px;height:560px;overflow:visible}
+.arrow{fill:none;stroke:var(--amber);stroke-width:3;stroke-linecap:round;stroke-dasharray:600;stroke-dashoffset:600;transition:stroke-dashoffset .7s ease}
+.arrow.on{stroke-dashoffset:0}
+#caption{margin-top:12px;min-height:84px}
+#cap-title{font-size:13px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:var(--amber)}
+#cap-text{font-size:18px;line-height:1.45;margin-top:4px}
+#cap-text .n{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--amber);color:#000;font-size:13px;font-weight:800;margin-right:8px;vertical-align:2px}
+#controls{display:flex;align-items:center;gap:8px;margin-top:10px}
+#controls button{background:var(--card);border:1px solid var(--line2);color:var(--txt);border-radius:10px;padding:8px 12px;font-size:15px;cursor:pointer}
+#controls #play{background:var(--amber);color:#000;border:none;font-weight:800;min-width:48px}
+#segs{flex:1;display:flex;gap:3px;height:10px;cursor:pointer}
+.seg{flex:1;background:var(--line2);border-radius:3px;overflow:hidden}
+.seg i{display:block;height:100%;width:0;background:var(--amber)}
+#clock{font-size:13px;color:var(--mute);min-width:84px;text-align:right}
+/* small screens: the on-stage bubbles become numbered markers; the caption carries the words */
+body.small .bubble{max-width:none;width:44px;height:44px;padding:0;display:grid;place-items:center;border-radius:50%}
+body.small .bubble .t{display:none}
+body.small .bubble .n{margin:0;width:34px;height:34px;font-size:18px}
+
+/* ── mock app ── */
+.m-top{height:46px;background:var(--card);border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 18px}
+.m-logo{color:var(--amber);font-weight:800;font-size:17px}
+.m-top-r{display:flex;align-items:center;gap:12px;font-size:12px;color:var(--mute)}
+.pill{border-radius:10px;padding:2px 9px;font-size:11px;font-weight:700;border:1px solid}
+.pill.calm{color:var(--calm);border-color:#9DB4D055;background:#9DB4D015}
+.m-check{background:var(--amber);color:#000;font-weight:800;border-radius:6px;padding:6px 12px;font-size:12px}
+.m-tabs{display:flex;gap:2px;background:var(--card);border-bottom:1px solid var(--line);padding:0 14px;font-size:12.5px;color:var(--dim)}
+.m-tabs span{padding:10px 11px;border-bottom:2px solid transparent;white-space:nowrap}
+.m-tabs span.a{color:var(--amber);border-color:var(--amber);font-weight:700}
+.m-body{padding:14px 18px}
+.box{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.calmh{color:var(--calm);font-weight:800;font-size:17px}
+.needh{color:var(--amber);font-weight:800;font-size:17px}
+.sub{color:var(--dim);font-size:12px;margin-top:5px}
+.intro{display:inline-block;border:1px solid #F59E0B66;background:#F59E0B14;color:var(--amber);border-radius:999px;padding:6px 14px;font-weight:700;font-size:13px;margin-bottom:10px}
+.intro b{color:var(--txt);font-weight:500}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px}
+.tile{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+.tile.dipsig{border:2px solid #F59E0B99}
+.tile .s{font-weight:800;font-size:15px}.tile .p{font-weight:800;font-size:20px;margin-top:2px}
+.up{color:var(--up)}.dn{color:var(--dn)}
+.tile .st{font-size:11px;font-weight:700;margin-top:6px}
+.chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.chip{font-size:10px;border:1px solid #9DB4D033;color:var(--calm);border-radius:5px;padding:1px 6px}
+.chip.t{color:var(--amber);border-color:#F59E0B66;background:#F59E0B18}
+.b-dip{background:#F59E0B25;color:var(--amber);border:2px solid #F59E0B66;border-radius:6px;padding:2px 8px;font-size:12px;font-weight:800}
+.b-mom{background:#38BDF825;color:var(--sky);border:2px solid #38BDF866;border-radius:6px;padding:2px 8px;font-size:12px;font-weight:800}
+.row{display:flex;align-items:center;gap:10px;margin-top:10px;font-size:13px;flex-wrap:wrap}
+.meta{color:var(--mute);font-size:12px}
+.lnk{color:var(--link)}
+.dec{display:flex;gap:6px;margin-left:auto}
+.dec span{border:1px solid var(--line2);border-radius:7px;padding:5px 10px;font-size:12px;font-weight:700}
+.dec span.a{border-color:#9DB4D066;color:var(--calm)}
+.lbl{font-size:11px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--mute);margin:12px 0 6px}
+.synth{background:var(--bg);border:1px solid #F59E0B44;border-radius:10px;padding:10px 12px;font-size:13px;line-height:1.5;color:#D1D5DB}
+.synth .t{font-size:10px;font-weight:800;letter-spacing:.6px;color:var(--amber)}
+.rule{background:var(--card);border:1px solid #F59E0B55;border-radius:10px;padding:10px 12px;margin-top:10px}
+.rule .h{display:flex;align-items:center;gap:8px;font-weight:800;font-size:14px}
+.edit{margin-left:auto;background:#1E2235;border-radius:7px;padding:4px 10px;font-size:12px;font-weight:600}
+.verdict{font-size:10px;font-weight:800;border-radius:5px;padding:1px 6px;border:1px solid #4B556388;color:var(--mute);background:#4B556322}
+.verdict.g{color:var(--up);border-color:#10B98155;background:#10B98112}
+.plain{font-size:12.5px;line-height:1.5;color:#D1D5DB;margin-top:6px}
+.dial{display:flex;border:1px solid var(--line2);border-radius:9px;overflow:hidden;font-size:12px;font-weight:700;width:max-content}
+.dial span{padding:7px 14px;color:var(--mute)}.dial span.a{background:var(--amber);color:#000}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.big{font-size:34px;font-weight:800}
+.rng{font-size:11px;color:var(--mute)}
+.scope{font-size:12.5px;color:var(--calm);background:#9DB4D00F;border:1px solid #9DB4D033;border-radius:8px;padding:7px 11px;margin-bottom:10px}
+.ptitle{font-size:19px;font-weight:800}
+.wire{width:120px;height:8px;margin:6px 0 10px;background:radial-gradient(circle,#6B7280 3px,transparent 3.6px) left center/8px 8px no-repeat,radial-gradient(circle,#6B7280 3px,transparent 3.6px) right center/8px 8px no-repeat,linear-gradient(#374151,#374151) center/calc(100% - 8px) 2px no-repeat}
+.chat{display:flex;flex-direction:column;gap:10px}
+.msg{max-width:78%;border-radius:12px;padding:9px 12px;font-size:13.5px;line-height:1.5}
+.msg.me{align-self:flex-end;background:#F59E0B22;border:1px solid #F59E0B44}
+.msg.ai{background:var(--card);border:1px solid var(--line);min-height:60px}
+.inp{display:flex;gap:8px;margin-top:14px}.inp div{flex:1;border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--dim);font-size:13px}
+.inp b{background:var(--amber);color:#000;border-radius:10px;padding:10px 16px;font-size:13px}
+.sugg{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}.sugg span{border:1px solid var(--line2);border-radius:999px;padding:5px 11px;font-size:12px;color:var(--link)}
+.listen{display:inline-block;border:1px solid #F59E0B66;background:#F59E0B14;color:var(--amber);border-radius:999px;padding:6px 14px;font-weight:700;font-size:13px}
+.player{position:absolute;right:20px;bottom:18px;width:330px;background:var(--card);border:1px solid #F59E0B88;border-radius:14px;padding:9px 10px;display:flex;align-items:center;gap:8px}
+.pbtn{width:34px;height:34px;border-radius:50%;background:var(--amber);color:#000;display:grid;place-items:center;font-weight:800}
+.pbar{display:flex;gap:3px;height:6px;margin-top:6px}.pbar i{background:var(--line2);border-radius:2px}.pbar i.f{background:var(--amber)}
+.backbtn{position:absolute;left:20px;bottom:18px;background:var(--amber);color:#000;font-weight:800;border-radius:999px;padding:9px 16px;font-size:13px;box-shadow:0 6px 18px #000A}
+.mail{background:#F8F7F4;color:#1F2937;border-radius:12px;padding:14px 16px;font-size:13px;line-height:1.5;width:470px}
+.mail h4{font-size:15px;margin-bottom:6px}
+.mail .btns{display:flex;gap:8px;margin-top:10px}.mail .btns span{background:#1F2937;color:#fff;border-radius:7px;padding:6px 12px;font-size:12px;font-weight:700}
+.phone{width:190px;height:360px;border:8px solid #2A2F45;border-radius:30px;background:linear-gradient(#1E2235,#0A0C12);padding:26px 16px;display:grid;grid-template-columns:repeat(3,1fr);gap:14px;align-content:start}
+.app{width:44px;height:44px;border-radius:11px;background:#2A2F45}
+.app.tw{background:url(icon-180.png) center/cover}
+.app-l{font-size:9px;color:#ddd;text-align:center;margin-top:3px}
+.hero{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;text-align:center;gap:14px;padding:0 60px}
+.hero h1{font-size:44px;color:var(--amber)}
+.hero p{font-size:20px;color:#D1D5DB;line-height:1.5}
+.wire-big{position:relative;width:520px;height:120px}
+</style></head><body>
+<div id="wrap">
+  <div id="stage-box"><div id="stage"><div id="slides"></div><div id="overlay"><svg id="arrows"><defs><marker id="ah" markerWidth="10" markerHeight="10" refX="7" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#F59E0B"/></marker></defs><path id="arrow" class="arrow" marker-end="url(#ah)"/></svg><div class="ring" id="ring"></div><div class="bubble" id="bubble"></div></div></div></div>
+  <div id="caption"><div id="cap-title"></div><div id="cap-text"></div></div>
+  <div id="controls">
+    <button id="prev" aria-label="Previous scene">⏮</button><button id="play" aria-label="Play or pause">▶</button><button id="next" aria-label="Next scene">⏭</button>
+    <div id="segs"></div><div id="clock"></div>
+  </div>
+</div>
+<script>
+const TOP=(tab,extra)=>`<div class="m-top"><div class="m-logo">⚡ Tripwire</div><div class="m-top-r"><span class="pill calm">● Market open</span><span>● Running</span><span class="m-check">▶ Check Now</span>${extra||''}</div></div>
+<div class="m-tabs">${['Stocks','Alerts','🤖 Assistant','📊 Performance','💼 Portfolio test','📘 Guide','🎬 Tour','🎓 Training','📖 Glossary','Settings'].map(t=>`<span class="${t.includes(tab)?'a':''}" ${t==='Settings'?'id="t-settings"':''}>${t}</span>`).join('')}</div>`;
+const TILE=(s,p,c,st,chips,cls,id)=>`<div class="tile ${cls||''}" ${id?`id="${id}"`:''}><div class="s">${s}</div><div class="p">$${p}</div><div class="${c[0]==='-'?'dn':'up'}" style="font-size:12px;font-weight:700">${c}</div>
+  <div class="st" style="color:${st[0]==='⚠'?'#F59E0B':'#9DB4D0'}">${st}</div><div class="chips">${chips.map(x=>`<span class="chip ${x[1]?'t':''}">${x[0]}</span>`).join('')}</div></div>`;
+const Q=['Move',0],SR=['S/R',0],VO=['Vol',0],RS=['RSI',0];
+
+// Each scene: what it shows, how long, and the steps (when, what to point at, what to say).
+const SLIDES=[
+ {title:'Welcome',dur:8,html:`<div class="hero"><svg class="wire-big" viewBox="0 0 520 120"><circle cx="20" cy="70" r="9" fill="#9CA3AF"/><circle cx="500" cy="70" r="9" fill="#9CA3AF"/><line x1="20" y1="70" x2="210" y2="70" stroke="#9CA3AF" stroke-width="4"/><line x1="310" y1="70" x2="500" y2="70" stroke="#9CA3AF" stroke-width="4"/><path d="M285 5 L225 75 L262 75 L245 118 L310 52 L272 52 L298 5Z" fill="#F59E0B"/></svg><h1>Tripwire in 3 minutes</h1><p id="t-hero">A second pair of eyes for the stocks you picked: quiet on ordinary days, and a clear heads-up when something unusual happens.</p></div>`,
+  steps:[{at:2.5,el:'t-hero',text:'Tripwire watches your stocks for you. It never trades, and it is not financial advice.',pos:'below'}]},
+ {title:'The Stocks page',dur:16,html:TOP('Stocks')+`<div class="m-body"><div class="intro" id="t-intro">👋 Intro <b>· what Tripwire is for</b> ›</div>
+   <div class="box" id="t-banner"><div class="calmh">✓ Nothing needs your attention today</div><div class="sub">2 early signs (not yet confirmed) · 1 with minor activity · More detail ▾</div></div>
+   <div class="grid">${TILE('AAPL','336.02','+2.01%','✓ QUIET NOW',[Q,SR,VO,RS],'','t-tile')}${TILE('AMAT','512.00','-0.42%','⚠ 1 TRIGGERED NOW',[Q,SR,VO,['RSI',1]],'','t-trig')}${TILE('MSFT','517.37','+1.65%','✓ QUIET NOW',[Q,SR,VO,RS])}${TILE('NVDA','230.60','+1.49%','✓ QUIET NOW',[Q,SR,VO,RS])}</div></div>`,
+  steps:[{at:1,el:'t-banner',text:'The answer comes first: does anything need you today? Most days it says no, and that is the point.',pos:'below'},
+   {at:6,el:'t-tile',text:'One tile per stock: price, today’s move, and whether any rule is triggered right now.',pos:'below'},
+   {at:11,el:'t-trig',text:'An amber chip means one rule sees something unusual. One rule alone is context, not a signal.',pos:'below'}]},
+ {title:'A STRONG signal',dur:16,html:TOP('Stocks')+`<div class="m-body"><div class="box" style="border-color:#F59E0B66" id="t-sig"><div class="needh">⚡ 1 signal worth a look — until Fri 16 Oct</div>
+   <div class="row"><b style="font-size:15px">NVDA</b><span class="b-dip" id="t-badge">STRONG DIP</span><span class="meta">fired 10:42 · past record: useful · <span class="lnk" id="t-why">Why? ›</span></span><span class="dec" id="t-dec"><span>I acted</span><span>I passed</span></span></div></div>
+   <div class="grid">${TILE('NVDA','214.10','-6.12%','⚠ 2 TRIGGERED NOW',[['Move',1],SR,VO,['RSI',1]],'dipsig')}${TILE('AAPL','336.02','+0.41%','✓ QUIET NOW',[Q,SR,VO,RS])}${TILE('MSFT','517.37','-0.35%','✓ QUIET NOW',[Q,SR,VO,RS])}${TILE('LLY','1,169.95','+0.12%','✓ QUIET NOW',[Q,SR,VO,RS])}</div></div>`,
+  steps:[{at:1,el:'t-badge',text:'STRONG means at least two of the four main rules agree. You also get an email with the evidence and the news.',pos:'below'},
+   {at:6,el:'t-why',text:'“Why?” shows each rule’s evidence and what its track record means, in plain English.',pos:'below'},
+   {at:11,el:'t-dec',text:'Mark what you did. Five trading days later a follow-up grades how it turned out.',pos:'left'}]},
+ {title:'Inside a stock',dur:18,html:TOP('Stocks')+`<div class="m-body"><div style="display:flex;align-items:baseline;gap:12px"><b style="font-size:22px">NVDA</b><span class="big" style="font-size:26px">$214.10</span><span class="dn" style="font-weight:700">-6.12%</span></div>
+   <div class="lbl">Alert sensitivity</div><div class="dial" id="t-dial"><span>Conservative</span><span class="a">Calibrated</span><span>Sensitive</span></div>
+   <div class="lbl">Rules</div><div class="synth" id="t-synth"><div class="t">IN SHORT</div><b>STRONG DIP: worth a look.</b> 2 rules agree on a sharp drop: Unusual Daily Move (useful), RSI Extreme (weak). Check the news; if your reasons still hold, it is not a reason to sell.</div>
+   <div class="rule" id="t-rule"><div class="h">Unusual Daily Move <span class="b-dip" style="font-size:10px">▼ DIP</span><span class="edit" id="t-edit">Edit</span></div>
+   <div class="plain"><span class="verdict g" id="t-verdict">USEFUL</span> When this rule fired on NVDA before, the stock then beat your other stocks by 1.2% on average over 5 trading days, after costs, and did so 58% of the time (61 cases).</div></div></div>`,
+  steps:[{at:1,el:'t-synth',text:'Open any stock: “In short” sums up what is happening and how much to trust it.',pos:'below'},
+   {at:6,el:'t-verdict',text:'Every rule shows a verdict from its own track record on this stock: useful, small edge, weak…',pos:'below'},
+   {at:11,el:'t-dial',text:'The dial sets how picky Tripwire is for this stock. Calibrated is the tested setting; Edit is for experts.',pos:'right'}]},
+ {title:'Alerts',dur:13,html:TOP('Alerts')+`<div class="m-body"><div style="display:flex;gap:8px;margin-bottom:10px" id="t-altools"><span class="edit">✓ Acknowledge all</span><span class="edit">⬇ Export CSV</span></div>
+   <div class="lbl">Signals · last 4 trading days</div><div class="box" id="t-alsig"><div class="row" style="margin:0"><b>NVDA</b><span class="b-dip">STRONG DIP</span><span class="meta">2 rules · fired Tue 10:42 · worth a look until Fri</span></div></div>
+   <div class="lbl">Rule activity &amp; history</div><div class="box" id="t-alhist">${['AMAT · 11 alerts · latest Tue · S/R Breach','EVR · 42 alerts · latest Tue · RSI Extreme','LLY · 12 alerts · latest Thu · Unusual Move'].map(x=>`<div class="row" style="margin:4px 0;justify-content:space-between"><span>${x}</span><span class="meta">▼</span></div>`).join('')}</div></div>`,
+  steps:[{at:1,el:'t-alsig',text:'Open signals sit on top, until their “worth a look” window closes.',pos:'below'},
+   {at:6,el:'t-alhist',text:'Below: every rule that fired, per stock, with its numbers and plain-English verdict.',pos:'above'}]},
+ {title:'Assistant',dur:14,html:TOP('Assistant')+`<div class="m-body"><div class="sugg" id="t-sugg"><span>Why did MU jump today?</span><span>What does a STRONG DIP mean for me?</span><span>Summarise my watchlist</span></div>
+   <div class="chat"><div class="msg me">Why did MU jump today?</div><div class="msg ai" id="t-answer"></div></div><div class="inp"><div>Ask about a move, a rule, a setting…</div><b>Send</b></div></div>`,
+  type:{el:'t-answer',at:2,text:'Micron rose 6.4% after results beat expectations and memory prices firmed. Tripwire flagged an Unusual Daily Move (useful for MU) plus a volume spike, so two rules agree: STRONG MOMENTUM. Worth re-checking your thesis; not a reason to chase.'},
+  steps:[{at:1,el:'t-sugg',text:'Ask in plain English. It looks up prices, your rules and the news.',pos:'below'},
+   {at:8,el:'t-answer',text:'Answers explain the move and what the signal means for a long-term holder.',pos:'above'}]},
+ {title:'Performance',dur:15,html:TOP('Performance')+`<div class="m-body"><div class="ptitle">📊 Performance</div><div class="wire"></div>
+   <div class="scope" id="t-scope">Grading the <b>current rules</b>, in use since 30 Sep 2026.</div>
+   <div class="two" id="t-hero2"><div class="box"><div class="big" style="color:#F59E0B">54%</div><div class="meta">of 24 signals beat your stocks after costs</div><div class="rng" id="t-rng">likely 33% to 74%</div></div>
+   <div class="box"><div class="big up">+0.6%</div><div class="meta">avg result vs your stocks, 5 days</div><div class="rng">likely -1.1% to +2.3%</div></div></div></div>`,
+  steps:[{at:1,el:'t-scope',text:'The app grades itself, on the rules it uses now, against your own stocks after costs.',pos:'below'},
+   {at:7,el:'t-rng',text:'“Likely” ranges show how much could be luck. A range that spans zero means: not proven yet.',pos:'below'}]},
+ {title:'Portfolio test',dur:14,html:TOP('Portfolio')+`<div class="m-body"><div class="ptitle">💼 Portfolio test</div><div class="wire"></div>
+   <div class="box" id="t-timing"><div style="color:#F59E0B;font-weight:800;font-size:12px;letter-spacing:.4px">TIMING: USING DIPS FOR PURCHASES YOU ALREADY PLANNED</div>
+   <div class="plain" style="font-size:13.5px">Waiting for a STRONG dip instead of buying as planned: <b class="dn">-1.24%</b> shares. <b>Don’t wait for dips.</b> When one does come, buying right then added about <b class="up">+0.8 pts</b>. <b>Use a dip when it comes.</b></div></div>
+   <div class="box" style="margin-top:10px" id="t-bt"><div class="meta" style="margin-bottom:6px">$1,000 over 5 years</div>
+   <svg viewBox="0 0 600 110" width="100%" height="110"><polyline fill="none" stroke="#F59E0B" stroke-width="3" points="0,100 100,88 200,80 300,60 400,52 500,30 600,18"/><polyline fill="none" stroke="#9DB4D0" stroke-width="3" points="0,100 100,90 200,82 300,64 400,56 500,36 600,24"/><polyline fill="none" stroke="#6B7280" stroke-width="2" points="0,100 100,96 200,93 300,86 400,82 500,74 600,70"/></svg>
+   <div class="meta"><span style="color:#F59E0B">■ trading every signal</span> · <span style="color:#9DB4D0">■ same stocks, never traded</span> · <span>■ S&amp;P 500</span></div></div></div>`,
+  steps:[{at:1,el:'t-timing',text:'The honest lesson: don’t wait for dips, but use one when it comes for a purchase you planned anyway.',pos:'below'},
+   {at:7,el:'t-bt',text:'And trading in and out on every signal barely beats simply holding your picks. Your picks drive returns.',pos:'above'}]},
+ {title:'Guide and audio',dur:12,html:TOP('Guide')+`<div class="m-body"><div class="ptitle">📘 Guide</div><div class="wire"></div><div class="listen" id="t-listen">🔊 Listen to the guide <span style="color:#E4E0D8;font-weight:500">· 9 min, read by Emma</span></div>
+   <div class="box" style="margin-top:12px"><b>🎯 Why — the purpose</b> <span class="lnk" style="font-size:12px">▶ Listen</span><div class="plain">You pick your stocks carefully and hold them. The hard part is keeping an eye on all of them…</div></div></div>
+   <div class="player" id="t-player"><div class="pbtn">⏸</div><div style="flex:1"><div style="font-size:12px;font-weight:600">What — the product · 2:56 / 9:03</div><div class="pbar"><i class="f" style="flex:38"></i><i class="f" style="flex:101"></i><i class="f" style="flex:37"></i><i style="flex:131"></i><i style="flex:41"></i><i style="flex:195"></i></div></div><span style="color:#F59E0B;font-weight:800;font-size:12px">1×</span></div>`,
+  steps:[{at:1,el:'t-listen',text:'Prefer listening? The whole Guide is narrated, about 9 minutes.',pos:'below'},
+   {at:6,el:'t-player',text:'The player keeps going while you browse. Tap the bar to see and jump between chapters.',pos:'above'}]},
+ {title:'Emails and your phone',dur:14,html:`<div class="m-body" style="display:flex;gap:40px;align-items:center;justify-content:center;height:100%">
+   <div class="mail" id="t-mail"><h4>⚡ STRONG DIP · NVDA — worth a look until Fri</h4>NVDA fell 6.1%. Two rules agree: an unusual daily move and an R S I extreme. News: guidance cut on supply delays. On your stocks, drops like this tended to recover; if your reasons still hold, it is not a reason to sell.
+   <div class="btns" id="t-mailbtn"><span>I acted</span><span>I passed</span></div></div>
+   <div><div class="phone" id="t-phone">${['Mail','Maps','Photos','Notes','',''].map(n=>`<div><div class="app"></div><div class="app-l">${n}</div></div>`).join('').replace('<div><div class="app"></div><div class="app-l"></div></div>','<div><div class="app tw"></div><div class="app-l">Tripwire</div></div>')}</div></div></div>`,
+  steps:[{at:1,el:'t-mail',text:'Each STRONG signal arrives by email with the evidence and the news.',pos:'below'},
+   {at:5.5,el:'t-mailbtn',text:'Tap “I acted” or “I passed” right in the email; the follow-up comes 5 trading days later.',pos:'below'},
+   {at:10,el:'t-phone',text:'On iPhone: Share → Add to Home Screen, for a one-tap Tripwire icon.',pos:'left'}]},
+ {title:'Finding your way',dur:11,html:TOP('Glossary')+`<div class="m-body"><div class="ptitle">📖 Glossary</div><div class="wire"></div>
+   <div class="box" id="t-gloss"><b style="color:#F59E0B">Result vs your stocks</b><div class="plain">A signal’s 5-day result with the average of your watchlist and the ~0.4% trading cost subtracted. +2% means the stock beat your other stocks by 2 points after costs.</div></div></div>
+   <div class="backbtn" id="t-back">← Back to Performance</div>`,
+  steps:[{at:1,el:'t-gloss',text:'Underlined words anywhere in the app open their plain-English definition.',pos:'below'},
+   {at:5.5,el:'t-back',text:'This floating button always takes you back to where you were. Swiping back works too.',pos:'right'}]},
+ {title:'Settings',dur:10,html:TOP('Settings')+`<div class="m-body"><div class="ptitle">Settings</div><div class="wire"></div>
+   <div class="box" id="t-set">${['Email notifications · on','Signal briefs · STRONG signals only','Monthly recalibration · you approve every change'].map(x=>`<div class="row" style="justify-content:space-between;margin:6px 0"><span>${x.split(' · ')[0]}</span><span class="meta">${x.split(' · ')[1]}</span></div>`).join('')}</div></div>`,
+  steps:[{at:1,el:'t-set',text:'Choose your notifications. Once a month Tripwire re-tests its rules on fresh data and suggests changes only if clearly better; nothing changes until you press Apply.',pos:'below'}]},
+ {title:'That’s Tripwire',dur:9,html:`<div class="hero"><h1>Remember</h1><p id="t-end">An attention and timing aid, not a trading system.<br>Check the news, check your reasons, avoid panic, and use a dip when it comes.</p><p style="font-size:16px;color:#9CA3AF">Next: test yourself in the 🎓 Training tab.</p></div>`,
+  steps:[{at:2,el:'t-end',text:'Ready for the quiz? Open the Training tab.',pos:'below'}]},
+];
+
+const stage=document.getElementById('stage'), box=document.getElementById('stage-box'), slidesEl=document.getElementById('slides');
+const bubble=document.getElementById('bubble'), ring=document.getElementById('ring'), arrow=document.getElementById('arrow');
+slidesEl.innerHTML=SLIDES.map((s,i)=>`<div class="slide" id="slide${i}">${s.html}</div>`).join('');
+document.getElementById('segs').innerHTML=SLIDES.map((s,i)=>`<div class="seg" data-i="${i}" title="${s.title}"><i></i></div>`).join('');
+const TOTAL=SLIDES.reduce((a,s)=>a+s.dur,0);
+let cur=0, t=0, playing=false, last=null, shown=-2, scale=1;
+
+function fit(){
+  scale=Math.min(box.clientWidth/960,1);
+  stage.style.transform=`scale(${scale})`;
+  box.style.height=(560*scale)+'px';
+  document.body.classList.toggle('small',scale<0.62);
+  shown=-2; render();
+}
+function clock(s){ s=Math.max(0,Math.round(s)); return Math.floor(s/60)+':'+String(s%60).padStart(2,'0'); }
+function elapsed(){ return SLIDES.slice(0,cur).reduce((a,s)=>a+s.dur,0)+t; }
+function track(x){ try{ parent.track&&parent.track(x); }catch(e){} }
+
+function showStep(i){
+  const s=SLIDES[cur], st=s.steps[i];
+  [bubble,ring,arrow].forEach(e=>e.classList.remove('on'));
+  const cap=document.getElementById('cap-text');
+  if(!st){ cap.innerHTML=''; return; }
+  cap.innerHTML=`<span class="n">${i+1}</span>${st.text}`;
+  const el=document.getElementById(st.el);
+  if(!el) return;
+  const sr=stage.getBoundingClientRect(), r=el.getBoundingClientRect();
+  const x=(r.left-sr.left)/scale, y=(r.top-sr.top)/scale, w=r.width/scale, h=r.height/scale;
+  Object.assign(ring.style,{left:(x-6)+'px',top:(y-6)+'px',width:(w+12)+'px',height:(h+12)+'px'});
+  bubble.innerHTML=`<span class="n">${i+1}</span><span class="t">${st.text}</span>`;
+  const small=document.body.classList.contains('small');
+  const bw=small?44:Math.min(290,bubble.scrollWidth||290), bh=small?44:(bubble.offsetHeight||70);
+  let bx,by,ax,ay;   // bubble position, and the point the arrow aims at
+  if(st.pos==='below'){ bx=x+Math.min(w*0.5,140); by=y+h+46; ax=x+Math.min(w*0.5,140)+10; ay=y+h+8; }
+  else if(st.pos==='above'){ bx=x+Math.min(w*0.4,200); by=y-bh-46; ax=bx+30; ay=y-8; }
+  else if(st.pos==='left'){ bx=x-bw-60; by=y+h/2-bh/2; ax=x-8; ay=y+h/2; }
+  else { bx=x+w+60; by=y+h/2-bh/2; ax=x+w+8; ay=y+h/2; }
+  bx=Math.max(8,Math.min(960-bw-8,bx)); by=Math.max(8,Math.min(560-bh-8,by));
+  Object.assign(bubble.style,{left:bx+'px',top:by+'px'});
+  const sx=bx+(st.pos==='left'?bw:st.pos==='right'?0:30), sy=by+(st.pos==='below'?0:st.pos==='above'?bh:bh/2);
+  const mx=(sx+ax)/2+(st.pos==='below'||st.pos==='above'?40:0), my=(sy+ay)/2-(st.pos==='left'||st.pos==='right'?30:0);
+  arrow.setAttribute('d',`M${sx},${sy} Q${mx},${my} ${ax},${ay}`);
+  requestAnimationFrame(()=>[bubble,ring,arrow].forEach(e=>e.classList.add('on')));
+}
+function typeInto(s){
+  if(!s.type) return;
+  const el=document.getElementById(s.type.el), n=t<s.type.at?0:Math.min(s.type.text.length,Math.floor((t-s.type.at)*45));
+  el.textContent=s.type.text.slice(0,n);
+}
+function render(){
+  const s=SLIDES[cur];
+  document.querySelectorAll('.slide').forEach((e,i)=>e.classList.toggle('on',i===cur));
+  document.getElementById('cap-title').textContent=`${cur+1} / ${SLIDES.length} · ${s.title}`;
+  let i=-1; s.steps.forEach((st,k)=>{ if(t>=st.at) i=k; });
+  if(i!==shown){ shown=i; showStep(i); }
+  typeInto(s);
+  document.querySelectorAll('.seg i').forEach((f,k)=>f.style.width=(k<cur?100:k>cur?0:Math.min(100,100*t/s.dur))+'%');
+  document.getElementById('clock').textContent=`${clock(elapsed())} / ${clock(TOTAL)}`;
+  document.getElementById('play').textContent=playing?'⏸':(cur===SLIDES.length-1&&t>=s.dur?'↻':'▶');
+}
+function go(i){ cur=Math.max(0,Math.min(SLIDES.length-1,i)); t=0; shown=-2; render(); }
+function frame(ts){
+  if(!playing) return;
+  if(last!=null) t+=Math.min(0.25,(ts-last)/1000);
+  last=ts;
+  if(t>=SLIDES[cur].dur){
+    if(cur<SLIDES.length-1) go(cur+1);
+    else { t=SLIDES[cur].dur; playing=false; track('Finished the tour'); render(); return; }
+  }
+  render();
+  requestAnimationFrame(frame);
+}
+function play(){ if(playing) return; if(cur===SLIDES.length-1&&t>=SLIDES[cur].dur) go(0); playing=true; last=null; requestAnimationFrame(frame); render(); }
+function pause(){ playing=false; render(); }
+// The app calls these when the Tour tab is shown or hidden.
+window.tourPlay=play; window.tourPause=pause;
+document.getElementById('play').onclick=()=>{ playing?pause():play(); };
+document.getElementById('prev').onclick=()=>{ go(t>2?cur:cur-1); };
+document.getElementById('next').onclick=()=>{ go(cur+1); };
+document.getElementById('segs').onclick=e=>{ const sg=e.target.closest('.seg'); if(sg){ go(+sg.dataset.i); track('Tour: jumped to '+SLIDES[+sg.dataset.i].title); } };
+document.addEventListener('keydown',e=>{ if(e.key===' '){ e.preventDefault(); playing?pause():play(); } if(e.key==='ArrowRight') go(cur+1); if(e.key==='ArrowLeft') go(cur-1); });
+window.addEventListener('resize',fit);
+fit(); go(0); play();
+</script>
+</body></html>

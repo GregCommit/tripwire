@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tripwire training</title>
+<style>
+/* Tripwire training: five short modules (purpose, signals, the seven rules with live examples,
+   reading the evidence) and a scored quiz. Best score is kept in this browser only. */
+:root{--bg:#0A0C12;--card:#12151F;--line:#1E2235;--line2:#2A2F45;--txt:#E4E0D8;--mute:#9CA3AF;--dim:#6B7280;
+  --amber:#F59E0B;--calm:#9DB4D0;--sky:#38BDF8;--up:#10B981;--dn:#EF4444;--link:#93C5FD}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--bg);color:var(--txt);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+body{padding:14px 14px 40px}
+#wrap{max-width:860px;margin:0 auto}
+h1{font-size:22px}
+.sub{color:var(--mute);font-size:14px;margin:4px 0 14px;line-height:1.5}
+#nav{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
+#nav button{background:var(--card);border:1px solid var(--line2);color:var(--mute);border-radius:999px;padding:8px 14px;font-size:14px;font-weight:600;cursor:pointer}
+#nav button.a{border-color:var(--amber);color:var(--amber);background:#F59E0B14}
+#nav button.done::after{content:" ✓";color:var(--calm)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:14px}
+.card h2{font-size:18px;margin-bottom:8px}
+.card h3{font-size:15px;color:var(--amber);margin:14px 0 6px}
+p,li{font-size:15px;line-height:1.6;color:#D1D5DB}
+p+p{margin-top:8px}
+ul{padding-left:20px;margin:6px 0}
+b{color:var(--txt)}
+.ex{background:var(--bg);border:1px solid var(--line);border-left:3px solid var(--amber);border-radius:8px;padding:10px 12px;margin:10px 0;font-size:14px;line-height:1.55;color:#D1D5DB}
+.ex .h{font-size:11px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--amber);margin-bottom:4px}
+.b-dip{background:#F59E0B25;color:var(--amber);border:2px solid #F59E0B66;border-radius:6px;padding:1px 7px;font-size:12px;font-weight:800;white-space:nowrap}
+.b-mom{background:#38BDF825;color:var(--sky);border:2px solid #38BDF866;border-radius:6px;padding:1px 7px;font-size:12px;font-weight:800;white-space:nowrap}
+.b-soft{border:1px dashed #4B5563;color:var(--mute);border-radius:6px;padding:1px 7px;font-size:12px;font-weight:700;white-space:nowrap}
+.rules{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media (max-width:640px){.rules{grid-template-columns:1fr}}
+.rule{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:12px;cursor:pointer;transition:border-color .2s}
+.rule:hover{border-color:var(--line2)}
+.rule.open{grid-column:1/-1;border-color:#F59E0B66;cursor:default}
+.rule .t{display:flex;align-items:center;gap:8px;font-weight:800;font-size:15px}
+.tag{font-size:10px;font-weight:800;border-radius:5px;padding:1px 6px;letter-spacing:.3px}
+.tag.vote{color:var(--amber);border:1px solid #F59E0B66}
+.tag.ctx{color:var(--mute);border:1px dashed #4B5563}
+.rule .one{font-size:13px;color:var(--mute);margin-top:4px;line-height:1.45}
+.rule .more{display:none;margin-top:10px}
+.rule.open .more{display:block}
+.rule .hint{font-size:12px;color:var(--link);margin-top:6px}
+.rule.open .hint{display:none}
+.try{background:var(--card);border:1px solid var(--line2);border-radius:10px;padding:12px;margin-top:10px}
+.try label{font-size:13px;color:var(--mute);display:block;margin-bottom:6px}
+.try input[type=range]{width:100%;accent-color:var(--amber)}
+.res{margin-top:8px;font-size:14px;font-weight:700}
+.res.on{color:var(--amber)}.res.off{color:var(--calm)}
+svg.mini{width:100%;height:90px;display:block;background:var(--card);border-radius:8px;margin:8px 0}
+.check{border-top:1px dashed var(--line2);margin-top:14px;padding-top:12px}
+.check .q{font-weight:700;font-size:15px;margin-bottom:8px}
+.opts{display:flex;flex-direction:column;gap:8px}
+.opt{text-align:left;background:var(--bg);border:1px solid var(--line2);color:var(--txt);border-radius:10px;padding:11px 13px;font-size:15px;line-height:1.4;cursor:pointer}
+.opt:hover{border-color:#F59E0B66}
+.opt.right{border-color:var(--up);background:#10B98114}
+.opt.wrong{border-color:var(--dn);background:#EF444414}
+.opt:disabled{cursor:default}
+.why{margin-top:10px;font-size:14px;line-height:1.55;color:#D1D5DB;background:var(--bg);border-radius:8px;padding:10px 12px;display:none}
+.why.on{display:block}
+.btn{background:var(--amber);color:#000;border:none;border-radius:10px;padding:10px 18px;font-size:15px;font-weight:800;cursor:pointer}
+.btn.ghost{background:none;border:1px solid var(--line2);color:var(--txt);font-weight:600}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px}
+#qprog{display:flex;gap:4px;margin:6px 0 12px}
+#qprog i{flex:1;height:6px;border-radius:3px;background:var(--line2)}
+#qprog i.r{background:var(--up)}#qprog i.w{background:var(--dn)}#qprog i.c{background:var(--amber)}
+.score{font-size:46px;font-weight:800;color:var(--amber)}
+.verdict{font-size:10px;font-weight:800;border-radius:5px;padding:1px 6px;border:1px solid;text-transform:uppercase}
+.v-good{color:var(--up);border-color:#10B98155}.v-mild{color:var(--calm);border-color:#9DB4D055}.v-weak{color:var(--mute);border-color:#4B556388}.v-bad{color:#F87171;border-color:#EF444455}
+</style></head><body><div id="wrap">
+<h1>🎓 Training</h1>
+<div class="sub">Five short modules, about ten minutes in all, then a 12-question quiz. Learn what Tripwire is for, what each signal and rule means, and how to read its evidence.</div>
+<div id="nav"></div>
+<div id="content"></div>
+</div>
+<script>
+function track(x){ try{ parent.track&&parent.track(x); }catch(e){} }
+const store={get(k){try{return localStorage.getItem(k);}catch(e){return null;}},set(k,v){try{localStorage.setItem(k,v);}catch(e){}}};
+
+// A tiny price chart for the rule examples: points (0–100 scale), plus an optional marker.
+function mini(pts,opts={}){
+  const W=600,H=90,n=pts.length, x=i=>10+i*(W-20)/(n-1), y=v=>H-8-v*(H-16)/100;
+  const line=pts.map((v,i)=>`${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  const band=opts.band?`<rect x="10" y="${y(opts.band[1])}" width="${W-20}" height="${y(opts.band[0])-y(opts.band[1])}" fill="#9DB4D014"/><line x1="10" x2="${W-10}" y1="${y(opts.band[1])}" y2="${y(opts.band[1])}" stroke="#9DB4D066" stroke-dasharray="4 4"/><line x1="10" x2="${W-10}" y1="${y(opts.band[0])}" y2="${y(opts.band[0])}" stroke="#9DB4D066" stroke-dasharray="4 4"/>`:'';
+  const vols=opts.vol?opts.vol.map((v,i)=>`<rect x="${x(i)-4}" y="${H-4-v*0.4}" width="8" height="${v*0.4}" fill="${i===opts.vol.length-1?'#F59E0B':'#2A2F45'}"/>`).join(''):'';
+  const mk=opts.mark!=null?`<circle cx="${x(opts.mark)}" cy="${y(pts[opts.mark])}" r="7" fill="none" stroke="#F59E0B" stroke-width="3"/>`:'';
+  return `<svg class="mini" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${band}${vols}<polyline fill="none" stroke="#9CA3AF" stroke-width="2.5" points="${line}"/>${mk}</svg>`;
+}
+
+const RULES=[
+ {id:'volatility',name:'Unusual daily move',vote:true,one:'Today’s move is several times bigger than this stock’s normal day.',
+  body:`<p>Every stock has its own rhythm: 3% is a dramatic day for a bank and an ordinary one for a chip maker. This rule compares today’s move with <i>this stock’s</i> average daily move over recent weeks, and fires when it is several times larger (typically about 3.75× the normal day).</p>
+  ${mini([50,52,49,51,50,53,51,50,52,51,49,50,28],{mark:12})}
+  <div class="ex"><div class="h">Example</div>NVDA normally moves about 1.6% a day. Today it falls 6.1%, nearly 4× its normal day: the rule fires on the downside (a dip).</div>
+  <div class="try"><label>Try it: AAPL usually moves about 1.2% a day. Drag today’s move.</label><input type="range" id="tryVol" min="-8" max="8" step="0.1" value="1.5"><div class="res" id="tryVolRes"></div></div>`},
+ {id:'sr',name:'Support / resistance',vote:true,one:'The price breaks clearly above its recent high or below its recent low.',
+  body:`<p>Over the last few weeks or months a stock trades within a range. A clear break out of that range, by more than a small buffer (a few percent), often means something has changed: news, a re-rating, big investors moving.</p>
+  ${mini([45,52,48,55,50,47,53,49,51,46,50,54,82],{band:[42,58],mark:12})}
+  <div class="ex"><div class="h">Example</div>MSFT spent 3 months between $480 and $520. Today it closes at $541, well above the top of the range: the rule fires on the upside (momentum).</div>`},
+ {id:'volume',name:'Volume spike',vote:true,one:'Far more shares change hands than usual.',
+  body:`<p>When two to three times the normal number of shares trade in a day, big investors or news are usually involved. Volume says “this move is real”, whichever direction it goes.</p>
+  ${mini([50,51,50,52,51,50,49,51,50,52,51,50,62],{vol:[40,45,38,50,42,44,40,47,43,41,46,44,140],mark:12})}
+  <div class="ex"><div class="h">Example</div>MU normally trades about 20 million shares a day. After earnings, 64 million trade and the price jumps: the rule fires.</div>`},
+ {id:'rsi',name:'RSI extreme',vote:true,one:'A standard gauge of how stretched a stock is, from 0 to 100.',
+  body:`<p>RSI (relative strength index) measures how one-sided recent days have been. Around 80 or more the stock is “running hot” (overbought); around 30 or less it has been “sold off hard” (oversold).</p>
+  <div class="ex"><div class="h">What it means for you</div>On its own, RSI is usually a <b>weak</b> signal. Overbought is not a sell signal, at most a hint the stock may cool off a little; oversold is not a reason to panic-sell. It matters most when another rule agrees.</div>
+  <div class="try"><label>Try it: drag the RSI.</label><input type="range" id="tryRsi" min="0" max="100" step="1" value="55"><div class="res" id="tryRsiRes"></div></div>`},
+ {id:'gap',name:'Opening gap',vote:false,one:'The stock opens far above or below yesterday’s close.',
+  body:`<p>A large jump between yesterday’s close and today’s open (typically 2–5%, depending on the stock) reflects overnight news: earnings, guidance, a downgrade. It is shown for context and does not vote, because on its own it had almost no track record.</p>
+  ${mini([50,51,50,52,51,50,51,70,72,71],{mark:7})}`},
+ {id:'consec',name:'Consecutive down days',vote:false,one:'Several down days in a row.',
+  body:`<p>Three or more falling days in a row. It is shown for context only and never alerts: a slow drift is common and, on its own, told us nothing useful about what comes next.</p>
+  ${mini([70,66,61,57,53,50,52,54],{mark:4})}`},
+ {id:'ma',name:'Moving-average cross',vote:false,one:'A short-term average crosses a long-term average.',
+  body:`<p>When the 20-day average price crosses above the 50-day average (a “golden cross”) or below it (a “death cross”). Popular in trading folklore; in testing it was roughly neutral on these stocks, so it is shown for context and does not vote.</p>`},
+];
+
+const MODULES=[
+ {id:'why',title:'1 · What it’s for',html:`<div class="card"><h2>What Tripwire is for</h2>
+   <p>You pick your stocks carefully and hold them. The hard parts are: watching all of them, telling a meaningful move from noise, and not reacting on emotion.</p>
+   <p>Tripwire watches every minute while the US market is open, stays quiet on ordinary days, and tells you when something genuinely unusual happens, with the evidence and the news.</p>
+   <h3>It helps you</h3><ul><li><b>Check your reasons</b> when a stock moves sharply.</li><li><b>Avoid panic</b>: sharp drops on your stocks tended to recover.</li><li><b>Time purchases you were already planning</b>: right after a strong dip has been a slightly better moment.</li></ul>
+   <h3>It is not</h3><ul><li>A trading robot: it never buys or sells.</li><li>A reason to trade more: in a fair year-by-year replay, trading in and out on every signal barely beat simply holding your stocks.</li><li>Financial advice.</li></ul></div>`,
+  check:{q:'Which is the best way to use Tripwire?',opts:['Buy and sell every time it signals','As a second pair of eyes: check news and reasons when it flags something','Ignore it on days the market is up'],a:1,why:'Tripwire is an attention and timing aid. Trading every signal barely beat holding; its value is in noticing, checking, and not panicking.'}},
+ {id:'signals',title:'2 · The signals',html:`<div class="card"><h2>The signals</h2>
+   <p>Seven rules watch each stock. Four of them have a proven record and <b>vote</b>. When at least two of the four agree on the same direction, you get a STRONG signal: a banner on the Stocks page and an email.</p>
+   <h3><span class="b-dip">STRONG DIP</span> a sharp, unusual drop</h3><p>Check the news. If your reasons for owning the stock still hold, it is <b>not a reason to sell</b>: on your stocks such drops tended to recover. If you were planning to buy more anyway, right after a strong dip has been a slightly better moment.</p>
+   <h3><span class="b-mom">STRONG MOMENTUM</span> an unusual surge</h3><p>Often news or a re-rating. A good moment to re-check your thesis and valuation. <b>Not a reason to chase.</b></p>
+   <h3><span class="b-soft">DIP FORMING</span> <span class="b-soft">MOMENTUM BUILDING</span> early signs</h3><p>Only one voting rule sees something. Shown on the tile, no email. Context, not a signal.</p>
+   <div class="ex"><div class="h">Worth a look until…</div>Each STRONG signal comes with a date about 4 trading days ahead. The effect was measured over 1 to 5 days; after that the pattern has played out and the signal expires.</div>
+   <div class="ex"><div class="h">Don’t wait for dips</div>Strong dips come in only about 1 month in 6, and your stocks tend to rise meanwhile. Waiting for one instead of buying as planned cost about 1.2% on average. Use a dip when it comes; don’t wait for one.</div></div>`,
+  check:{q:'NVDA falls 6% and you get a STRONG DIP. You still believe in the company. What does Tripwire’s evidence suggest?',opts:['Sell before it falls further','Check the news; it is not a reason to sell, and if you planned to buy more, it is a reasonable moment','Wait a month and decide then'],a:1,why:'On your stocks, sharp drops like this tended to recover. A STRONG DIP is a prompt to check the news and your reasons, never a sell order.'}},
+ {id:'rules',title:'3 · The seven rules',html:`<div class="card"><h2>The seven rules</h2>
+   <p>Tap a rule to open it. <span class="tag vote">VOTES</span> rules count towards STRONG signals; <span class="tag ctx">CONTEXT</span> rules are shown on the tile for information only.</p>
+   <div class="rules" id="ruleGrid"></div></div>`,
+  check:{q:'Only the RSI rule has triggered (“overbought”). What should you do?',opts:['Sell: overbought means it will fall','Nothing to act on: one rule alone is context, not a signal','Buy more before it rises further'],a:1,why:'It takes at least two of the four voting rules agreeing to make a signal. RSI on its own has been a weak signal: at most a hint the stock may cool off a little.'}},
+ {id:'evidence',title:'4 · Reading the evidence',html:`<div class="card"><h2>Reading the evidence</h2>
+   <h3>Judged against your own stocks</h3><p>Acting on a signal means moving money from your other stocks (or choosing this stock over them). So every signal is judged on one question: over the next 5 trading days, did this stock beat <b>the average of your watchlist</b>, after about 0.4% of trading costs?</p>
+   <div class="ex"><div class="h">Example</div>After a signal the stock gains 3% and your stocks gain 1% on average. It beat them by 2 points, or 1.6 after costs.</div>
+   <h3>Verdicts on every rule</h3><p>Open any stock and each rule shows a verdict from its own track record on that stock:</p>
+   <ul><li><span class="verdict v-good">Useful</span> beat your stocks by 0.5% or more on average, and was right at least 55% of the time.</li>
+   <li><span class="verdict v-mild">Small edge</span> helps on average, not every time.</li>
+   <li><span class="verdict v-weak">Weak</span> barely moves the needle, close to a coin toss.</li>
+   <li><span class="verdict v-bad">Unhelpful</span> historically pointed the wrong way more often than not.</li></ul>
+   <h3>“Likely” ranges</h3><p>Performance shows ranges like “likely −1.1% to +2.3%”. With few signals the range is wide. A range that spans zero means the signals have not yet proven an edge, either way.</p>
+   <h3>Portfolio test</h3><p>Two honest checks: whether dips help with purchases you were already planning (yes, a little, if you use one when it comes), and what trading every signal would have done compared with simply holding your stocks (barely any better).</p></div>`,
+  check:{q:'Performance says “avg result vs your stocks: +0.6%, likely −1.1% to +2.3%”. What does that mean?',opts:['The signals are proven to make money','Too few signals yet: the range spans zero, so no edge is proven either way','The signals lose money'],a:1,why:'When the likely range includes zero, the result could still be luck. It takes more signals to narrow it.'}},
+ {id:'quiz',title:'5 · Quiz',html:`<div class="card" id="quiz"></div>`},
+];
+
+const QUIZ=[
+ {q:'What is Tripwire best used for?',opts:['Trading automatically on its signals','An attention and timing aid for stocks you hold long-term','Predicting earnings results','Day trading'],a:1,why:'It watches, explains and helps you time planned purchases. It never trades for you.'},
+ {q:'What makes a STRONG signal?',opts:['Any rule triggering','At least two of the four voting rules agreeing on the same direction','The price moving more than 5%','The Assistant recommending it'],a:1,why:'Two or more of the four rules with a proven record (unusual move, support/resistance, volume, RSI) must agree.'},
+ {q:'You planned to buy more of a stock this month. Should you hold off and wait for a STRONG DIP?',opts:['Yes, always wait for a dip','No: dips come about 1 month in 6, and waiting cost about 1.2% on average','Only in summer','Yes, if RSI is above 50'],a:1,why:'Don’t wait for dips; your stocks tend to rise meanwhile. But if a strong dip comes, buying right then has been slightly better.'},
+ {q:'STRONG MOMENTUM fires on AAPL after strong news. What is the sensible response?',opts:['Buy as much as possible immediately','Sell before it reverses','Re-check your thesis and valuation; it is not a reason to chase','Ignore all news'],a:2,why:'An unusual surge is a prompt to look again, not a buy order.'},
+ {q:'A rule’s verdict reads “Weak: beat your stocks 48% of the time”. What does that tell you?',opts:['It is a reliable sell signal','It is close to a coin toss on this stock: context, not something to act on alone','It is broken and should be deleted','It always predicts drops'],a:1,why:'Weak means it barely moved the needle historically. It matters only alongside other rules.'},
+ {q:'Which rule is shown for context only and never alerts?',opts:['Unusual daily move','Volume spike','Consecutive down days','Support / resistance'],a:2,why:'A slow drift of several down days told us nothing useful on its own, so it never triggers a signal.'},
+ {q:'Only “RSI overbought” has triggered on a stock. What should you do?',opts:['Sell it','Nothing to act on: one rule is context, not a signal','Buy more','Change the sensitivity to Sensitive'],a:1,why:'One rule alone never makes a signal, and overbought is not a sell signal.'},
+ {q:'How is a signal’s result measured?',opts:['Against the S&P 500 only','The stock’s 5-day return minus the average of your watchlist, after about 0.4% costs','By how many alerts it sent','By the Assistant’s opinion'],a:1,why:'A signal only helps if the stock beats your other stocks (where the money would come from), after costs.'},
+ {q:'On the Performance tab, “likely −3% to +1%” means:',opts:['A guaranteed loss of 3%','The true average is probably in this range; spanning zero means no proven edge yet','The app is broken','You should recalibrate now'],a:1,why:'Ranges show how much could be luck. Few signals mean wide ranges.'},
+ {q:'Setting a stock’s sensitivity dial to “Conservative” gives you:',opts:['More signals, weaker ones','Fewer signals, stronger ones','No signals at all','Automatic trades'],a:1,why:'Conservative raises the bar; Sensitive lowers it. Calibrated is the tested setting.'},
+ {q:'What happens about 5 trading days after a STRONG signal?',opts:['The stock is sold automatically','A follow-up email tells you how it turned out','The rule is switched off','Nothing'],a:1,why:'Every signal is scored after 5 trading days, and the follow-up shows how your “acted / passed” choice went.'},
+ {q:'Once a month Tripwire re-tests its rules on fresh data. What happens if it finds better settings?',opts:['They are applied silently','It suggests the change; nothing changes until you press Apply','All rules are reset to defaults','It emails your broker'],a:1,why:'Changes are proposed only when clearly better than noise, and you approve every one.'},
+];
+
+let modIdx=0;
+const done=new Set((store.get('tw_train_done')||'').split(',').filter(Boolean));
+function nav(){
+  document.getElementById('nav').innerHTML=MODULES.map((m,i)=>`<button class="${i===modIdx?'a':''} ${done.has(m.id)?'done':''}" onclick="openMod(${i})">${m.title}</button>`).join('');
+}
+function checkHTML(c,key){
+  return `<div class="check"><div class="q">Check yourself: ${c.q}</div><div class="opts">${c.opts.map((o,i)=>`<button class="opt" onclick="answerCheck('${key}',${i})">${o}</button>`).join('')}</div><div class="why" id="why-${key}">${c.why}</div></div>`;
+}
+function answerCheck(key,i){
+  const m=MODULES.find(x=>x.id===key), box=document.getElementById('why-'+key).parentElement;
+  box.querySelectorAll('.opt').forEach((b,k)=>{ b.disabled=true; if(k===m.check.a) b.classList.add('right'); else if(k===i) b.classList.add('wrong'); });
+  const w=document.getElementById('why-'+key); w.classList.add('on'); w.innerHTML=(i===m.check.a?'✓ Right. ':'Not quite. ')+m.check.why;
+  done.add(key); store.set('tw_train_done',[...done].join(',')); nav();
+  const nxt=MODULES.findIndex(x=>x.id===key)+1;
+  if(nxt<MODULES.length) w.insertAdjacentHTML('beforeend',`<div class="row"><button class="btn" onclick="openMod(${nxt})">Next: ${MODULES[nxt].title.replace(/^\d · /,'')} ›</button></div>`);
+}
+function openMod(i){
+  modIdx=i; const m=MODULES[i];
+  document.getElementById('content').innerHTML=m.html+(m.check?`<div class="card">${checkHTML(m.check,m.id).replace('class="check"','class="check" style="border:none;margin:0;padding:0"')}</div>`:'');
+  if(m.id==='rules') renderRules();
+  if(m.id==='quiz') startQuiz();
+  nav(); window.scrollTo(0,0); track('Training: opened '+m.title);
+}
+function renderRules(){
+  document.getElementById('ruleGrid').innerHTML=RULES.map(r=>`<div class="rule" id="rule-${r.id}" onclick="openRule('${r.id}')">
+    <div class="t">${r.name} <span class="tag ${r.vote?'vote':'ctx'}">${r.vote?'VOTES':'CONTEXT'}</span></div><div class="one">${r.one}</div><div class="hint">Tap to learn more ›</div><div class="more">${r.body}</div></div>`).join('');
+}
+function openRule(id){
+  const el=document.getElementById('rule-'+id);
+  if(el.classList.contains('open')) return;
+  document.querySelectorAll('.rule.open').forEach(x=>x.classList.remove('open'));
+  el.classList.add('open'); track('Training: rule '+id);
+  if(id==='volatility') wireTry('tryVol',v=>{ const x=Math.abs(v)/1.2, on=x>=3.75;
+    return [on,`Today ${v>0?'+':''}${v.toFixed(1)}% is ${x.toFixed(1)}× AAPL’s normal day. ${on?(v<0?'TRIGGERED on the downside: a dip. With one more rule agreeing, it would be a STRONG DIP.':'TRIGGERED on the upside: momentum.'):'Not unusual enough for AAPL: no trigger (it needs about 3.75×, roughly ±4.5%).'}`]; });
+  if(id==='rsi') wireTry('tryRsi',v=>{ const hot=v>=80, cold=v<=30;
+    return [hot||cold,`RSI ${v}: ${hot?'running hot (overbought). Not a sell signal; at most it may cool off a little.':cold?'sold off hard (oversold). Not a reason to panic-sell; check the news.':'normal range: no trigger.'}`]; });
+  el.scrollIntoView({block:'nearest'});
+}
+function wireTry(id,fn){
+  const inp=document.getElementById(id), out=document.getElementById(id+'Res');
+  const upd=()=>{ const [on,txt]=fn(parseFloat(inp.value)); out.className='res '+(on?'on':'off'); out.textContent=txt; };
+  inp.addEventListener('input',upd); inp.addEventListener('click',e=>e.stopPropagation()); upd();
+}
+
+// ── The quiz: options shuffled each run, explanations after every answer, best score kept ──
+let qs=[], qi=0, results=[];
+function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+function startQuiz(){
+  qs=QUIZ.map(q=>{ const order=shuffle(q.opts.map((_,i)=>i)); return {q:q.q,opts:order.map(i=>q.opts[i]),a:order.indexOf(q.a),why:q.why}; });
+  qi=0; results=[]; showQ(); track('Training: started quiz');
+}
+function showQ(){
+  const q=qs[qi], best=store.get('tw_quiz_best');
+  document.getElementById('quiz').innerHTML=`<h2>Quiz · question ${qi+1} of ${qs.length}</h2>
+    <div id="qprog">${qs.map((_,k)=>`<i class="${k<results.length?(results[k]?'r':'w'):k===qi?'c':''}"></i>`).join('')}</div>
+    <div class="check" style="border:none;margin:0;padding:0"><div class="q">${q.q}</div><div class="opts">${q.opts.map((o,k)=>`<button class="opt" onclick="answerQ(${k})">${o}</button>`).join('')}</div><div class="why" id="qwhy"></div></div>
+    ${best?`<div class="sub" style="margin:12px 0 0">Your best so far: ${best} / ${qs.length}</div>`:''}`;
+}
+function answerQ(k){
+  const q=qs[qi], ok=k===q.a;
+  document.querySelectorAll('#quiz .opt').forEach((b,j)=>{ b.disabled=true; if(j===q.a) b.classList.add('right'); else if(j===k) b.classList.add('wrong'); });
+  results.push(ok);
+  const w=document.getElementById('qwhy'); w.classList.add('on');
+  w.innerHTML=(ok?'✓ Right. ':'Not quite. ')+q.why+`<div class="row"><button class="btn" onclick="${qi+1<qs.length?'qi++;showQ()':'finishQuiz()'}">${qi+1<qs.length?'Next question ›':'See my score ›'}</button></div>`;
+  document.querySelectorAll('#qprog i')[qi].className=ok?'r':'w';
+}
+function finishQuiz(){
+  const score=results.filter(Boolean).length, n=qs.length, prev=+(store.get('tw_quiz_best')||0);
+  if(score>prev) store.set('tw_quiz_best',String(score));
+  done.add('quiz'); store.set('tw_train_done',[...done].join(',')); nav();
+  track(`Training: quiz score ${score}/${n}`);
+  const msg=score===n?'Perfect. You know exactly how to use Tripwire.':score>=10?'Excellent: you have the essentials.':score>=7?'Good. Review the questions you missed below.':'Worth another look at modules 2 to 4, then try again.';
+  document.getElementById('quiz').innerHTML=`<h2>Your score</h2><div class="score">${score} / ${n}</div><p>${msg}</p>
+    ${score>prev&&prev?`<p>New best (previous: ${prev}).</p>`:''}
+    <h3>Review</h3>${qs.map((q,k)=>`<div class="ex" style="border-left-color:${results[k]?'#10B981':'#EF4444'}"><div class="h">${results[k]?'✓ Right':'✗ Missed'}</div><b>${q.q}</b><br>Answer: ${q.opts[q.a]}. ${q.why}</div>`).join('')}
+    <div class="row"><button class="btn" onclick="startQuiz()">Try again</button><button class="btn ghost" onclick="openMod(0)">Back to module 1</button></div>`;
+  window.scrollTo(0,0);
+}
+openMod(0);
+</script>
+</body></html>
