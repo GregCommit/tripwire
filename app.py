@@ -1073,8 +1073,8 @@ RULE_NAMES = {"volatility": "Unusual daily move", "support_resistance": "Support
 # a trading system: the internal labels (used by the logic) read like orders, so the display
 # names describe what happened instead. The fair yearly replay and the timing test are the
 # evidence behind the meanings below (see BACKTESTING.md).
-SIGNAL_DISPLAY = {"STRONG BUY": "STRONG MOMENTUM", "STRONG BOUNCE WATCH": "STRONG DIP",
-                  "TRENDING BUY": "MOMENTUM BUILDING", "BOUNCE WATCH": "DIP FORMING", "PENDING": "MIXED"}
+SIGNAL_DISPLAY = {"STRONG BUY": "▲ UNUSUAL RISE", "STRONG BOUNCE WATCH": "▼ UNUSUAL DROP",
+                  "TRENDING BUY": "▲ RISE FORMING", "BOUNCE WATCH": "▼ DROP FORMING", "PENDING": "MIXED"}
 
 def show_label(label):
     return SIGNAL_DISPLAY.get(label, label)
@@ -1083,7 +1083,7 @@ SIGNAL_MEANING = {
     "STRONG BUY": "Several independent rules see unusually strong upward momentum — often news or a "
                   "re-rating. Worth a look to check your reasons for owning it; not a reason to chase.",
     "STRONG BOUNCE WATCH": "Several independent rules flag a sharp drop. On your stocks such drops tended to "
-                           "recover: if you were already planning to add this stock, right after a strong dip "
+                           "recover: if you were already planning to add this stock, right after an unusual drop "
                            "has been a slightly better moment than an ordinary day. Not a reason to sell — and "
                            "not a reason to wait for dips either, they come in only about 1 month in 6.",
     "TRENDING BUY": "One rule points up; not yet confirmed by a second rule.",
@@ -3246,12 +3246,12 @@ def _ai_system_prompt():
         "- Signals are measured against the average of the owner's own stocks after ~0.4% trading costs, "
         "not the S&P 500. In a fair year-by-year replay, trading in and out on every signal trailed simply "
         "holding in most years, so never present a signal as a reason to trade actively.\n"
-        "- STRONG DIP (internal label STRONG BOUNCE WATCH): sharp drops on these stocks tended to recover. It "
-        "is not a sell signal. If the owner was already planning to add the stock, right after a strong dip "
+        "- UNUSUAL DROP (internal label STRONG BOUNCE WATCH): sharp drops on these stocks tended to recover. It "
+        "is not a sell signal. If the owner was already planning to add the stock, right after an unusual drop "
         "has been a slightly better moment than an ordinary day; waiting for dips cost more than it saved.\n"
-        "- STRONG MOMENTUM (internal label STRONG BUY): an unusual surge, often news; a prompt to re-check the "
+        "- UNUSUAL RISE (internal label STRONG BUY): an unusual surge, often news; a prompt to re-check the "
         "thesis and valuation, not a reason to chase.\n"
-        "- Use the display names STRONG DIP / STRONG MOMENTUM when talking to the owner.\n\n"
+        "- Use the display names UNUSUAL DROP / UNUSUAL RISE when talking to the owner.\n\n"
         "You can: read the watchlist/alerts/news/settings; add, remove, and recategorize stocks; "
         "adjust or enable/disable any monitoring rule; change app settings; run checks; and use web search for research.\n\n"
         "Rule types: volatility (unusual daily move), support_resistance, consecutive_down, volume (volume spike), "
@@ -3899,6 +3899,8 @@ body.on-assistant #narr-player{bottom:calc(100px + env(safe-area-inset-bottom))}
 .rules-synth-title{font-size:11px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:#F59E0B}
 .pane-frame{width:100%;height:calc(100vh - 150px);min-height:520px;border:none;display:block;background:#0A0C12}
 @media (max-width:600px){ .pane-frame{height:calc(100vh - 190px)} }
+.sig-when{font-size:12px;font-weight:700;color:#D1D5DB;margin-left:6px;white-space:nowrap}
+.sig-hint{font-size:12px;color:#9CA3AF;margin-top:3px}
 .perf-scope{font-size:13px;color:#9DB4D0;background:#9DB4D00F;border:1px solid #9DB4D033;border-radius:8px;padding:8px 12px;margin:0 0 14px}
 /* The trip wire, Tripwire's signature line (as in the icon): a thin wire between two anchor posts */
 .perf-title::after{content:"";display:block;width:132px;height:8px;margin:8px 0 10px;
@@ -4295,7 +4297,7 @@ function rulesSynthesisHTML(s){
   const live=rules.filter(r=>r.triggered&&!r.disabled&&!CONTEXT_ONLY_RULES[r.rule_type]);
   const names=live.map(r=>{ const v=ruleVerdict(ruleStatsFor(sym,r.rule_type)); return `${r.label}${v?` (${v.word.toLowerCase()})`:''}`; }).join(', ');
   let head;
-  if(sig&&sig.label==='STRONG BOUNCE WATCH') head=`<b>${showLabel(sig.label)}: worth a look.</b> ${live.length} rules agree on a sharp drop: ${names}. Check the news. If your reasons for owning ${sym} still hold, it is not a reason to sell, and if you planned to buy more anyway, right after a strong dip has been a slightly better moment.`;
+  if(sig&&sig.label==='STRONG BOUNCE WATCH') head=`<b>${showLabel(sig.label)}: worth a look.</b> ${live.length} rules agree on a sharp drop: ${names}. Check the news. If your reasons for owning ${sym} still hold, it is not a reason to sell, and if you planned to buy more anyway, right after an unusual drop has been a slightly better moment.`;
   else if(sig&&sig.label==='STRONG BUY') head=`<b>${showLabel(sig.label)}: worth a look.</b> ${live.length} rules agree on an unusual rise: ${names}. A good moment to re-check your thesis and valuation. Not a reason to chase.`;
   else if(live.length) head=`<b>Nothing to act on.</b> ${live.length===1?'One rule has':`${live.length} rules have`} triggered (${names}), but that is context, not a signal: it takes at least two of the main rules agreeing on the same direction.`;
   else head=`<b>All quiet.</b> Nothing unusual for ${sym} right now.`;
@@ -4548,7 +4550,7 @@ const GUIDE_FIG_FLOW=`<div class="guide-flow">
 const GUIDE_FIG_VOTE=`<div class="guide-vote">
   <div class="gv-title">NVDA today — the 4 voting rules</div>
   <div class="gv-row"><span class="gv-chip on">Unusual move ▼</span><span class="gv-chip on">RSI oversold ▼</span><span class="gv-chip">Support/resistance</span><span class="gv-chip">Volume spike</span></div>
-  <div class="gv-result">2 of 4 agree, both pointing to a sharp drop → <b>STRONG DIP</b>. With only 1 → "dip forming", not yet a signal.</div>
+  <div class="gv-result">2 of 4 agree, both pointing to a sharp drop → <b>▼ UNUSUAL DROP</b>. With only 1 → "drop forming", not yet a signal.</div>
 </div>`;
 
 const GUIDE_SECTIONS=[
@@ -4560,24 +4562,24 @@ const GUIDE_SECTIONS=[
      <p>A long-term stock picker faces three everyday problems: you can't watch the market all day, you can't easily tell an important move from normal wiggling, and in the moment emotion wins (fear on a drop, excitement on a spike).</p>
      ${GUIDE_FIG_NOISE}
      <h4>An example</h4>
-     <p>NVDA falls 6% on a Tuesday. Crisis or opportunity? Tripwire checks whether several independent rules agree that this drop is unusual <i>for NVDA</i>. If they do, you get a <b>STRONG DIP</b> message with the news and the history: on your stocks, sharp drops like this tended to recover. So it's a reminder not to panic-sell, and if you were planning to add NVDA anyway, right after a strong dip has historically been a slightly better moment to buy than an ordinary day.</p>
+     <p>NVDA falls 6% on a Tuesday. Crisis or opportunity? Tripwire checks whether several independent rules agree that this drop is unusual <i>for NVDA</i>. If they do, you get an <b>UNUSUAL DROP</b> message with the news and the history: on your stocks, sharp drops like this tended to recover. So it's a reminder not to panic-sell, and if you were planning to add NVDA anyway, right after an unusual drop has historically been a slightly better moment to buy than an ordinary day.</p>
      <h4>What the testing showed (and why the app is built this way)</h4>
      <ul><li><b>Trading in and out on signals doesn't pay.</b> In a fair year-by-year replay, moving money between your stocks on every signal would have trailed simply holding them in most years. Your stock picks drive your returns, not the short-term signals.</li>
-     <li><b>Don't wait for dips.</b> Strong dips come in only about 1 month in 6, and your stocks tend to rise meanwhile, so waiting for one cost more than it saved.</li>
-     <li><b>But use one when it comes.</b> If you were going to buy anyway, buying right after a strong dip got you slightly more shares than buying on an ordinary day: under 1% extra, showing over the following month rather than within days.</li></ul>
+     <li><b>Don't wait for dips.</b> Unusual drops come in only about 1 month in 6, and your stocks tend to rise meanwhile, so waiting for one cost more than it saved.</li>
+     <li><b>But use one when it comes.</b> If you were going to buy anyway, buying right after an unusual drop got you slightly more shares than buying on an ordinary day: under 1% extra, showing over the following month rather than within days.</li></ul>
      <h4>What it is not</h4>
      <ul><li><b>Not a trading robot.</b> It never buys or sells anything.</li>
      <li><b>Not a crystal ball.</b> The edges are small; they help on average, not every time.</li>
      <li><b>Not a reason to trade more often.</b> The Portfolio test shows honestly what trading every signal would have done.</li></ul>`},
   {id:'what', icon:'🧰', title:'What — the product',
    short:`<p>Tripwire checks your watchlist every minute while the US market is open. Seven rules look for unusual behaviour: a big move, a volume spike, the price breaking out of its usual range, or the stock being very stretched up or down.</p>
-     <p>When at least two of the four rules with a proven track record agree, you get a <b>STRONG signal</b>: a <b>STRONG DIP</b> (a sharp, unusual drop) or <b>STRONG MOMENTUM</b> (an unusual surge). It appears at the top of the Stocks page and arrives by email with the evidence, the news and a "worth a look until" date. You mark "I acted" or "I passed", and 5 trading days later Tripwire emails you how it turned out.</p>`,
+     <p>When at least two of the four rules with a proven track record agree, you get a <b>STRONG signal</b>: an <b>UNUSUAL DROP</b> (a sharp, unusual drop) or <b>UNUSUAL RISE</b> (an unusual surge). It appears at the top of the Stocks page and arrives by email with the evidence, the news and a "worth a look until" date. You mark "I acted" or "I passed", and 5 trading days later Tripwire emails you how it turned out.</p>`,
    long:`<h4>From price to decision</h4>
      ${GUIDE_FIG_FLOW}
      <h4>The signals, and what to do with them</h4>
-     <ul><li><b>STRONG DIP</b>: a sharp, unusual drop. Check the news. If your reasons for owning it still hold, it's not a reason to sell, because such drops tended to recover. If you were planning to add this stock anyway, now has been a slightly better moment than an ordinary day.</li>
-     <li><b>STRONG MOMENTUM</b>: an unusual surge, often news or a re-rating. A good moment to re-check your thesis and valuation. Not a reason to chase.</li>
-     <li><b>Momentum building / Dip forming</b>: only one rule sees something. Shown on the tile, no email.</li></ul>
+     <ul><li><b>UNUSUAL DROP</b>: a sharp, unusual drop. Check the news. If your reasons for owning it still hold, it's not a reason to sell, because such drops tended to recover. If you were planning to add this stock anyway, now has been a slightly better moment than an ordinary day.</li>
+     <li><b>UNUSUAL RISE</b>: an unusual surge, often news or a re-rating. A good moment to re-check your thesis and valuation. Not a reason to chase.</li>
+     <li><b>Rise forming / Drop forming</b>: only one rule sees something. Shown on the tile, no email.</li></ul>
      <h4>The tabs</h4>
      <ul><li><b>Stocks</b>: the answer first ("Nothing needs your attention today", or the signals worth a look), then one tile per stock. The tile shows the same signal as the banner, plus which rules are triggered <i>right now</i>. Click a tile for its chart and details.</li>
      <li><b>Alerts</b>: active signals on top, then every rule that fired, per stock, with the numbers behind it.</li>
@@ -4826,8 +4828,8 @@ function linkifyGlossary(text){
 
 const GLOSSARY=[
   ['alert','Alert','A rule "fires" (alerts) when its condition crosses the configured threshold — e.g. today\'s move exceeds the volatility threshold. Every alert is logged to the Alerts tab; whether it also sends a push/email/WhatsApp depends on your notification settings.'],
-  ['strong','STRONG signal','When at least two of the four voting rules (volatility, support/resistance, volume, RSI) agree on the same direction, Tripwire raises a <b>STRONG DIP</b> (a sharp, unusual drop) or <b>STRONG MOMENTUM</b> (an unusual surge). Only STRONG signals are emailed by default. They are prompts to look, check the news and your reasons for owning the stock, not trade orders: in a fair year-by-year replay, trading in and out on every signal trailed simply holding your stocks.'],
-  ['bounce','Dip (formerly "bounce watch")','A sharp, unusual drop. Backtesting found that on these stocks such drops were usually followed by a <b>recovery within days</b>, not a continued decline, so a dip is never a sell signal. If you were already planning to add the stock, right after a strong dip has been a slightly better moment than an ordinary day. But do not wait for dips: they come in only about 1 month in 6, and waiting cost more than it saved. In a long bear market the recovery tendency weakens (a BEAR REGIME note appears then).'],
+  ['strong','STRONG signal','When at least two of the four voting rules (volatility, support/resistance, volume, RSI) agree on the same direction, Tripwire raises an <b>UNUSUAL DROP</b> (a sharp, unusual drop) or <b>UNUSUAL RISE</b> (an unusual surge). Only STRONG signals are emailed by default. They are prompts to look, check the news and your reasons for owning the stock, not trade orders: in a fair year-by-year replay, trading in and out on every signal trailed simply holding your stocks.'],
+  ['bounce','Unusual drop (formerly "dip")','A sharp, unusual drop. Backtesting found that on these stocks such drops were usually followed by a <b>recovery within days</b>, not a continued decline, so an unusual drop is never a sell signal. If you were already planning to add the stock, right after an unusual drop has been a slightly better moment than an ordinary day. But do not wait for dips: they come in only about 1 month in 6, and waiting cost more than it saved. In a long bear market the recovery tendency weakens (a BEAR REGIME note appears then).'],
   ['cagr','Per year (CAGR)','The steady yearly growth rate that would turn the starting value into the end value. +13%/yr for 5 years roughly doubles money. Shown only after 90 days, because annualising a few weeks exaggerates wildly.'],
   ['never-traded','Never traded','The Portfolio test\'s reference line: the same $1,000 split equally across the same stocks and simply held. The gap between "following the app" and this line is what the app\'s signals add or cost, separate from how good the stock picks themselves were.'],
   ['backtested','Backtested','Every threshold in Tripwire was chosen by replaying ~5 years of daily prices and measuring what actually happened after each trigger (see the Backtesting doc). The "Backtested: +x% over 5d" line on a rule is that rule\'s measured historical edge, not a guess.'],
@@ -4908,7 +4910,7 @@ function computeSignal(rules){
 }
 
 // Display names (internal labels read like orders; Tripwire is an attention/timing aid). Mirrors SIGNAL_DISPLAY in Python.
-const SIGNAL_DISPLAY={'STRONG BUY':'STRONG MOMENTUM','STRONG BOUNCE WATCH':'STRONG DIP','TRENDING BUY':'MOMENTUM BUILDING','BOUNCE WATCH':'DIP FORMING','PENDING':'MIXED'};
+const SIGNAL_DISPLAY={'STRONG BUY':'▲ UNUSUAL RISE','STRONG BOUNCE WATCH':'▼ UNUSUAL DROP','TRENDING BUY':'▲ RISE FORMING','BOUNCE WATCH':'▼ DROP FORMING','PENDING':'MIXED'};
 function showLabel(l){ return SIGNAL_DISPLAY[l]||l; }
 function signalBadge(sig){
   if(!sig) return '';
@@ -4917,8 +4919,8 @@ function signalBadge(sig){
 
 function ruleSigBadge(signal){
   if(!signal||signal==='NEUTRAL') return '<span class="sig-badge rule-dir sig-neutral">NEUTRAL</span>';
-  if(signal==='BUY') return '<span class="sig-badge rule-dir sig-buy">▲ MOMENTUM</span>';
-  if(signal==='SELL') return '<span class="sig-badge rule-dir sig-sell">▼ DIP</span>';
+  if(signal==='BUY') return '<span class="sig-badge rule-dir sig-buy">▲ RISE</span>';
+  if(signal==='SELL') return '<span class="sig-badge rule-dir sig-sell">▼ DROP</span>';
   return '';
 }
 
@@ -5066,6 +5068,15 @@ function openSignalBySymbol(){
   return m;
 }
 function strongBadgeHTML(ev){ return `<span class="sig-badge ${ev.buy?'sig-strong-buy':'sig-strong-sell'}">${showLabel(ev.label)}</span>`; }
+// When the signal fired and how far the stock moved that day, e.g. "Tue +4.8%": a signal stays on the
+// tile for days, so a red day under a rise badge needs this to make sense.
+function signalWhen(ev){
+  const d=new Date(ev.ts*1000), now=new Date();
+  const day=d.toDateString()===now.toDateString()?'today':d.toLocaleDateString('en-GB',{weekday:'short'});
+  const mv=(ev.strongAlerts||[]).map(a=>alertDetailOf(a).move_pct).find(v=>v!=null&&isFinite(v));
+  return day+(mv!=null?` ${mv>0?'+':''}${(+mv).toFixed(1)}%`:'');
+}
+function signalHint(ev){ return ev.buy?'Re-check your thesis · not a reason to chase':'Check the news · not a reason to sell'; }
 function decisionHTML(ev){
   const ids=ev.ids.join(',');
   if(ev.decision){
@@ -5081,7 +5092,7 @@ function signalRowHTML(ev,where){
   return `<div class="today-item">
     <span class="today-sym" onclick="goToStock('${ev.symbol}')">${ev.symbol}</span>
     ${strongBadgeHTML(ev)}
-    <span class="today-meta">fired ${fmtFired(ev.ts)} · worth a look until ${actByDate(ev.ts)}${eventEdge(ev.symbol,ev.rules)}${why}</span>
+    <span class="today-meta">fired ${fmtFired(ev.ts)}${(()=>{ const m=signalWhen(ev).split(' ')[1]; return m?` (${m})`:''; })()} · ${signalHint(ev)} · worth a look until ${actByDate(ev.ts)}${eventEdge(ev.symbol,ev.rules)}${why}</span>
     ${decisionHTML(ev)}
   </div>`;
 }
@@ -5095,7 +5106,8 @@ function goToStock(sym){
 function signalStripHTML(ev){
   if(!ev) return '';
   const meta=ev.decision==='acted'?'✓ you acted':ev.decision==='passed'?'you passed':`worth a look until ${actByDate(ev.ts)}`;
-  return `<div class="card-signal-row">${strongBadgeHTML(ev)}<span class="card-sig-meta${ev.decision?'':' due'}">${meta}</span></div>`;
+  return `<div class="card-signal-row">${strongBadgeHTML(ev)}<span class="sig-when">${signalWhen(ev)}</span></div>
+    <div class="sig-hint">${signalHint(ev)}</div><div class="card-sig-meta${ev.decision?'':' due'}">${meta}</div>`;
 }
 // What the rules say at the latest check. Only a STRONG reading gets a full badge; a lean from a
 // single rule is a small tag so it can't be mistaken for a signal.
@@ -5106,7 +5118,7 @@ function liveReadingHTML(sig,ev){
     return `<div class="card-signal-row">${signalBadge(sig)}<span class="card-sig-meta">at the latest check</span></div>`;
   }
   const buy=sig.label==='TRENDING BUY';
-  return `<span class="lean-pill ${buy?'buy':'watch'}" title="Only one core rule points this way — not a signal">leaning ${buy?'momentum':'dip'} · not confirmed</span>`;
+  return `<span class="lean-pill ${buy?'buy':'watch'}" title="Only one core rule points this way — not a signal">${buy?'▲ leaning up':'▼ leaning down'} · one rule, not confirmed</span>`;
 }
 function showSignal(key){
   switchTab('alerts',tabBtn('alerts'));
@@ -5694,7 +5706,7 @@ const SETTINGS_FORM=[
   {group:'Notifications',rows:[
     {key:'daily_digest_enabled',label:'Daily digest instead of instant pings',type:'toggle',hint:'When on, suppresses instant push/email/WhatsApp and sends one summary per day instead (email + WhatsApp) — a better fit for the 1–5 day signal horizon. Alerts still appear live in the app.'},
     {key:'digest_hour',label:'Digest hour (0–23, local time)',type:'number',hint:'Hour of day the daily digest is sent.'},
-    {key:'notify_strong_only',label:'Only push/email/WhatsApp for STRONG signals',type:'toggle',hint:'When on (default), outbound notifications only fire when at least 2 independent rules agree (STRONG DIP / STRONG MOMENTUM). Every alert still appears in the Alerts tab regardless. Ignored while daily digest is on.'},
+    {key:'notify_strong_only',label:'Only push/email/WhatsApp for STRONG signals',type:'toggle',hint:'When on (default), outbound notifications only fire when at least 2 independent rules agree (UNUSUAL DROP / UNUSUAL RISE). Every alert still appears in the Alerts tab regardless. Ignored while daily digest is on.'},
     {key:'browser_notifications_enabled',label:'Browser notifications',type:'toggle'},
     {key:'alert_sound_enabled',label:'Alert sound',type:'toggle'},
     {key:'notify_email_enabled',label:'Email notifications',type:'toggle'},
@@ -6236,7 +6248,7 @@ async function loadChatHistory(){
 const GUEST_CHAT_SUGGESTIONS=[
   'Why did the most active stock move today?',
   'Give me a short summary of the whole watchlist',
-  'What does a STRONG DIP signal mean for me?',
+  'What does an UNUSUAL DROP signal mean for me?',
   'Any upcoming earnings on the watchlist?',
 ];
 function renderSuggestions(){

@@ -233,8 +233,8 @@ The v6 dashboard release turns several backtest findings into product behavior:
 ## v8: purpose, target and the evidence behind them
 
 **Purpose.** Tripwire is an attention and timing aid for a long-term stock picker, not a
-trading system. Signals are shown as **STRONG DIP** (internal label STRONG BOUNCE WATCH) and
-**STRONG MOMENTUM** (internal STRONG BUY), with "worth a look until" instead of "act by"
+trading system. Signals are shown as **UNUSUAL DROP** (internal label STRONG BOUNCE WATCH) and
+**UNUSUAL RISE** (internal STRONG BUY), with "worth a look until" instead of "act by"
 (`SIGNAL_DISPLAY` in app.py and the dashboard). The internal labels are unchanged, so no logic
 depends on the wording.
 

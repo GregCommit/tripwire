@@ -40,7 +40,7 @@ SAY = [
     (r"Support / resistance", "Support and resistance"),
     (r"\s/\s", " or "),
 ]
-SYMBOLS = re.compile("[\U0001F000-\U0001FFFF☀-➿️]")
+SYMBOLS = re.compile("[🀀-🿿☀-➿️▲▼]")   # emoji, symbols, ▲ ▼
 # The Guide's figures, said in words where they carry content (GUIDE_FIG_NOISE is only a picture).
 FIGURES = {
     "GUIDE_FIG_FLOW": "Step by step: Tripwire watches your stocks every minute in market hours, checks seven "
@@ -48,8 +48,8 @@ FIGURES = {
                       "or more agree, you get a strong signal on the Stocks page and by email. You decide, and "
                       "five trading days later a follow-up tells you how it turned out.",
     "GUIDE_FIG_VOTE": "For example: on Nvidia today, two of the four voting rules, the unusual move and R S I "
-                      "oversold, both point to a sharp drop. Two of four agreeing makes a strong dip. With only "
-                      "one, it would be a dip forming, not yet a signal.",
+                      "oversold, both point to a sharp drop. Two of four agreeing makes an unusual drop. With only "
+                      "one, it would be a drop forming, not yet a signal.",
     "GUIDE_FIG_EXCESS": "For example, if in the 5 trading days after a signal the stock gains 3% and your stocks "
                         "gain 1% on average, the signal beat your stocks by 2 points, or 1.6 after the 0.4% costs.",
 }
@@ -73,7 +73,7 @@ def _clean(fragment):
     text = html.unescape(SYMBOLS.sub("", text))
     for pat, rep in SAY:
         text = re.sub(pat, rep, text)
-    text = re.sub(r"\b[A-Z]{3,}\b", lambda m: m.group(0).lower(), text)   # STRONG DIP -> strong dip
+    text = re.sub(r"\b[A-Z]{3,}\b", lambda m: m.group(0).lower(), text)   # UNUSUAL DROP -> unusual drop
     return re.sub(r"\s+", " ", text).strip()
 
 

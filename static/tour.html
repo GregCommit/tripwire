@@ -142,27 +142,27 @@ const SLIDES=[
    {at:6,el:'t-tile',text:'One tile per stock: price, today’s move, and whether any rule is triggered right now.',pos:'below'},
    {at:11,el:'t-trig',text:'An amber chip means one rule sees something unusual. One rule alone is context, not a signal.',pos:'below'}]},
  {title:'A STRONG signal',dur:16,html:TOP('Stocks')+`<div class="m-body"><div class="box" style="border-color:#F59E0B66" id="t-sig"><div class="needh">⚡ 1 signal worth a look — until Fri 16 Oct</div>
-   <div class="row"><b style="font-size:15px">NVDA</b><span class="b-dip" id="t-badge">STRONG DIP</span><span class="meta">fired 10:42 · past record: useful · <span class="lnk" id="t-why">Why? ›</span></span><span class="dec" id="t-dec"><span>I acted</span><span>I passed</span></span></div></div>
+   <div class="row"><b style="font-size:15px">NVDA</b><span class="b-dip" id="t-badge">▼ UNUSUAL DROP</span><span class="meta">fired 10:42 · past record: useful · <span class="lnk" id="t-why">Why? ›</span></span><span class="dec" id="t-dec"><span>I acted</span><span>I passed</span></span></div></div>
    <div class="grid">${TILE('NVDA','214.10','-6.12%','⚠ 2 TRIGGERED NOW',[['Move',1],SR,VO,['RSI',1]],'dipsig')}${TILE('AAPL','336.02','+0.41%','✓ QUIET NOW',[Q,SR,VO,RS])}${TILE('MSFT','517.37','-0.35%','✓ QUIET NOW',[Q,SR,VO,RS])}${TILE('LLY','1,169.95','+0.12%','✓ QUIET NOW',[Q,SR,VO,RS])}</div></div>`,
   steps:[{at:1,el:'t-badge',text:'STRONG means at least two of the four main rules agree. You also get an email with the evidence and the news.',pos:'below'},
    {at:6,el:'t-why',text:'“Why?” shows each rule’s evidence and what its track record means, in plain English.',pos:'below'},
    {at:11,el:'t-dec',text:'Mark what you did. Five trading days later a follow-up grades how it turned out.',pos:'left'}]},
  {title:'Inside a stock',dur:18,html:TOP('Stocks')+`<div class="m-body"><div style="display:flex;align-items:baseline;gap:12px"><b style="font-size:22px">NVDA</b><span class="big" style="font-size:26px">$214.10</span><span class="dn" style="font-weight:700">-6.12%</span></div>
    <div class="lbl">Alert sensitivity</div><div class="dial" id="t-dial"><span>Conservative</span><span class="a">Calibrated</span><span>Sensitive</span></div>
-   <div class="lbl">Rules</div><div class="synth" id="t-synth"><div class="t">IN SHORT</div><b>STRONG DIP: worth a look.</b> 2 rules agree on a sharp drop: Unusual Daily Move (useful), RSI Extreme (weak). Check the news; if your reasons still hold, it is not a reason to sell.</div>
-   <div class="rule" id="t-rule"><div class="h">Unusual Daily Move <span class="b-dip" style="font-size:10px">▼ DIP</span><span class="edit" id="t-edit">Edit</span></div>
+   <div class="lbl">Rules</div><div class="synth" id="t-synth"><div class="t">IN SHORT</div><b>UNUSUAL DROP: worth a look.</b> 2 rules agree on a sharp drop: Unusual Daily Move (useful), RSI Extreme (weak). Check the news; if your reasons still hold, it is not a reason to sell.</div>
+   <div class="rule" id="t-rule"><div class="h">Unusual Daily Move <span class="b-dip" style="font-size:10px">▼ DROP</span><span class="edit" id="t-edit">Edit</span></div>
    <div class="plain"><span class="verdict g" id="t-verdict">USEFUL</span> When this rule fired on NVDA before, the stock then beat your other stocks by 1.2% on average over 5 trading days, after costs, and did so 58% of the time (61 cases).</div></div></div>`,
   steps:[{at:1,el:'t-synth',text:'Open any stock: “In short” sums up what is happening and how much to trust it.',pos:'below'},
    {at:6,el:'t-verdict',text:'Every rule shows a verdict from its own track record on this stock: useful, small edge, weak…',pos:'below'},
    {at:11,el:'t-dial',text:'The dial sets how picky Tripwire is for this stock. Calibrated is the tested setting; Edit is for experts.',pos:'right'}]},
  {title:'Alerts',dur:13,html:TOP('Alerts')+`<div class="m-body"><div style="display:flex;gap:8px;margin-bottom:10px" id="t-altools"><span class="edit">✓ Acknowledge all</span><span class="edit">⬇ Export CSV</span></div>
-   <div class="lbl">Signals · last 4 trading days</div><div class="box" id="t-alsig"><div class="row" style="margin:0"><b>NVDA</b><span class="b-dip">STRONG DIP</span><span class="meta">2 rules · fired Tue 10:42 · worth a look until Fri</span></div></div>
+   <div class="lbl">Signals · last 4 trading days</div><div class="box" id="t-alsig"><div class="row" style="margin:0"><b>NVDA</b><span class="b-dip">▼ UNUSUAL DROP</span><span class="meta">2 rules · fired Tue 10:42 · worth a look until Fri</span></div></div>
    <div class="lbl">Rule activity &amp; history</div><div class="box" id="t-alhist">${['AMAT · 11 alerts · latest Tue · S/R Breach','EVR · 42 alerts · latest Tue · RSI Extreme','LLY · 12 alerts · latest Thu · Unusual Move'].map(x=>`<div class="row" style="margin:4px 0;justify-content:space-between"><span>${x}</span><span class="meta">▼</span></div>`).join('')}</div></div>`,
   steps:[{at:1,el:'t-alsig',text:'Open signals sit on top, until their “worth a look” window closes.',pos:'below'},
    {at:6,el:'t-alhist',text:'Below: every rule that fired, per stock, with its numbers and plain-English verdict.',pos:'above'}]},
- {title:'Assistant',dur:14,html:TOP('Assistant')+`<div class="m-body"><div class="sugg" id="t-sugg"><span>Why did MU jump today?</span><span>What does a STRONG DIP mean for me?</span><span>Summarise my watchlist</span></div>
+ {title:'Assistant',dur:14,html:TOP('Assistant')+`<div class="m-body"><div class="sugg" id="t-sugg"><span>Why did MU jump today?</span><span>What does an UNUSUAL DROP mean for me?</span><span>Summarise my watchlist</span></div>
    <div class="chat"><div class="msg me">Why did MU jump today?</div><div class="msg ai" id="t-answer"></div></div><div class="inp"><div>Ask about a move, a rule, a setting…</div><b>Send</b></div></div>`,
-  type:{el:'t-answer',at:2,text:'Micron rose 6.4% after results beat expectations and memory prices firmed. Tripwire flagged an Unusual Daily Move (useful for MU) plus a volume spike, so two rules agree: STRONG MOMENTUM. Worth re-checking your thesis; not a reason to chase.'},
+  type:{el:'t-answer',at:2,text:'Micron rose 6.4% after results beat expectations and memory prices firmed. Tripwire flagged an Unusual Daily Move (useful for MU) plus a volume spike, so two rules agree: an unusual rise. Worth re-checking your thesis; not a reason to chase.'},
   steps:[{at:1,el:'t-sugg',text:'Ask in plain English. It looks up prices, your rules and the news.',pos:'below'},
    {at:8,el:'t-answer',text:'Answers explain the move and what the signal means for a long-term holder.',pos:'above'}]},
  {title:'Performance',dur:15,html:TOP('Performance')+`<div class="m-body"><div class="ptitle">📊 Performance</div><div class="wire"></div>
@@ -185,7 +185,7 @@ const SLIDES=[
   steps:[{at:1,el:'t-listen',text:'Prefer listening? The whole Guide is narrated, about 9 minutes.',pos:'below'},
    {at:6,el:'t-player',text:'The player keeps going while you browse. Tap the bar to see and jump between chapters.',pos:'above'}]},
  {title:'Emails and your phone',dur:14,html:`<div class="m-body" style="display:flex;gap:40px;align-items:center;justify-content:center;height:100%">
-   <div class="mail" id="t-mail"><h4>⚡ STRONG DIP · NVDA — worth a look until Fri</h4>NVDA fell 6.1%. Two rules agree: an unusual daily move and an R S I extreme. News: guidance cut on supply delays. On your stocks, drops like this tended to recover; if your reasons still hold, it is not a reason to sell.
+   <div class="mail" id="t-mail"><h4>⚡ ▼ UNUSUAL DROP · NVDA — worth a look until Fri</h4>NVDA fell 6.1%. Two rules agree: an unusual daily move and an R S I extreme. News: guidance cut on supply delays. On your stocks, drops like this tended to recover; if your reasons still hold, it is not a reason to sell.
    <div class="btns" id="t-mailbtn"><span>I acted</span><span>I passed</span></div></div>
    <div><div class="phone" id="t-phone">${['Mail','Maps','Photos','Notes','',''].map(n=>`<div><div class="app"></div><div class="app-l">${n}</div></div>`).join('').replace('<div><div class="app"></div><div class="app-l"></div></div>','<div><div class="app tw"></div><div class="app-l">Tripwire</div></div>')}</div></div></div>`,
   steps:[{at:1,el:'t-mail',text:'Each STRONG signal arrives by email with the evidence and the news.',pos:'below'},
