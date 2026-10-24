@@ -162,6 +162,8 @@ SETTINGS_DEFAULTS = {
     "alert_cooldown_hours":          "24",
     "show_info_tier":                "1",
     "notify_email_enabled":          "0",
+    # Sign-in alerts and the evening guest summary; separate so they can be paused alone.
+    "access_emails_enabled":         "1",
     "smtp_host":                     "",
     "smtp_port":                     "587",
     "smtp_user":                     "",
@@ -1853,6 +1855,8 @@ def record_access(kind, role, detail=""):
 def _login_email(role, ip, device):
     """Guest logins always email the owner; main-password logins only from an IP+device
     combination never seen before, so the owner's own routine logins don't flood the inbox."""
+    if not get_setting_bool("access_emails_enabled"):
+        return
     with get_db() as conn:
         if role == "owner":
             seen = conn.execute("SELECT COUNT(*) FROM access_log WHERE kind='login' AND role='owner' AND ip=? AND device=?",
@@ -2914,10 +2918,27 @@ def api_access_log():
     with get_db() as conn:
         summary = {}
         for role in ("guest", "owner"):
-            n, ips, last = conn.execute(
-                "SELECT COUNT(*), COUNT(DISTINCT ip), MAX(ts) FROM access_log WHERE kind='login' AND role=?",
+            n, ips = conn.execute(
+                "SELECT COUNT(*), COUNT(DISTINCT ip) FROM access_log WHERE kind='login' AND role=?",
                 (role,)).fetchone()
-            summary[role] = {"logins": n, "ips": ips, "last": last}
+            visits, last = conn.execute(
+                "SELECT SUM(kind IN ('login','visit')), MAX(ts) FROM access_log WHERE role=? AND kind IN ('login','visit','event')",
+                (role,)).fetchone()
+            summary[role] = {"logins": n, "ips": ips, "visits": visits or 0, "last": last}
+        # One row per visitor (a device's sign-in), ordered by when they were last active.
+        visitors = []
+        for r in conn.execute(
+                "SELECT vid, role, MIN(CASE WHEN kind='login' THEN ts END) first_login, MAX(ts) last_ts, "
+                "SUM(kind IN ('login','visit')) visits FROM access_log "
+                "WHERE vid<>'' AND role IN ('guest','owner') GROUP BY vid, role ORDER BY last_ts DESC LIMIT 60"):
+            v = dict(r)
+            ip, dev = conn.execute("SELECT ip, device FROM access_log WHERE vid=? ORDER BY ts DESC LIMIT 1",
+                                   (v["vid"],)).fetchone()
+            v.update(ip=ip, device=dev)
+            v["events"] = [dict(e) for e in conn.execute(
+                "SELECT ts, kind, detail FROM access_log WHERE vid=? AND kind IN ('event','visit') "
+                "ORDER BY ts DESC LIMIT 60", (v["vid"],))][::-1]
+            visitors.append(v)
         summary["failed"] = conn.execute(
             "SELECT COUNT(*) FROM access_log WHERE kind IN ('login_failed','login_expired')").fetchone()[0]
         logins = [dict(r) for r in conn.execute(
@@ -2929,16 +2950,18 @@ def api_access_log():
             for r in conn.execute(f"SELECT vid,ts,detail FROM access_log WHERE kind='event' AND vid IN ({q}) ORDER BY ts",
                                   vids):
                 events.setdefault(r["vid"], []).append({"ts": r["ts"], "detail": r["detail"]})
-    return jsonify({"success": True, "summary": summary, "logins": logins, "events": events})
+    return jsonify({"success": True, "summary": summary, "logins": logins, "events": events, "visitors": visitors})
 
 def build_guest_activity_email(since):
     with get_db() as conn:
         logins = [dict(r) for r in conn.execute(
             "SELECT ts,vid,ip,device FROM access_log WHERE kind='login' AND role='guest' AND ts>? ORDER BY ts", (since,))]
         events = {}
-        for r in conn.execute("SELECT vid,ts,detail FROM access_log WHERE kind='event' AND role='guest' AND ts>? ORDER BY ts",
+        for r in conn.execute("SELECT vid,ts,detail FROM access_log WHERE kind IN ('event','visit') AND role='guest' AND ts>? ORDER BY ts",
                               (since,)):
             events.setdefault(r["vid"], []).append(r)
+        first_seen = {r["vid"]: r for r in conn.execute(
+            "SELECT vid, MIN(ts) ts, ip, device FROM access_log WHERE role='guest' AND vid<>'' GROUP BY vid")}
     if not logins and not events:
         return None
     fmt = lambda t: datetime.fromtimestamp(t).strftime("%H:%M")
@@ -2946,8 +2969,10 @@ def build_guest_activity_email(since):
     by_vid = {l["vid"]: l for l in logins}
     for vid in list(by_vid) + [v for v in events if v not in by_vid]:
         l = by_vid.get(vid)
-        head = (f"Visit {fmt(l['ts'])} — {l['ip']} — {l['device']}" if l
-                else "Visit that started earlier (still active)")
+        fs = first_seen.get(vid)
+        head = (f"New sign-in {fmt(l['ts'])} — {l['ip']} — {l['device']}" if l
+                else f"Returning visitor (first signed in {datetime.fromtimestamp(fs['ts']):%d %b}) — {fs['ip']} — {fs['device']}"
+                if fs else "Returning visitor")
         lines.append(head)
         for e in events.get(vid, [])[:80]:
             lines.append(f"   {fmt(e['ts'])}  {e['detail']}")
@@ -2955,7 +2980,9 @@ def build_guest_activity_email(since):
             lines.append(f"   … {len(events[vid]) - 80} more")
         lines.append("")
     ips = {l["ip"] for l in logins}
-    subject = f"👀 Tripwire guest activity today — {len(logins)} login{'s' if len(logins) != 1 else ''} from {len(ips)} address{'es' if len(ips) != 1 else ''}"
+    returning = len([v for v in events if v not in by_vid])
+    subject = (f"👀 Tripwire guest activity today — {len(logins)} new sign-in{'s' if len(logins) != 1 else ''}"
+               f"{f', {returning} returning visitor' + ('s' if returning != 1 else '') if returning else ''}")
     body = "What guests did in the last 24 hours (times are server local time):\n\n" + "\n".join(lines) + \
            "\nFull history: Settings → Access log."
     return subject, body
@@ -2971,7 +2998,7 @@ def guest_report_loop():
             # Persisted so a restart after the report hour doesn't send the same day's report twice.
             if now.hour >= GUEST_REPORT_HOUR and get_setting("guest_report_last", "") != today:
                 set_setting("guest_report_last", today)
-                rep = build_guest_activity_email(int(time.time()) - 86400)
+                rep = build_guest_activity_email(int(time.time()) - 86400) if get_setting_bool("access_emails_enabled") else None
                 if rep:
                     worker_pool.submit(_send_email, *rep)
         except Exception as e:
@@ -5710,6 +5737,7 @@ const SETTINGS_FORM=[
     {key:'browser_notifications_enabled',label:'Browser notifications',type:'toggle'},
     {key:'alert_sound_enabled',label:'Alert sound',type:'toggle'},
     {key:'notify_email_enabled',label:'Email notifications',type:'toggle'},
+    {key:'access_emails_enabled',label:'Access-log emails',type:'toggle',hint:'Sign-in alerts and the evening guest-activity summary. Turn off to pause just these; signal emails are not affected.'},
     {key:'smtp_host',label:'SMTP host',type:'text',hint:'e.g. smtp.gmail.com'},
     {key:'smtp_port',label:'SMTP port',type:'number'},
     {key:'smtp_user',label:'SMTP username (from address)',type:'text'},
@@ -5778,21 +5806,21 @@ async function loadAccessLog(){
   const d=await fetchJSON('/api/access-log');
   if(!d.success){ box.textContent='Could not load the access log.'; return; }
   const s=d.summary;
-  const sumLine=(label,x)=>`<div class="al-sum"><strong>${label}:</strong> ${x.logins} login${x.logins===1?'':'s'} from ${x.ips} different address${x.ips===1?'':'es'}${x.last?` · last ${fmtStamp(x.last)}`:''}</div>`;
-  const WHO={login:{guest:'👀 Guest',owner:'🔑 Main password'},login_failed:'⛔ Wrong password',login_expired:'⌛ Expired guest password'};
-  const rows=d.logins.map((l,i)=>{
-    const who=l.kind==='login'?WHO.login[l.role]:WHO[l.kind];
-    const evs=(l.kind==='login'&&l.role==='guest')?(d.events[l.vid]||[]):null;
-    const evCell=evs==null?'':(evs.length?`<button class="al-toggle" onclick="toggleAccessEvents(${i})">${evs.length} action${evs.length===1?'':'s'} ▸</button>`:'<span class="al-muted">no actions yet</span>');
-    const evRow=evs&&evs.length?`<tr class="al-events" id="al-ev-${i}" style="display:none"><td colspan="5">${
-      evs.map(e=>`<div><span class="al-muted">${fmtTime(e.ts)}</span> ${escapeHTML(e.detail)}</div>`).join('')}</td></tr>`:'';
-    return `<tr><td>${fmtStamp(l.ts)}</td><td>${who}</td><td>${escapeHTML(l.ip||'')}</td><td>${escapeHTML(l.device||'')}</td><td>${evCell}</td></tr>${evRow}`;
+  const sumLine=(label,x)=>`<div class="al-sum"><strong>${label}:</strong> ${x.visits} visit${x.visits===1?'':'s'} (${x.logins} sign-in${x.logins===1?'':'s'}) from ${x.ips} different address${x.ips===1?'':'es'}${x.last?` · last active ${fmtStamp(x.last)}`:''}</div>`;
+  const rows=(d.visitors||[]).map((v,i)=>{
+    const who=v.role==='guest'?'👀 Guest':'🔑 You (main password)';
+    const since=v.first_login?`signed in ${fmtStamp(v.first_login)}`:'signed in earlier';
+    const evs=v.events||[];
+    const evCell=evs.length?`<button class="al-toggle" onclick="toggleAccessEvents(${i})">${evs.length} entr${evs.length===1?'y':'ies'} ▸</button>`:'<span class="al-muted">—</span>';
+    const evRow=evs.length?`<tr class="al-events" id="al-ev-${i}" style="display:none"><td colspan="5">${
+      evs.map(e=>`<div><span class="al-muted">${fmtStamp(e.ts)}</span> ${e.kind==='visit'?'<i>opened the app</i>':escapeHTML(e.detail)}</div>`).join('')}</td></tr>`:'';
+    return `<tr><td>${fmtStamp(v.last_ts)}</td><td>${who}<div class="al-muted">${since} · ${v.visits} visit${v.visits===1?'':'s'}</div></td><td>${escapeHTML(v.ip||'')}</td><td>${escapeHTML(v.device||'')}</td><td>${evCell}</td></tr>${evRow}`;
   }).join('');
-  box.innerHTML=sumLine('Guest password',s.guest)+sumLine('Main password',s.owner)+
-    `<div class="al-sum"><strong>Failed attempts:</strong> ${s.failed}</div>`+
-    `<div class="set-hint" style="margin:6px 0 10px">You get an email for every guest login, for main-password logins from a new device/address, and a guest-activity summary each evening. One friend on mobile data can appear under several addresses; people sharing a Wi-Fi appear as one.</div>`+
-    (rows?`<div class="al-wrap"><table class="al-table"><thead><tr><th>Time</th><th>Who</th><th>Address</th><th>Device</th><th>Activity</th></tr></thead><tbody>${rows}</tbody></table></div>`
-         :'<div class="al-muted">No logins recorded yet.</div>');
+  box.innerHTML=sumLine('Guests',s.guest)+sumLine('You (main password)',s.owner)+
+    `<div class="al-sum"><strong>Failed sign-in attempts:</strong> ${s.failed}</div>`+
+    `<div class="set-hint" style="margin:6px 0 10px">One row per device, newest activity first. Signing in lasts 30 days, so each time someone opens the app counts as a visit (at most one an hour). You get an email for every guest sign-in, for main-password sign-ins from a new device or address, and a guest-activity summary each evening. One friend on mobile data can appear under several addresses; people sharing a Wi-Fi appear as one.</div>`+
+    (rows?`<div class="al-wrap"><table class="al-table"><thead><tr><th>Last active</th><th>Who</th><th>Address</th><th>Device</th><th>Activity</th></tr></thead><tbody>${rows}</tbody></table></div>`
+         :'<div class="al-muted">No visits recorded yet.</div>');
 }
 function toggleAccessEvents(i){
   const r=document.getElementById('al-ev-'+i); if(!r) return;
@@ -6337,9 +6365,26 @@ async function clearChat(){
 </body>
 </html>"""
 
+VISIT_GAP_SEC = 3600
+
+def _record_visit():
+    """Sign-ins last 30 days, so they alone made the access log look frozen. Opening the app
+    counts as a visit (at most once an hour per device), for the owner as well as guests."""
+    if not session.get("vid"):          # sessions from before visitor ids existed
+        session["vid"] = secrets.token_hex(6)
+    try:
+        with get_db() as conn:
+            last = conn.execute("SELECT MAX(ts) FROM access_log WHERE vid=? AND kind IN ('login','visit')",
+                                (session["vid"],)).fetchone()[0]
+        if not last or time.time() - last > VISIT_GAP_SEC:
+            record_access("visit", session.get("role") or "owner", "Opened the app")
+    except Exception as e:
+        log.warning("visit logging failed: %s", e)
+
 @app.route("/")
 @login_required
 def dashboard():
+    _record_visit()
     return Response(DASHBOARD, mimetype="text/html")
 
 if __name__ == "__main__":
