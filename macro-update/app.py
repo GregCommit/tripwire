@@ -7,6 +7,7 @@ alert rules.
 
   python app.py            run locally on http://127.0.0.1:8062
 """
+import hashlib
 import hmac
 import json
 import logging
@@ -609,6 +610,26 @@ def api_overview():
                     "moodParts": json.loads(get_setting("mood_parts", "{}") or "{}"),
                     "boj": json.loads(get_setting("boj_outlook", "null") or "null"),
                     "serverTime": int(time.time())})
+
+
+def _code_version():
+    """Changes whenever the app's code or page changes, so an open page knows to reload itself."""
+    h = hashlib.sha1()
+    for name in ("app.py", "sources.py", "dashboard.html"):
+        try:
+            h.update((HERE / name).read_bytes())
+        except OSError:
+            pass
+    return h.hexdigest()[:12]
+
+
+VERSION = _code_version()
+
+
+@app.route("/api/version")
+@login_required
+def api_version():
+    return jsonify({"version": VERSION})
 
 
 @app.route("/api/series/<key>")

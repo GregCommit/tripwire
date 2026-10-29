@@ -488,6 +488,7 @@ async function addRule(){
 let TAB = 'today';
 function showTab(t){
   TAB = t;
+  try { sessionStorage.setItem('macroTab', t); } catch (e) {}
   document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x.dataset.t === t));
   document.querySelectorAll('main>section').forEach(s => s.hidden = s.id !== 'pane-' + t);
   if (t === 'extremes') loadExtremes();
@@ -496,6 +497,22 @@ function showTab(t){
   track('Opened tab: ' + t);
 }
 document.querySelectorAll('.tab').forEach(b => b.onclick = () => showTab(b.dataset.t));
+// A new version of the app was installed on the server → reload by itself (unless you are typing)
+let SEEN_VERSION = null;
+async function checkVersion(){
+  try {
+    const r = await fetch('/api/version', {cache: 'no-store'});
+    if (!r.ok) return;
+    const v = (await r.json()).version;
+    if (SEEN_VERSION === null){ SEEN_VERSION = v; return; }
+    if (v === SEEN_VERSION) return;
+    const el = document.activeElement, typing = el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName);
+    if (typing){
+      if (!$('newVer')){ const b = document.createElement('div'); b.id = 'newVer'; b.style.cssText = 'position:fixed;left:12px;right:12px;bottom:12px;z-index:50;background:var(--accent);color:#0A0C12;border-radius:10px;padding:12px;text-align:center;font-weight:800;cursor:pointer'; b.textContent = 'New version ready — tap to reload'; b.onclick = () => location.reload(); document.body.appendChild(b); }
+    } else location.reload();
+  } catch (e) { /* server restarting — try again in 10 s */ }
+}
+setInterval(checkVersion, 10000); checkVersion();
 async function load(){
   try {
     const d = await api('/api/overview');
@@ -511,4 +528,5 @@ async function load(){
 }
 let rz; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { if (TAB === 'today' && OPEN) drawDetail(OPEN); if (TAB === 'extremes'){ if (EXOPEN) drawExDetail(EXOPEN); if (JAPAN_OPEN) renderJapan().catch(() => {}); } }, 250); });
 load(); setInterval(load, 60000);
+try { const t = sessionStorage.getItem('macroTab'); if (t && t !== 'today' && document.querySelector(`.tab[data-t="${t}"]`)) showTab(t); } catch (e) {}
 </script></body></html>
