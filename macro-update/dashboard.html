@@ -44,6 +44,14 @@ h2+.muted{margin-bottom:10px}
 .chart{position:relative;width:100%;touch-action:pan-y}
 .chart svg{display:block;width:100%}
 .tip{position:absolute;top:0;pointer-events:none;background:#0A0C12ee;border:1px solid var(--line2);border-radius:8px;padding:4px 8px;font-size:12px;white-space:nowrap;display:none;font-variant-numeric:tabular-nums}
+.says{font-size:13px;line-height:1.5;color:var(--mute);margin:8px 0 0}.says b{color:var(--txt)}
+.badge{display:inline-block;margin-left:6px;font-size:11.5px;font-weight:700;padding:1px 8px;border-radius:99px;color:var(--watch);border:1px solid var(--watch);vertical-align:1px}
+.badge.strong{color:var(--alert);border-color:var(--alert)}
+.ind.hot{border-color:#3a3350}
+.drv{background:var(--card2);border:1px solid var(--line2);border-left:3px solid var(--accent);border-radius:10px;padding:12px 14px;margin:10px 0 12px}
+.drvh{font-weight:800;font-size:14px}.drvt{font-size:14px;color:var(--txt);margin-top:4px}
+.drv ul{padding-left:18px;margin:6px 0}.drv li{font-size:14px;line-height:1.5;color:var(--txt);margin:5px 0}
+.ctxhead{margin:14px 0 6px}
 .xbtn{position:absolute;top:8px;right:8px;width:30px;height:30px;border-radius:50%;background:var(--card2);border:1px solid var(--line2);color:var(--mute);font-size:14px;line-height:1;cursor:pointer;display:grid;place-items:center;z-index:2;padding:0}
 .xbtn:hover{color:var(--txt);border-color:var(--accent)}
 .ind.open,.qopen{position:relative}.ind.open .nm{padding-right:38px}.qopen .qrow{padding-right:38px}
@@ -95,7 +103,7 @@ details.quiet{margin-top:18px}details.quiet>summary{cursor:pointer;color:var(--m
 <p>Macro Watch keeps an eye on the big picture so you don't have to: US stocks, interest rates, commodities, investor mood, the yen and Japan's inflation. It answers one question first — <b>does anything need a look today?</b> — and emails you when something crosses a level you chose or moves far more than usual.</p>
 <p>It does not tell you to buy or sell anything. It is context for your own decisions.</p>
 <h3>What — the screens</h3>
-<ul><li><b>Today</b>: the answer first, then every indicator as a card. Each card shows the latest value, a plain-English reading, changes over a day, a month and a year, where it sits in its 1-year range, and a 1-year mini chart. Tap a card for a bigger chart and the explanation.</li>
+<ul><li><b>Today</b>: the answer first, then <b>groups of indicators that belong together</b> — US bonds, rates &amp; the dollar; gold, silver &amp; Dr. Copper (shown next to real yields and the dollar, because interest rates drive them); stocks &amp; investor mood; yen &amp; Japan; credit &amp; loan defaults; oil; valuation. The most special group is at the top, and inside a group the most special indicator comes first. "Special" means a move far larger than usual over the last day, week or month, or a place at the edge of its own history — weighted by how much that indicator matters for stock investing. Every card says in plain words <b>what it says</b>. Each group has a box <b>"What is moving this group?"</b> that explains the unusual moves with the usual links between these markets (for example: gold falls when real yields and the dollar rise). That box is worked out from the numbers, not from news headlines. Tap a card for a bigger chart; close it with the ✕ at its top right.</li>
 <li><b>Extremes</b>: indicators that only matter when they are far out on one side of their own history — the yen carry trade (USD/JPY, the US–Japan yield gap, Japan's yields), the Buffett indicator, Shiller P/E, credit spreads, the yield curve, the VIX and more. Each sits on a 0–100 scale (its percentile against all the history we have). The outer 5% on either side is an <b>extreme</b> (red), the outer 10% is <b>stretched</b> (amber); everything else is "normal range" and tucked away. Open "Japan &amp; yen in detail" at the bottom for Japan's inflation with the Bank of Japan's forecasts and the interest-gap chart.</li>
 <li><b>Alerts</b>: your levels (e.g. "USD/JPY above 160"), the email setup, the on/off switch for extreme alerts, and the history of every alert.</li></ul>
 <h3>About extremes — please read</h3>
@@ -222,26 +230,45 @@ function lineChart(el, opt){
 function niceStep(raw){ const p = Math.pow(10, Math.floor(Math.log10(raw || 1))), f = raw / p; return (f < 1.5 ? 1 : f < 3.5 ? 2 : f < 7.5 ? 5 : 10) * p; }
 
 // ── Today ─────────────────────────────────────────────────────────────────
-function cardHTML(s){
-  const daily = s.freq !== 'monthly';
+const RANGES = [['1M', 31], ['6M', 183], ['1Y', 366], ['2Y', 731], ['5Y', 1830], ['Max', 99999]];
+const uid = (cid, key) => (cid || 'x') + '-' + key;
+function xBtn(fn){ return `<button class="xbtn" type="button" aria-label="Close" title="Close" onclick="event.stopPropagation();${fn}">✕</button>`; }
+function badge(s){
+  if (!s.horizon || s.horizon === 'at an extreme') return '';
+  return `<span class="badge${s.spec >= 1.5 ? ' strong' : ''}">⚡ special ${esc(s.horizon)}</span>`;
+}
+function chgRow(s){
+  const p = [], cc = c => `<b class="${chgClass(s, c)}">${fmtChg(s, c)}</b>`;
+  if (s.freq === 'monthly') p.push(`vs prior month ${cc(s.d1)}`);
+  else if (s.freq === 'quarterly') p.push(`vs prior quarter ${cc(s.d1)}`);
+  else {
+    p.push(`${s.freq === 'weekly' ? 'Week' : 'Day'} ${cc(s.d1)}`);
+    if (s.freq === 'daily' && s.w1 !== null && s.w1 !== undefined) p.push(`Week ${cc(s.w1)}`);
+    if (s.m1 !== null && s.m1 !== undefined) p.push(`Month ${cc(s.m1)}`);
+  }
+  if (!s.hub && s.y1 !== null && s.y1 !== undefined) p.push(`1 yr ${cc(s.y1)}`);
+  return p.map(x => `<span>${x}</span>`).join('');
+}
+function saysHTML(s){ return `<div class="says"><b>What it says.</b> ${esc(s.hub ? (s.side ? s.meaning : s.why) : s.says)}</div>`; }
+function cardHTML(s, cid){
+  if (s.hub) return exCardHTML(s, cid);
+  const id = cid + '|' + s.key, open = OPEN === id, mo = s.freq === 'monthly';
   const color = s.tone === 'alert' ? '#F472B6' : s.tone === 'watch' ? '#F59E0B' : '#818CF8';
-  const lbl1 = s.freq === 'monthly' ? 'vs prior month' : s.freq === 'weekly' ? 'Week' : 'Day';
-  return `<div class="ind${OPEN === s.key ? ' open' : ''}" data-key="${s.key}" id="card-${s.key}">
-    ${OPEN === s.key ? '<button class="xbtn" type="button" aria-label="Close" title="Close" onclick="event.stopPropagation();openCard(null)">✕</button>' : ''}
-    <div class="nm"><span>${esc(s.name)}</span><span class="small">${esc(fdate(s.date, !daily))}</span></div>
+  return `<div class="ind${s.horizon ? ' hot' : ''}${open ? ' open' : ''}" data-cid="${id}" id="card-${uid(cid, s.key)}">
+    ${open ? xBtn('openCard(null)') : ''}
+    <div class="nm"><span>${esc(s.name)}</span><span class="small">${esc(fdate(s.date, mo))}</span></div>
     <div class="val">${esc(fmtVal(s, s.value))}</div>
-    <span class="chip ${toneWord[s.tone]}">${esc(s.reading)}</span>
-    ${s.unusual ? `<div class="unusual">⚡ Unusual move — about ${num(Math.abs(s.z), 1)}× a typical ${s.freq === 'weekly' ? 'week' : 'day'}</div>` : ''}
-    <div class="chg"><span>${lbl1} <b class="${chgClass(s, s.d1)}">${fmtChg(s, s.d1)}</b></span>${s.freq !== 'monthly' ? `<span>1 mo <b class="${chgClass(s, s.m1)}">${fmtChg(s, s.m1)}</b></span>` : ''}<span>1 yr <b class="${chgClass(s, s.y1)}">${fmtChg(s, s.y1)}</b></span></div>
+    <span class="chip ${toneWord[s.tone]}">${esc(s.reading)}</span>${badge(s)}
+    ${saysHTML(s)}
+    <div class="chg">${chgRow(s)}</div>
     <div class="rng"><i style="left:${(s.pos * 100).toFixed(1)}%"></i></div>
     <div class="rngl"><span>1-yr low ${esc(fmtVal(s, s.lo))}</span><span>high ${esc(fmtVal(s, s.hi))}</span></div>
     ${sparkSVG(s.spark, color)}
-    ${OPEN === s.key ? detailHTML(s) : ''}
+    ${open ? detailHTML(s, cid) : ''}
   </div>`;
 }
-const RANGES = [['1M', 31], ['6M', 183], ['1Y', 366], ['2Y', 731], ['5Y', 1830], ['Max', 99999]];
-function detailHTML(s){
-  const r = RANGE[s.key] || (s.freq === 'monthly' ? '5Y' : '1Y');
+function detailHTML(s, cid){
+  const r = RANGE[cid + '|' + s.key] || (s.freq === 'monthly' ? '5Y' : '1Y');
   let extra = '';
   if (s.key === 'MOOD'){
     const P = OV.moodParts || {}, names = {momentum:'Stock momentum', volatility:'Calm (low volatility)', safe_haven:'Stocks over bonds', junk:'Junk-bond appetite'};
@@ -249,20 +276,23 @@ function detailHTML(s){
       <p class="muted">Each ingredient: 0 = most fearful reading of the last two years, 100 = most greedy. CNN's official number differs (it uses three more ingredients we can't read) — <a class="link" href="https://edition.cnn.com/markets/fear-and-greed" target="_blank" rel="noopener">see CNN's index ›</a></p>`;
   }
   return `<div class="detail" onclick="event.stopPropagation()">
-    <button class="close" onclick="openCard(null)">Close ✕</button>
-    <div class="ranges">${RANGES.map(([k]) => `<button class="${k === r ? 'on' : ''}" onclick="setRange('${s.key}','${k}')">${k}</button>`).join('')}</div>
-    <div class="chart" id="chart-${s.key}"><div class="muted">Loading chart…</div></div>
+    <div class="ranges">${RANGES.map(([k]) => `<button class="${k === r ? 'on' : ''}" onclick="setRange('${cid}','${s.key}','${k}')">${k}</button>`).join('')}</div>
+    <div class="chart" id="chart-${uid(cid, s.key)}"><div class="muted">Loading chart…</div></div>
     ${extra}
     <p class="muted" style="margin-top:10px">${esc(s.explain)}</p>
     <p class="small" style="margin-top:8px">Source: ${esc({yahoo:'Yahoo Finance', fred:'FRED (St. Louis Fed)', bis:'BIS', calc:'calculated by Macro Watch from Yahoo and FRED data'}[s.source])} · latest ${esc(fdate(s.date, s.freq === 'monthly'))}${s.prevDate ? ' · previous ' + esc(fdate(s.prevDate, s.freq === 'monthly')) : ''}</p>
   </div>`;
 }
 function findSummary(key){ for (const g of OV.groups) for (const s of g.items) if (s.key === key) return s; return null; }
-async function drawDetail(key){
-  const s = findSummary(key), el = $('chart-' + key);
+function findAny(key){
+  for (const c of OV.clusters || []) for (const s of c.main.concat(c.context)) if (s.key === key) return s;
+  return findSummary(key);
+}
+async function drawDetail(cid, key){
+  const s = findAny(key), el = $('chart-' + uid(cid, key));
   if (!s || !el) return;
   if (!SERIES[key]){ const d = await api('/api/series/' + key); SERIES[key] = d.points; }
-  const pts = SERIES[key], r = RANGE[key] || (s.freq === 'monthly' ? '5Y' : '1Y'), days = RANGES.find(x => x[0] === r)[1];
+  const pts = SERIES[key], r = RANGE[cid + '|' + key] || (s.freq === 'monthly' ? '5Y' : '1Y'), days = RANGES.find(x => x[0] === r)[1];
   const end = pdate(pts[pts.length - 1][0]).getTime(), from = Math.max(pdate(pts[0][0]).getTime(), end - days * 864e5);
   const refs = [];
   OV.rules?.filter(x => x.key === key && x.enabled).forEach(x => refs.push({y: x.level, label: 'your level ' + fmtVal(s, x.level), color: '#F59E0B'}));
@@ -273,27 +303,43 @@ async function drawDetail(key){
   if (key === 'USDJPY' && !refs.some(x => x.y === 160)) refs.push({y: 160, label: '160 — 2024 intervention', color: '#6B7280'});
   lineChart(el, {from, to: end, monthly: s.freq === 'monthly', series: [{pts: pts.filter(p => pdate(p[0]).getTime() >= from), color: '#818CF8', fmt: v => fmtVal(s, v)}], refs});
 }
-function setRange(key, r){ RANGE[key] = r; const el = $('card-' + key); if (el) el.querySelectorAll('.ranges button').forEach(b => b.classList.toggle('on', b.textContent === r)); drawDetail(key); track('Range ' + key + ' ' + r); }
-function openCard(key){
-  OPEN = key; renderToday();
-  if (key){ drawDetail(key); setTimeout(() => $('card-' + key)?.scrollIntoView({behavior:'smooth', block:'nearest'}), 50); track('Opened ' + key); }
+function setRange(cid, key, r){
+  RANGE[cid + '|' + key] = r;
+  document.querySelectorAll(`#card-${uid(cid, key)} .ranges button`).forEach(b => b.classList.toggle('on', b.textContent === r));
+  drawDetail(cid, key); track('Range ' + key + ' ' + r);
+}
+function drawOpen(){
+  if (!OPEN) return;
+  const [cid, key] = OPEN.split('|'), s = findAny(key);
+  if (s && s.hub) drawExDetail(key, cid); else drawDetail(cid, key);
+}
+function openCard(id){
+  OPEN = id; renderToday();
+  if (id){ const [cid, key] = id.split('|'); drawOpen(); setTimeout(() => ($('card-' + uid(cid, key)) || $('ex-' + uid(cid, key)))?.scrollIntoView({behavior:'smooth', block:'nearest'}), 50); track('Opened ' + key); }
+}
+function driversHTML(c){
+  const d = c.drivers; if (!d) return '';
+  return `<div class="drv"><div class="drvh">What is moving this group? <span class="small">· looking at ${esc(d.horizon)}</span></div>
+    <div class="drvt">${esc(d.headline)}</div><ul>${d.bullets.map(b => `<li>${esc(b)}</li>`).join('')}</ul>
+    <div class="small">Worked out from these numbers and the usual links between these markets — not from news headlines.</div></div>`;
 }
 function renderToday(){
   if (!OV) return;
   const S = OV.inShort, bad = OV.sources.filter(x => x.stale || x.error);
   let h = `<div class="card"><div class="answer" style="color:${S.items.length ? 'var(--watch)' : 'var(--calm)'}">${S.items.length ? '●' : '✓'} ${esc(S.headline)}</div>`;
-  if (S.items.length) h += `<ul class="list" style="margin-top:8px">${S.items.map(i => `<li><button class="link" onclick="${i.kind === 'extreme' ? `goExtreme('${i.key}')` : `goCard('${i.key}')`}">${esc(i.text)} ›</button></li>`).join('')}</ul>`;
-  h += `<div class="small" style="margin-top:10px">${bad.length ? '⚠ ' + bad.map(b => esc(b.name) + (b.ok_ts ? ' last updated ' + ago(b.ok_ts) : ' not reached yet')).join(' · ') + ' — showing the last good numbers.' : 'All sources up to date.'} Prices refresh every 15 minutes; this page every minute.</div></div>`;
-  for (const g of OV.groups){
-    if (!g.items.length) continue;
-    h += `<h2>${esc(g.title)}</h2><div class="muted">${esc(g.intro)}${g.id === 'japan' ? ' <button class="link" onclick="openJapan()">Inflation forecasts ›</button> <button class="link" onclick="showTab(\'extremes\')">Yen extremes ›</button>' : ''}</div><div class="grid">${g.items.map(cardHTML).join('')}</div>`;
+  if (S.items.length) h += `<ul class="list" style="margin-top:8px">${S.items.map(i => `<li><button class="link" onclick="${i.cluster ? `goCard('${i.cluster}','${i.key}')` : `goExtreme('${i.key}')`}">${esc(i.text)} ›</button></li>`).join('')}</ul>`;
+  h += `<div class="small" style="margin-top:10px">Most special first: what moved far more than usual today, this week or this month, and what sits at the edge of its history — weighted by how much it matters for stock investing. Related indicators are grouped together. ${bad.length ? '⚠ ' + bad.map(b => esc(b.name) + (b.ok_ts ? ' last updated ' + ago(b.ok_ts) : ' not reached yet')).join(' · ') + ' — showing the last good numbers.' : 'All sources up to date.'} Prices refresh every 15 minutes; this page every minute.</div></div>`;
+  for (const c of OV.clusters || []){
+    h += `<h2>${esc(c.title)}</h2><div class="muted">${esc(c.intro)}${c.id === 'japan' ? ' <button class="link" onclick="openJapan()">Inflation forecasts ›</button>' : ''}</div>${driversHTML(c)}
+      <div class="grid">${c.main.map(s => cardHTML(s, c.id)).join('')}</div>`;
+    if (c.context.length) h += `<div class="small ctxhead">Shown alongside, because they explain the moves above:</div><div class="grid">${c.context.map(s => cardHTML(s, c.id)).join('')}</div>`;
   }
   $('today').innerHTML = h;
-  document.querySelectorAll('.ind').forEach(c => c.onclick = () => { if (OPEN !== c.dataset.key) openCard(c.dataset.key); });
-  if (OPEN) drawDetail(OPEN);
+  document.querySelectorAll('#today .ind[data-cid]').forEach(c => c.onclick = () => { if (OPEN !== c.dataset.cid) openCard(c.dataset.cid); });
+  drawOpen();
 }
-function japanCards(){ const o = OPEN; OPEN = null; const h = (OV.groups.find(g => g.id === 'japan')?.items || []).map(cardHTML).join(''); OPEN = o; return h; }
-function goCard(key){ showTab('today'); openCard(key); }
+function japanCards(){ const o = OPEN; OPEN = null; const h = (OV.groups.find(g => g.id === 'japan')?.items || []).map(s => cardHTML(s, 'jp')).join(''); OPEN = o; return h; }
+function goCard(cid, key){ showTab('today'); openCard(cid + '|' + key); }
 
 // ── Japan ─────────────────────────────────────────────────────────────────
 async function renderJapan(){
@@ -318,7 +364,7 @@ async function renderJapan(){
   h += `<div class="card"><b>The interest gap: US minus Japan 10-year yield</b><p class="muted" style="margin:4px 0 10px">Money flows to where it earns more. When US rates are far above Japan's, investors sell yen to buy dollars and the yen weakens; when the gap narrows, the yen tends to strengthen. Monthly averages.</p><div class="chart" id="jpGapChart"></div><p class="small" style="margin-top:8px" id="gapNote"></p></div>`;
   h += `<h2>All Japan indicators</h2><div class="muted">Tap one on the Today tab for its full chart.</div><div class="grid">${japanCards()}</div>`;
   $('japan').innerHTML = h;
-  $('japan').querySelectorAll('.ind').forEach(c => c.onclick = () => goCard(c.dataset.key));
+  $('japan').querySelectorAll('.ind[data-cid]').forEach(c => c.onclick = () => goCard('japan', c.dataset.cid.split('|')[1]));
   // Inflation chart, 10 years + forecast blocks
   const from = Date.now() - 10 * 365.25 * 864e5;
   const bands = (boj?.rows || []).map(r => ({x0: new Date(r.fy, 3, 1).getTime(), x1: new Date(r.fy + 1, 2, 31).getTime(), y0: r.cpi.low, y1: r.cpi.high, y: r.cpi.median, color: '#F59E0B', label: num(r.cpi.median, 1) + '%'}));
@@ -344,43 +390,52 @@ async function renderJapan(){
 let EX = null, EXOPEN = null, EXCAT = 'all', EXRANGE = {}, QUIET_OPEN = false, JAPAN_OPEN = false;
 const EXRANGES = [['5Y', 1830], ['10Y', 3660], ['25Y', 9150], ['Max', 99999]];
 const ZONE = {extreme_high:['EXTREME HIGH','t-alert'], extreme_low:['EXTREME LOW','t-alert'], stretched_high:['Stretched high','t-watch'], stretched_low:['Stretched low','t-watch'], quiet:['Normal range','t-calm']};
+const DEF_KEYS = ['DEL_CONS', 'DEL_CARD', 'CO_CARD', 'DEL_BUS', 'CO_BUS'];
+const hubMo = h => h.freq === 'monthly' || h.freq === 'quarterly';
 function ordinal(n){ n = Math.round(n); const s = ['th','st','nd','rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); }
 function sinceText(h){
   if (!h.side) return '';
-  const w = h.side === 'high' ? 'Highest' : 'Lowest', monthly = h.freq === 'monthly' || h.freq === 'quarterly';
-  return h.since ? `${w} since ${fdate(h.since, monthly)}` : `${w} on record (data since ${h.start.slice(0, 4)})`;
+  const w = h.side === 'high' ? 'Highest' : 'Lowest';
+  return h.since ? `${w} since ${fdate(h.since, hubMo(h))}` : `${w} on record (data since ${h.start.slice(0, 4)})`;
 }
 function pbar(h, mini){ return `<div class="pbar${mini ? ' mini' : ''}${h.sides === 'high' ? ' hi' : ''}"><i style="left:${Math.min(99, Math.max(1, h.pct))}%"></i></div>`; }
 function localBadge(h){ return h.local ? `<span class="small" style="margin-left:6px">· ${h.local === 'high' ? 'highest' : 'lowest'} in 5 years</span>` : ''; }
-function exCardHTML(h){
-  const [label, cls] = ZONE[h.zone], open = EXOPEN === h.key, strong = h.zone.startsWith('extreme');
-  const color = strong ? '#F472B6' : '#F59E0B';
-  return `<div class="ind ext${strong ? '' : ' stretched'}${open ? ' open' : ''}" data-ex="${h.key}" id="ex-${h.key}">
-    ${open ? '<button class="xbtn" type="button" aria-label="Close" title="Close" onclick="event.stopPropagation();openEx(null)">✕</button>' : ''}
-    <div class="nm"><span>${esc(h.name)}</span><span class="small">${esc(fdate(h.date, h.freq === 'monthly' || h.freq === 'quarterly'))}</span></div>
+function findHub(key){
+  const a = EX?.items.find(x => x.key === key); if (a) return a;
+  for (const c of OV?.clusters || []) for (const s of c.main.concat(c.context)) if (s.hub && s.key === key) return s;
+  return null;
+}
+function exCardHTML(h, cid){
+  const today = !!cid, id = cid + '|' + h.key, open = today ? OPEN === id : EXOPEN === h.key;
+  const [label, cls] = ZONE[h.zone], strong = h.zone.startsWith('extreme'), hot = h.zone !== 'quiet';
+  const color = strong ? '#F472B6' : hot ? '#F59E0B' : '#818CF8';
+  return `<div class="ind${hot ? ' ext' + (strong ? '' : ' stretched') : ''}${open ? ' open' : ''}" ${today ? `data-cid="${id}"` : `data-ex="${h.key}"`} id="ex-${uid(cid, h.key)}">
+    ${open ? xBtn(today ? 'openCard(null)' : 'openEx(null)') : ''}
+    <div class="nm"><span>${esc(h.name)}</span><span class="small">${esc(fdate(h.date, hubMo(h)))}</span></div>
     <div class="val">${esc(fmtVal(h, h.value))}</div>
-    <span class="chip ${cls}">${label}</span><span class="small" style="margin-left:6px">${ordinal(h.pct)} percentile</span>${localBadge(h)}
+    <span class="chip ${cls}">${label}</span><span class="small" style="margin-left:6px">${ordinal(h.pct)} percentile</span>${localBadge(h)}${badge(h)}
     ${pbar(h)}<div class="rngl"><span>lowest</span><span>history since ${h.start.slice(0, 4)}</span><span>highest</span></div>
-    <div class="mean"><b>${esc(sinceText(h))}.</b> ${esc(h.meaning)}</div>
+    ${h.side ? `<div class="mean"><b>${esc(sinceText(h))}.</b></div>` : ''}
+    ${saysHTML(h)}
+    <div class="chg">${chgRow(h)}</div>
     ${sparkSVG(h.spark, color)}
-    ${open ? exDetailHTML(h) : ''}</div>`;
+    ${open ? exDetailHTML(h, cid) : ''}</div>`;
 }
 function exRowHTML(h){
   const open = EXOPEN === h.key;
-  return `<div class="${open ? 'qopen' : ''}" id="ex-${h.key}" data-ex="${h.key}">${open ? '<button class="xbtn" type="button" aria-label="Close" title="Close" onclick="event.stopPropagation();openEx(null)">✕</button>' : ''}<div class="qrow"><span class="qn">${esc(h.name)}${localBadge(h)}</span><span class="qp">${pbar(h, true)}</span><span class="qv">${esc(fmtVal(h, h.value))}</span></div>${open ? exDetailHTML(h) : ''}</div>`;
+  return `<div class="${open ? 'qopen' : ''}" id="ex-${uid('', h.key)}" data-ex="${h.key}">${open ? xBtn('openEx(null)') : ''}<div class="qrow"><span class="qn">${esc(h.name)}${localBadge(h)}</span><span class="qp">${pbar(h, true)}</span><span class="qv">${esc(fmtVal(h, h.value))}</span></div>${open ? exDetailHTML(h, '') : ''}</div>`;
 }
-function exDetailHTML(h){
-  const r = EXRANGE[h.key] || 'Max';
+function exDetailHTML(h, cid){
+  const r = EXRANGE[h.key] || 'Max', mo = hubMo(h);
   return `<div class="detail" onclick="event.stopPropagation()">
-    <button class="close" onclick="openEx(null)">Close ✕</button>
-    <div class="ranges">${EXRANGES.map(([k]) => `<button class="${k === r ? 'on' : ''}" onclick="setExRange('${h.key}','${k}')">${k}</button>`).join('')}</div>
-    <div class="chart" id="exchart-${h.key}"><div class="muted">Loading chart…</div></div>
-    <p class="muted" style="margin-top:10px"><b>What it is.</b> ${esc(h.why)}</p>
-    ${h.side ? '' : `<p class="muted" style="margin-top:6px">Right now it is in its normal range (${ordinal(h.pct)} percentile). The dashed lines on the chart mark the outer 5% of its history.</p>`}
-    <p class="small" style="margin-top:8px">${h.n.toLocaleString('en-US')} data points since ${esc(fdate(h.start, h.freq === 'monthly' || h.freq === 'quarterly'))} · latest ${esc(fdate(h.date, h.freq === 'monthly' || h.freq === 'quarterly'))}${h.y1 !== null && h.y1 !== undefined ? ' · a year earlier ' + esc(fmtVal(h, h.y1)) : ''} · typical (median) ${esc(fmtVal(h, h.median))}</p></div>`;
+    <div class="ranges">${EXRANGES.map(([k]) => `<button class="${k === r ? 'on' : ''}" onclick="setExRange('${cid || ''}','${h.key}','${k}')">${k}</button>`).join('')}</div>
+    <div class="chart" id="exchart-${uid(cid, h.key)}"><div class="muted">Loading chart…</div></div>
+    ${h.side ? `<p class="muted" style="margin-top:10px"><b>What it is.</b> ${esc(h.why)}</p>` : ''}
+    ${h.side ? '' : `<p class="muted" style="margin-top:10px">Right now it is in its normal range (${ordinal(h.pct)} percentile). The dashed lines on the chart mark the outer 5% of its history.</p>`}
+    <p class="small" style="margin-top:8px">${h.n.toLocaleString('en-US')} data points since ${esc(fdate(h.start, mo))} · latest ${esc(fdate(h.date, mo))}${h.yago !== null && h.yago !== undefined ? ' · a year earlier ' + esc(fmtVal(h, h.yago)) : ''} · typical (median) ${esc(fmtVal(h, h.median))}</p></div>`;
 }
-async function drawExDetail(key){
-  const h = EX?.items.find(x => x.key === key), el = $('exchart-' + key);
+async function drawExDetail(key, cid){
+  const h = findHub(key), el = $('exchart-' + uid(cid, key));
   if (!h || !el) return;
   if (!SERIES[key]){ SERIES[key] = (await api('/api/series/' + key)).points; }
   const pts = SERIES[key], r = EXRANGE[key] || 'Max', days = EXRANGES.find(x => x[0] === r)[1];
@@ -388,44 +443,44 @@ async function drawExDetail(key){
   const refs = [];
   if (h.sides !== 'high') refs.push({y: h.p5, label: 'bottom 5%', color: '#F472B6'});
   if (h.sides !== 'low') refs.push({y: h.p95, label: 'top 5%', color: '#F472B6'});
-  lineChart(el, {from, to: end, monthly: h.freq === 'monthly' || h.freq === 'quarterly',
+  lineChart(el, {from, to: end, monthly: hubMo(h),
     series: [{pts: pts.filter(p => pdate(p[0]).getTime() >= from), color: '#818CF8', fmt: v => fmtVal(h, v)}], refs});
 }
-function setExRange(key, r){ EXRANGE[key] = r; document.querySelectorAll(`#ex-${key} .ranges button`).forEach(b => b.classList.toggle('on', b.textContent === r)); drawExDetail(key); track('Extreme range ' + key + ' ' + r); }
+function setExRange(cid, key, r){
+  EXRANGE[key] = r;
+  document.querySelectorAll(`#ex-${uid(cid, key)} .ranges button`).forEach(b => b.classList.toggle('on', b.textContent === r));
+  drawExDetail(key, cid || undefined); track('Extreme range ' + key + ' ' + r);
+}
 function openEx(key){
   const it = EX?.items.find(x => x.key === key);
-  if (it && it.zone === 'quiet') QUIET_OPEN = true;      // the row lives in the collapsed list
+  if (it && it.zone === 'quiet' && !DEF_KEYS.includes(key)) QUIET_OPEN = true;      // the row lives in the collapsed list
   EXOPEN = key; renderExtremes();
-  if (key){ drawExDetail(key); setTimeout(() => $('ex-' + key)?.scrollIntoView({behavior:'smooth', block:'nearest'}), 50); track('Opened extreme ' + key); }
+  if (key){ drawExDetail(key); setTimeout(() => $('ex-' + uid('', key))?.scrollIntoView({behavior:'smooth', block:'nearest'}), 50); track('Opened extreme ' + key); }
 }
 function goExtreme(key){ EXCAT = 'all'; showTab('extremes'); EXOPEN = key; renderExtremes(); drawExDetail(key); }
 function setExCat(c){ EXCAT = c; renderExtremes(); }
-const DEF_KEYS = ['DEL_CONS', 'DEL_CARD', 'CO_CARD', 'DEL_BUS', 'CO_BUS'];
-function defaultsHTML(){
-  const rows = DEF_KEYS.map(k => EX.items.find(x => x.key === k)).filter(Boolean);
-  const missing = EX.missing.filter(m => DEF_KEYS.includes(m.key));
-  if (!rows.length && !missing.length) return '';
-  const tbl = rows.length ? `<div style="overflow-x:auto"><table style="margin-top:8px"><tr><th>Loans</th><th>Now</th><th>Year ago</th><th>Typical</th><th>Compared with history</th></tr>` + rows.map(h => {
-    const [label, cls] = ZONE[h.zone], mo = h.freq === 'monthly' || h.freq === 'quarterly';
-    return `<tr style="cursor:pointer" onclick="EXCAT='all';openEx('${h.key}')"><td>${esc(h.name)}<div class="small">${esc(fdate(h.date, mo))}</div></td><td><b>${esc(fmtVal(h, h.value))}</b></td><td>${h.y1 === null || h.y1 === undefined ? '—' : esc(fmtVal(h, h.y1))}</td><td>${esc(fmtVal(h, h.median))}</td><td><span class="chip ${cls}">${label}</span> <span class="small">${ordinal(h.pct)} pct.</span></td></tr>`; }).join('') + `</table></div>` : '';
-  return `<div class="card"><b>Loan defaults right now</b><p class="muted" style="margin:4px 0 0">How much US bank lending is not being paid back. <b>Late</b> = the borrower is 30 or more days behind. <b>Write-off</b> = the bank gave up and booked the loan as lost (a real default). Always shown, extreme or not; tap a row for the full history.</p>${tbl}
-    ${missing.length ? `<p class="small" style="margin-top:8px">⚠ No data yet for: ${missing.map(m => esc(m.name) + ' (' + esc(m.error) + ')').join('; ')}.</p>` : ''}
-    <p class="small" style="margin-top:8px">Federal Reserve figures for all US commercial banks, quarterly (published about two months after each quarter), seasonally adjusted, since 1987. "Typical" is the median of that history. Rising late payments warn that households or companies are under pressure and that banks will lend less; write-offs peak during or just after recessions.</p></div>`;
-}
 function renderExtremes(){
   if (!EX) return;
-  const inCat = h => EXCAT === 'all' || h.cat === EXCAT;
-  const hot = EX.items.filter(h => h.zone !== 'quiet').sort((a, b) => Math.abs(b.pct - 50) - Math.abs(a.pct - 50));
-  const strong = hot.filter(h => h.zone.startsWith('extreme')), vis = hot.filter(inCat), quiet = EX.items.filter(h => h.zone === 'quiet' && inCat(h));
+  const inCat = h => EXCAT === 'all' || h.cat === EXCAT, byRank = (a, b) => b.rank - a.rank;
+  const loose = EX.items.filter(h => !DEF_KEYS.includes(h.key));
+  const hot = EX.items.filter(h => h.zone !== 'quiet').sort(byRank);
+  const strong = hot.filter(h => h.zone.startsWith('extreme')), vis = loose.filter(h => h.zone !== 'quiet' && inCat(h)).sort(byRank);
+  const quiet = loose.filter(h => h.zone === 'quiet' && inCat(h)).sort(byRank);
   let h = `<div class="card"><div class="answer" style="color:${strong.length ? 'var(--alert)' : hot.length ? 'var(--watch)' : 'var(--calm)'}">${strong.length ? '●' : hot.length ? '◐' : '✓'} ${strong.length ? strong.length + ' indicator' + (strong.length > 1 ? 's' : '') + ' at an extreme' : hot.length ? 'Nothing at an extreme — ' + hot.length + ' stretched' : 'Nothing at an extreme — all indicators in their normal range'}</div>`;
   if (strong.length) h += `<ul class="list" style="margin-top:8px">${strong.map(x => `<li><button class="link" onclick="openEx('${x.key}')">${esc(x.name)}: ${ZONE[x.zone][0].toLowerCase()} — ${esc(sinceText(x))} ›</button></li>`).join('')}</ul>`;
-  h += `<div class="small" style="margin-top:10px">${EX.items.length} indicators tracked. An <b>extreme</b> is the outer ${EX.limits.extreme}% of an indicator's own history (on either side), <b>stretched</b> the outer ${EX.limits.stretched}%. Extremes say "unusual — look closely", not "buy" or "sell". Extreme alerts by email are <b>${EX.alertsOn ? 'on' : 'off'}</b> (Alerts tab).</div></div>`;
-  h += defaultsHTML();
+  h += `<div class="small" style="margin-top:10px">${EX.items.length} indicators tracked, the most important for stock investing first. An <b>extreme</b> is the outer ${EX.limits.extreme}% of an indicator's own history (on either side), <b>stretched</b> the outer ${EX.limits.stretched}%. Extremes say "unusual — look closely", not "buy" or "sell". Extreme alerts by email are <b>${EX.alertsOn ? 'on' : 'off'}</b> (Alerts tab).</div></div>`;
   h += `<div class="chips"><button class="${EXCAT === 'all' ? 'on' : ''}" onclick="setExCat('all')">All</button>${EX.cats.map(c => `<button class="${EXCAT === c.id ? 'on' : ''}" onclick="setExCat('${c.id}')">${esc(c.title)}</button>`).join('')}</div>`;
   const cat = EX.cats.find(c => c.id === EXCAT); if (cat) h += `<div class="muted">${esc(cat.intro)}</div>`;
-  h += `<h2>At or near an extreme</h2>` + (vis.length ? `<div class="grid">${vis.map(exCardHTML).join('')}</div>` : `<div class="muted">Nothing here is at or near an extreme right now.</div>`);
-  if (quiet.length) h += `<details class="quiet" ${QUIET_OPEN ? 'open' : ''} ontoggle="QUIET_OPEN=this.open"><summary>Normal range — ${quiet.length} indicator${quiet.length > 1 ? 's' : ''} with nothing to see</summary>${quiet.sort((a, b) => Math.abs(b.pct - 50) - Math.abs(a.pct - 50)).map(exRowHTML).join('')}</details>`;
-  const miss = EX.missing.filter(m => EXCAT === 'all' || m.cat === EXCAT);
+  const pinned = DEF_KEYS.map(k => EX.items.find(x => x.key === k)).filter(Boolean).sort(byRank);
+  const pinMiss = EX.missing.filter(m => DEF_KEYS.includes(m.key));
+  if ((EXCAT === 'all' || EXCAT === 'credit') && (pinned.length || pinMiss.length)){
+    h += `<h2>Loan defaults</h2><div class="muted">How much US bank lending is not being paid back — always shown. <b>Late</b> = 30 or more days behind. <b>Write-off</b> = the bank gave up and booked the loan as lost (a real default). Quarterly Federal Reserve data for all US commercial banks, published about two months after each quarter. Rising late payments warn that households or companies are under pressure and that banks will lend less; write-offs peak during or just after recessions.</div>`;
+    h += pinned.length ? `<div class="grid">${pinned.map(x => exCardHTML(x)).join('')}</div>` : '';
+    if (pinMiss.length) h += `<p class="small" style="margin-top:8px">⚠ No data yet for: ${pinMiss.map(m => esc(m.name) + ' (' + esc(m.error) + ')').join('; ')}.</p>`;
+  }
+  h += `<h2>At or near an extreme</h2>` + (vis.length ? `<div class="grid">${vis.map(x => exCardHTML(x)).join('')}</div>` : `<div class="muted">Nothing here is at or near an extreme right now.</div>`);
+  if (quiet.length) h += `<details class="quiet" ${QUIET_OPEN ? 'open' : ''} ontoggle="QUIET_OPEN=this.open"><summary>Normal range — ${quiet.length} indicator${quiet.length > 1 ? 's' : ''} with nothing to see</summary>${quiet.map(exRowHTML).join('')}</details>`;
+  const miss = EX.missing.filter(m => !DEF_KEYS.includes(m.key) && (EXCAT === 'all' || m.cat === EXCAT));
   if (miss.length) h += `<p class="small" style="margin-top:14px">⚠ No data yet for: ${miss.map(m => esc(m.name) + ' (' + esc(m.error) + ')').join('; ')}. The app retries every few minutes.</p>`;
   $('extremes').innerHTML = h;
   $('extremes').querySelectorAll('.ind[data-ex]').forEach(c => c.onclick = () => { if (EXOPEN !== c.dataset.ex) openEx(c.dataset.ex); });

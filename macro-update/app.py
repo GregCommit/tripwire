@@ -564,31 +564,56 @@ def healthz():
 
 
 # ── API ─────────────────────────────────────────────────────────────────────
+HZ_FIELD = {"today": "d1", "this week": "w1", "this month": "m1", "this quarter": "d1"}
+
+
+def cluster_of(key):
+    for c in S.CLUSTERS:
+        if key in c["main"]:
+            return c["id"]
+    return None
+
+
 def in_short(sm, rules, hub=()):
-    """The answer first: does anything need a look today?"""
+    """The answer first: does anything need a look? Levels you set, then whatever is most special
+    today / this week / this month, ranked by how much it matters for stock investing."""
     items = []
     for r in rules:
         s = sm.get(r["key"])
         if s and r["enabled"] and rule_beyond(r["op"], s["value"], r["level"]):
-            items.append({"key": r["key"], "kind": "level",
+            items.append({"key": r["key"], "kind": "level", "cluster": cluster_of(r["key"]),
                           "text": f"{s['name']} is {r['op']} your {fmt(r['key'], r['level'])} level "
                                   f"(now {fmt(r['key'], s['value'])})"})
-    # Official rates arrive a business day late, so "recent" = the last 4 calendar days
-    recent = (datetime.now() - timedelta(days=4)).strftime("%Y-%m-%d")
-    for key, s in sm.items():
-        if s["unusual"] and s["date"] >= recent:
-            size = f"{s['d1']:+.1f}%" if s["chgKind"] == "pct" else f"{s['d1']:+.2f}"
-            when = "today" if s["date"] == datetime.now().strftime("%Y-%m-%d") else "on " + \
-                datetime.strptime(s["date"], "%Y-%m-%d").strftime("%a %d %b").replace(" 0", " ")
-            items.append({"key": key, "kind": "move",
-                          "text": f"{s['name']} made an unusually large move {when} ({size})"})
-    for h in hub:
-        if h["zone"].startswith("extreme"):
-            items.append({"key": h["key"], "kind": "extreme",
-                          "text": f"{h['name']} is at an extreme {h['side']} ({h['pct']:.0f}th percentile of its history)"})
+    pool = sorted([x for x in list(sm.values()) + list(hub) if x.get("spec", 0) >= 1.0 and cluster_of(x["key"])],
+                  key=lambda x: -x["rank"])
+    for x in pool[:8]:
+        if x.get("hub") and x["zone"].startswith("extreme"):
+            text = f"{x['name']} is at an extreme {x['side']} ({x['pct']:.0f}th percentile of its history)"
+            kind = "extreme"
+        else:
+            c = x.get(HZ_FIELD.get(x["horizon"] or "today", "d1"))
+            text = f"{x['name']}: unusually large move {x['horizon'] or 'recently'} ({S.fchg(x['chgKind'], c)})"
+            kind = "special"
+        items.append({"key": x["key"], "kind": kind, "cluster": cluster_of(x["key"]), "text": text})
     head = (f"{len(items)} thing{'s' if len(items) > 1 else ''} worth a look" if items
             else "Nothing unusual — no level crossed, no unusual moves")
     return {"headline": head, "items": items}
+
+
+def build_clusters(sm, hub):
+    """The groups that belong together, most important first. Within a group the most special
+    (and most important for stocks) comes first; 'context' members are shown alongside."""
+    allm = {**sm, **{h["key"]: h for h in hub}}
+    out = []
+    for c in S.CLUSTERS:
+        main = sorted((allm[k] for k in c["main"] if k in allm), key=lambda x: -x["rank"])
+        ctx = [allm[k] for k in c["context"] if k in allm]
+        if not main:
+            continue
+        out.append({"id": c["id"], "title": c["title"], "intro": c["intro"], "rank": max(x["rank"] for x in main),
+                    "drivers": S.drivers(c["id"], {x["key"]: x for x in main + ctx}, set(c["main"])), "main": main, "context": ctx})
+    out.sort(key=lambda c: -c["rank"])
+    return out
 
 
 @app.route("/api/overview")
@@ -605,8 +630,10 @@ def api_overview():
     groups = [{"id": g, "title": t, "intro": intro,
                "items": [sm[i["key"]] for i in S.INDICATORS if i["group"] == g and i["key"] in sm]}
               for g, t, intro in S.GROUPS]
+    hub = hub_summaries()
     return jsonify({"role": session.get("role"), "groups": groups, "sources": sources,
-                    "inShort": in_short(sm, get_rules(), hub_summaries()),
+                    "clusters": build_clusters(sm, hub),
+                    "inShort": in_short(sm, get_rules(), hub),
                     "moodParts": json.loads(get_setting("mood_parts", "{}") or "{}"),
                     "boj": json.loads(get_setting("boj_outlook", "null") or "null"),
                     "serverTime": int(time.time())})

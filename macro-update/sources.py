@@ -75,6 +75,12 @@ INDICATORS = [
          explain="How big a move options traders expect in the S&P 500 over the next month. "
                  "Under 20 is normal; above 30 means fear and large daily swings."),
     # Bonds & rates
+    dict(key="US1Y", name="1-year Treasury yield", group="bonds", source="fred", sym="DGS1", unit="%", dec=2,
+         kind="range", chg="pt", freq="daily",
+         explain="Interest on 1-year US government bonds: the market's view of where the Fed's rate will be within a year."),
+    dict(key="REAL10", name="10-year real yield (after inflation)", group="bonds", source="fred", sym="DFII10",
+         unit="%", dec=2, kind="range", chg="pt", freq="daily",
+         explain="The 10-year Treasury yield after subtracting expected inflation (inflation-protected bonds): the true price of money. Gold and growth stocks struggle when it rises."),
     dict(key="US2Y", name="2-year Treasury yield", group="bonds", source="fred", sym="DGS2", unit="%", dec=2,
          kind="range", chg="pt", freq="daily",
          explain="Interest on 2-year US government bonds. Moves mostly with where investors think "
@@ -370,6 +376,15 @@ def summarize(ind, pts):
     if spark[-1] != yr[-1]:
         spark.append(yr[-1])
     s["spark"] = [round(v, 4) for _, v in spark]
+    # Special today / this week / this month, and how much it matters for stock investing
+    w1 = _at_or_before(pts, day - timedelta(days=7))
+    s["w1"] = _change(ind, last_v, w1[1]) if w1 else None
+    mv = moves(pts, ind["freq"], ind["chg"])
+    s.update(z1=mv["z1"], zw=mv["zw"], zm=mv["zm"])
+    s["horizon"], s["spec"] = special(ind["freq"], mv, tone=tone, edge=(pos >= 0.98 or pos <= 0.02) and hi > lo)
+    s["rank"] = round(s["spec"] * WEIGHT.get(ind["key"], 2), 2)
+    s["says"] = SAYS.get(ind["key"]) or ind["explain"]
+    s["hub"] = False
     return s
 
 
@@ -440,6 +455,7 @@ HUB_CATS = [
     ("yen", "Yen, Japan & dollar", "The yen carry trade and what drives it: a very weak or very strong yen, the interest gap and Japan's own yields."),
     ("value", "Valuation", "How expensive the US stock market is against the economy, its own earnings and its own trend."),
     ("credit", "Credit & economy", "Bond-market and economic warning lights that rarely matter until they are far from normal."),
+    ("metals", "Gold, silver & Dr. Copper", "Metals as a mirror of fear, growth and interest rates."),
     ("mood", "Sentiment & risk", "How scared or relaxed investors and consumers are."),
 ]
 EXTREME_PCT, STRETCHED_PCT = 5, 10      # outer share of history, per side
@@ -555,11 +571,16 @@ HUB = [
          why="University of Michigan survey of how confident US households feel.",
          high="Households are extremely upbeat — euphoria is rarely a good sign for returns.",
          low="Households are extremely gloomy. As a contrarian signal, sentiment lows have often come near stock-market bottoms."),
-    dict(key="CUAU", name="Copper ÷ gold", cat="mood", kind="ratio", sym="HG=F", sym2="GC=F", mult=1000, unit="", dec=2,
+    dict(key="CUAU", name="Copper ÷ gold (growth vs fear)", cat="metals", kind="ratio", sym="HG=F", sym2="GC=F", mult=1000,
+         unit="", dec=2, freq="daily",
+         why="Copper goes into almost everything that is built or manufactured — wiring, pipes, cars, electronics — so its price is read as a health check on the world economy ('Dr. Copper'). Gold is what people buy when they are afraid. Copper divided by gold therefore rises when investors expect growth and falls when they want safety.",
+         high="Copper is very expensive against gold: markets are betting hard on growth (factories, construction, China). Optimism is high, which is good for the economy but leaves little room for disappointment.",
+         low="Copper is very cheap against gold: markets want safety far more than growth. Past lows came with recession scares, and often shortly before or during stock-market declines."),
+    dict(key="GSR", name="Gold ÷ silver ratio", cat="metals", kind="ratio", sym="GC=F", sym2="SI=F", mult=1, unit="", dec=1,
          freq="daily",
-         why="Copper (needed for growth) against gold (safety). Rising = markets expect growth, falling = they want safety.",
-         high="Markets are betting hard on growth — optimism is high.",
-         low="Markets want safety far more than growth — a recession scare."),
+         why="How many ounces of silver one ounce of gold buys. Gold is the pure safe haven; silver is half precious, half industrial metal. The ratio rises when investors run to safety and falls when they expect growth and inflation.",
+         high="Gold is very expensive against silver: fear or recession worries dominate and industrial demand is weak. Ratios this high have come with crises (2008, 2020).",
+         low="Silver is very expensive against gold: investors expect growth and inflation, and speculative money is flowing into metals. Often a late-stage 'everything is rising' signal."),
 ]
 HUB_BY_KEY = {h["key"]: h for h in HUB}
 HUB_YAHOO = sorted({s for h in HUB for s in (h.get("sym"), h.get("sym2")) if s and h["kind"] in ("yahoo", "dev200", "ratio")})
@@ -712,12 +733,291 @@ def extreme_stats(item, pts):
     spark = [round(v, 4) for _, v in pts[::step]]
     if (n - 1) % step:
         spark.append(round(last, 4))
+    chg = "pt" if item["unit"] in ("%", " pt") or item.get("signed") else "pct"
+    mv = moves(pts, item["freq"], chg)
+    horizon, spec = special(item["freq"], mv, hub_zone=zone, pct=pct)
     return {
+        "hub": True, "chgKind": chg, "d1": mv["d1"], "w1": mv["w1"], "m1": mv["m1"], "z1": mv["z1"], "zw": mv["zw"],
+        "zm": mv["zm"], "horizon": horizon, "spec": spec, "rank": round(spec * WEIGHT.get(item["key"], 2.5), 2),
         "key": item["key"], "name": item["name"], "cat": item["cat"], "unit": item["unit"], "dec": item["dec"],
         "signed": bool(item.get("signed")), "freq": item["freq"], "why": item["why"], "sides": sides,
         "meaning": item.get(side or "", "") if side else "",
         "date": last_d, "value": last, "pct": round(pct, 1), "zone": zone, "side": side,
         "since": since, "start": pts[0][0], "n": n, "local": local,
         "p5": q(EXTREME_PCT), "p95": q(100 - EXTREME_PCT), "median": q(50),
-        "y1": y1[1] if y1 else None, "spark": spark,
+        "yago": y1[1] if y1 else None, "spark": spark,
     }
+
+
+# ══ What is special now, and how much it matters ════════════════════════════
+# "Special" = a move far bigger than usual over the last day, week or month (measured against that
+# indicator's own typical moves over the past ~3 years), or a place at the edge of its history.
+# Rank = how special × how much it matters for stock investing (WEIGHT, 1–5).
+WEIGHT = {
+    "SPX": 5, "VIX": 5, "US10Y": 5, "MOOD": 4, "IXIC": 4, "DJI": 3, "RUT": 3, "VOLRATIO": 3,
+    "US2Y": 4, "US1Y": 3, "CURVE": 4, "MORT30": 2, "FEDFUNDS": 4, "DXY": 4, "USCPI": 4, "REAL10": 4, "HYSPREAD": 4.5,
+    "GOLD": 3, "SILVER": 2, "COPPER": 3.5, "CUAU": 3.5, "GSR": 2, "WTI": 3.5, "BRENT": 3, "NATGAS": 2,
+    "USDJPY": 4.5, "GAP": 4, "JP10Y": 3.5, "BOJRATE": 3, "JPCPI": 3, "NIKKEI200": 3,
+    "NFCI": 3.5, "SAHM": 4, "UMCSENT": 2.5, "DEL_CONS": 3, "DEL_CARD": 3, "CO_CARD": 3, "DEL_BUS": 3, "CO_BUS": 3,
+    "BUFFETT": 3.5, "CAPE": 3.5, "ERP": 3.5, "SPX200": 3,
+}
+SPECIAL_Z = 2.0
+HORIZON = {"daily": ("today", "this week", "this month"), "weekly": ("this week", "this week", "this month"),
+           "monthly": ("this month", None, None), "quarterly": ("this quarter", None, None)}
+STEPS = {"daily": (1, 5, 21), "weekly": (1, 1, 4), "monthly": (1, None, None), "quarterly": (1, None, None)}
+
+# One plain-language line per indicator: what it says.
+SAYS = {
+    "MOOD": "Are investors scared or greedy? Very low = panic selling, often near market bottoms. Very high = euphoria, which is when risk is highest.",
+    "VOLRATIO": "How much more nervous options traders are than over the last 50 days. A jump above +30% usually comes with sharp sell-offs.",
+    "SPX": "The market's overall direction. A fall of more than 10% from the high is a correction, more than 20% a bear market.",
+    "IXIC": "Technology and growth stocks. Very sensitive to interest rates: when yields rise, the Nasdaq usually suffers more than the Dow.",
+    "DJI": "30 big, established companies — the 'old economy'. Against the Nasdaq it shows whether investors prefer growth or safety.",
+    "RUT": "Small US companies. They borrow more and depend on the home economy, so they lead when investors expect growth and lower rates, and lag when credit worries grow.",
+    "VIX": "The market's expected swing over the next month. Under 15 = complacent, above 30 = fear.",
+    "US1Y": "The shortest-horizon bond view of the Fed: where the market expects the Fed's rate to be within about a year.",
+    "US2Y": "What bond investors expect the Fed to do over the next two years. Moves first when expectations about the Fed change.",
+    "US10Y": "The benchmark long-term interest rate. It sets mortgage rates and the 'safe return' stocks must beat. Fast rises often hurt stocks.",
+    "CURVE": "Long-term minus short-term yield. When it is negative ('inverted'), a recession has usually followed within 6–24 months.",
+    "MORT30": "What a home buyer pays. It follows the 10-year yield with a delay of days to weeks; high rates cool the housing market.",
+    "HYSPREAD": "The extra interest risky companies pay over the government. Widening = lenders are getting scared, usually before or during stock falls.",
+    "REAL10": "The 10-year yield after inflation — the true price of money. Gold and growth stocks struggle when it rises, and do well when it falls.",
+    "FEDFUNDS": "The overnight rate the Federal Reserve steers. Every other US interest rate starts here.",
+    "USCPI": "US inflation over 12 months. The higher it stays above 2%, the longer the Fed keeps rates high.",
+    "DXY": "The dollar against six major currencies. A strong dollar squeezes exporters and emerging markets and pushes commodity prices down; a weak dollar does the reverse.",
+    "WTI": "US oil. Feeds into fuel costs, inflation and energy-company profits. Spikes squeeze consumers; collapses signal weak demand.",
+    "BRENT": "The world oil benchmark. Compared with WTI it shows whether a move is American or global.",
+    "NATGAS": "US natural gas: very weather-driven. Matters for utility bills, power prices and chemical makers.",
+    "GOLD": "The safe-haven metal. It pays no interest, so it does best when interest rates after inflation fall, the dollar weakens, or investors are afraid. That is why it is shown next to rates and the dollar.",
+    "SILVER": "Half precious metal, half industrial metal. Moves with gold in fear and with copper in growth, and usually swings more than both.",
+    "COPPER": "'Dr. Copper': it goes into almost everything that is built or manufactured (wiring, pipes, cars, electronics), so its price is read as a health check on the world economy. Rising = growth expected, falling = slowdown.",
+    "USDJPY": "Yen per dollar. Near 160 Japan has stepped in to stop the yen's fall; a sudden jump in the yen is what blows up 'carry trades' and sells off stocks worldwide.",
+    "JP10Y": "Japan's long-term interest rate. When it rises, Japanese investors have a reason to bring money home, which strengthens the yen.",
+    "BOJRATE": "The rate the Bank of Japan targets. Each increase narrows the gap to the US and supports the yen.",
+    "JPCPI": "Japan's inflation. Sustained inflation near 2% lets the Bank of Japan keep raising rates, which tends to strengthen the yen.",
+}
+# Groups that belong together: the main members, plus "context" members that are always shown
+# alongside because they explain them (gold is read against real yields and the dollar, etc.).
+CLUSTERS = [
+    dict(id="rates", title="US bonds, rates & the dollar",
+         intro="Interest rates and the dollar are the weather for every other market: they move together and explain each other.",
+         main=["US10Y", "US2Y", "US1Y", "CURVE", "MORT30", "FEDFUNDS", "DXY", "REAL10", "USCPI"], context=[]),
+    dict(id="metals", title="Gold, silver & Dr. Copper",
+         intro="Gold, silver and copper only make sense next to interest rates and the dollar, so those are shown here too.",
+         main=["GOLD", "SILVER", "COPPER", "CUAU", "GSR"], context=["REAL10", "US10Y", "DXY"]),
+    dict(id="stocks", title="Stocks & investor mood",
+         intro="The big US stock indexes, how scared investors are, and the two things that most often drive them: yields and credit.",
+         main=["SPX", "IXIC", "DJI", "RUT", "VIX", "MOOD", "VOLRATIO"], context=["US10Y", "HYSPREAD"]),
+    dict(id="japan", title="Yen, Japan & the carry trade",
+         intro="Traders borrow cheap yen to buy higher-yielding assets. When the yen jumps, they must buy yen back, selling stocks everywhere.",
+         main=["USDJPY", "GAP", "JP10Y", "BOJRATE", "JPCPI", "NIKKEI200"], context=["US10Y", "US2Y"]),
+    dict(id="credit", title="Credit, jobs & loan defaults",
+         intro="Are borrowers paying their loans? Credit stress shows up here first, long before it reaches stock prices.",
+         main=["HYSPREAD", "NFCI", "SAHM", "UMCSENT", "DEL_CONS", "DEL_CARD", "CO_CARD", "DEL_BUS", "CO_BUS"], context=["US10Y", "CURVE"]),
+    dict(id="energy", title="Oil & energy",
+         intro="Oil drives inflation and, through inflation, interest rates; the dollar and oil usually move in opposite directions.",
+         main=["WTI", "BRENT", "NATGAS"], context=["DXY", "USCPI"]),
+    dict(id="value", title="Valuation: how expensive is the market?",
+         intro="These change slowly. At extremes they say little about next week and a lot about the next ten years.",
+         main=["BUFFETT", "CAPE", "ERP", "SPX200"], context=["US10Y", "REAL10"]),
+]
+
+
+def _kchange(chg, new, old):
+    if old is None or new is None:
+        return None
+    return (new / old - 1) * 100 if chg == "pct" else new - old
+
+
+def moves(pts, freq, chg):
+    """Change over the last day/week/month (observations, so 1/5/21 for daily series) and how many
+    times larger than a typical such change it is (typical = root-mean-square of the past ~3 years)."""
+    out = {"d1": None, "w1": None, "m1": None, "z1": None, "zw": None, "zm": None}
+    if not pts or len(pts) < 30:
+        return out
+    vals = [v for _, v in pts]
+    n = len(vals)
+    for name, zname, k in zip(("d1", "w1", "m1"), ("z1", "zw", "zm"), STEPS.get(freq, (1, 5, 21))):
+        if k is None or n <= k + 30:
+            continue
+        cur = _kchange(chg, vals[-1], vals[-1 - k])
+        out[name] = cur
+        lo = max(k, n - 756)
+        hist = [_kchange(chg, vals[i], vals[i - k]) for i in range(lo, n - 1)]
+        hist = [h for h in hist if h is not None]
+        if len(hist) > 40 and cur is not None:
+            rms = (sum(h * h for h in hist) / len(hist)) ** 0.5
+            if rms > 0:
+                out[zname] = cur / rms
+    return out
+
+
+def special(freq, mv, tone=None, edge=False, hub_zone=None, pct=None):
+    """(horizon label or None, how special 0..3)."""
+    names = HORIZON.get(freq, HORIZON["daily"])
+    cands = [(abs(mv[z]), nm) for z, nm in zip(("z1", "zw", "zm"), names) if mv.get(z) is not None and nm]
+    best_z, label = max(cands, default=(0.0, None))
+    spec = min(3.0, best_z / SPECIAL_Z)
+    if best_z < SPECIAL_Z:
+        label = None
+    if tone == ALERT:
+        spec += 0.4
+    elif tone == WATCH:
+        spec += 0.2
+    if edge:
+        spec += 0.3
+    if hub_zone:
+        ext = abs(pct - 50)
+        if hub_zone.startswith("extreme"):
+            spec = max(spec, 1.2 + min(1.0, (ext - 45) / 5) * 0.8)
+            label = label or "at an extreme"
+        elif hub_zone.startswith("stretched"):
+            spec = max(spec, 0.8)
+        else:
+            spec = max(spec, ext / 50 * 0.5)
+    return label, round(spec, 2)
+
+
+def fchg(kind, c):
+    if c is None:
+        return "n/a"
+    return f"{c:+.1f}%" if kind == "pct" else f"{c:+.2f} pt"
+
+
+# ── "What is moving this group?" — rules built from the numbers (not from news) ───────────────
+def drivers(cid, items, main=None):
+    """items: {key: summary}. Finds the horizon where this group is most unusual, then explains the
+    unusual moves with the standard economic links between the members."""
+    names = ("today", "this week", "this month")
+    zk = ("z1", "zw", "zm")
+    score = [sum(max(0.0, abs(it.get(z) or 0) - 1.0) for it in items.values() if it.get("freq") == "daily") for z in zk]
+    hi = max(range(3), key=lambda i: score[i]) if any(score) else 0
+    hz, zname, cname = names[hi], zk[hi], ("d1", "w1", "m1")[hi]
+
+    def z(k):
+        it = items.get(k)
+        return (it.get(zname) or 0) if it and it.get("freq") == "daily" else 0
+
+    def sg(k, th=1.0):
+        return 0 if abs(z(k)) < th else (1 if z(k) > 0 else -1)
+
+    def mv(k):
+        it = items.get(k)
+        return f"{it['name']} {fchg(it['chgKind'], it.get(cname))}" if it else ""
+
+    def val(k):
+        it = items.get(k)
+        return it["value"] if it else None
+
+    out = []
+    big = sorted((k for k in items if abs(z(k)) >= SPECIAL_Z and (main is None or k in main)), key=lambda k: -abs(z(k)))
+    if cid == "rates":
+        if sg("US10Y"):
+            up = sg("US10Y") > 0
+            out.append(f"Long-term yields {'rose' if up else 'fell'} ({mv('US10Y')} {hz}). " + (
+                "Rising yields usually mean investors expect stronger growth or higher inflation, or fewer Fed rate cuts. They push mortgage rates up and make stocks' future profits worth less today."
+                if up else "Falling yields usually mean investors expect slower growth, run to safety, or expect more Fed cuts. Mortgage rates follow with a delay; lower yields support stock prices unless fear is the reason."))
+        if sg("US2Y") and abs(z("US2Y")) > abs(z("US10Y")):
+            out.append("Short-term yields moved more than long-term ones: the market is changing its mind about the Fed's next steps, not about long-run growth.")
+        elif sg("US10Y") and not sg("US2Y"):
+            out.append("Only long-term yields moved: the cause is inflation, government borrowing or growth expectations, not the Fed's near-term path.")
+        if sg("REAL10"):
+            out.append(f"The real yield (after inflation) {'rose' if sg('REAL10') > 0 else 'fell'} ({mv('REAL10')}): "
+                       + ("money got more expensive in real terms — a headwind for gold and growth stocks." if sg("REAL10") > 0 else "money got cheaper in real terms — a tailwind for gold and growth stocks."))
+        if sg("DXY"):
+            if sg("US10Y") and sg("DXY") == sg("US10Y"):
+                out.append(f"The dollar and yields moved together ({mv('DXY')}): money flows to the US because it pays more.")
+            elif sg("US10Y"):
+                out.append(f"The dollar moved against yields ({mv('DXY')}): that usually points to fear and safe-haven buying, or news from outside the US, not US interest rates.")
+            else:
+                out.append(f"The dollar moved on its own ({mv('DXY')}) without a matching move in US yields: look at other countries' rates or at risk appetite.")
+        if sg("MORT30"):
+            out.append("Mortgage rates moved; they follow the 10-year yield with a lag of days to weeks.")
+        cv = val("CURVE")
+        if cv is not None and cv < 0:
+            out.append(f"The yield curve is still inverted ({cv:+.2f} pt): short rates above long rates, historically a recession warning.")
+    elif cid == "metals":
+        g, ry, dx = sg("GOLD"), sg("REAL10"), sg("DXY")
+        if g:
+            word = "rose" if g > 0 else "fell"
+            if g > 0 and (ry < 0 or dx < 0):
+                out.append(f"Gold {word} ({mv('GOLD')} {hz}) while real yields and/or the dollar fell. Gold pays no interest, so it gains when interest after inflation falls and when the dollar weakens.")
+            elif g < 0 and (ry > 0 or dx > 0):
+                out.append(f"Gold {word} ({mv('GOLD')} {hz}) while real yields and/or the dollar rose. Gold pays no interest, so higher rates and a stronger dollar are its usual headwinds.")
+            elif g > 0 and (ry > 0 or dx > 0):
+                out.append(f"Gold {word} ({mv('GOLD')} {hz}) even though real yields and/or the dollar rose. That is unusual: fear, safe-haven or central-bank buying is outweighing interest rates.")
+            else:
+                out.append(f"Gold {word} ({mv('GOLD')} {hz}) without a clear move in real yields or the dollar: look at fear levels and at what investors are doing, not at interest rates.")
+        c, ratio = sg("COPPER"), sg("CUAU")
+        if c:
+            out.append(f"Copper {'rose' if c > 0 else 'fell'} ({mv('COPPER')}). " + (
+                ("Copper outpaced gold: markets are betting on growth (factories, construction, China)." if ratio > 0 else "Copper rose but gold rose as well, so the move is not purely about growth.") if c > 0 else
+                ("Copper fell against gold: growth worries. This often comes before weaker stock markets." if ratio < 0 else "Copper fell, but so did gold, so it looks like a broad metals sell-off, often a stronger dollar or rising real yields.")))
+        if sg("SILVER") and sg("GOLD") and sg("SILVER") != sg("GOLD"):
+            out.append("Silver and gold moved in opposite directions: silver follows industrial demand and speculation, gold follows fear and interest rates.")
+        elif sg("SILVER") and abs(z("SILVER")) > abs(z("GOLD")) + 0.5:
+            out.append("Silver moved much more than gold: silver adds industrial demand and speculative money on top of gold's drivers, so it exaggerates the move.")
+    elif cid == "stocks":
+        sp, vx = sg("SPX"), sg("VIX")
+        if sp and vx:
+            if sp < 0 < vx:
+                out.append(f"Stocks fell and the fear gauge rose ({mv('SPX')}, {mv('VIX')} {hz}): a normal risk-off move.")
+            elif sp > 0 > vx:
+                out.append(f"Stocks rose and the fear gauge fell ({mv('SPX')}, {mv('VIX')} {hz}): a calm rally.")
+            elif sp > 0 and vx > 0:
+                out.append("Stocks rose while the fear gauge also rose: investors are buying protection into the rally — a nervous rally, which is less stable.")
+        elif sp:
+            out.append(f"The S&P 500 moved ({mv('SPX')} {hz}) without a matching move in fear: a quiet drift, not a panic.")
+        elif vx:
+            out.append(f"Fear moved ({mv('VIX')} {hz}) while the S&P 500 barely did: traders are buying or selling protection ahead of events.")
+        if sg("IXIC") and sg("DJI") and sg("IXIC") != sg("DJI"):
+            out.append("The Nasdaq and the Dow moved in opposite directions: investors are rotating between growth and safety, usually driven by interest-rate expectations.")
+        elif sg("IXIC") and abs(z("IXIC")) > abs(z("DJI")) + 0.7:
+            out.append("The Nasdaq moved much more than the Dow: growth and technology stocks are reacting to rates or to news about big tech.")
+        if sg("RUT") and abs(z("RUT")) > abs(z("SPX")) + 0.7:
+            out.append(f"Small companies moved more than the big ones ({mv('RUT')}): they react most to borrowing costs and domestic growth, so it is a read on credit and the economy.")
+        if sg("US10Y") and sp and sg("US10Y") != sp and sg("US10Y") > 0:
+            out.append("Rising yields and falling stocks together: higher interest rates are the most common cause of broad sell-offs.")
+        if sg("HYSPREAD") > 0 and sp < 0:
+            out.append("Credit spreads are widening while stocks fall: lenders are nervous too, which makes a sell-off more serious.")
+        mp = val("MOOD")
+        if mp is not None and (mp < 25 or mp > 75):
+            out.append(f"Our mood score is {mp:.0f}: {'extreme fear, which has often come near bottoms' if mp < 25 else 'extreme greed, which is when risk is highest'}.")
+    elif cid == "japan":
+        yv, nk = sg("USDJPY"), sg("NIKKEI200")
+        if yv < 0 and nk < 0:
+            out.append("The yen jumped while Japanese stocks fell: this is the pattern of carry-trade unwinding (as in August 2024). Traders who borrowed yen buy it back and sell stocks to do it.")
+        elif yv < 0:
+            out.append(f"The yen strengthened ({mv('USDJPY')} {hz}). A sudden yen rise is the trigger for carry-trade unwinding; watch Japanese and US stocks.")
+        elif yv > 0:
+            out.append(f"The yen weakened ({mv('USDJPY')} {hz}). A weaker yen makes the carry trade more profitable, and near 160 it raises the risk that Japan steps in to buy yen.")
+        if sg("JP10Y") > 0:
+            out.append("Japanese yields rose: the gap to US yields narrows, which supports the yen, and Japanese investors have a reason to bring money home.")
+        fx = val("USDJPY")
+        if fx is not None and fx >= 155:
+            out.append(f"USD/JPY is at {fx:.1f}, close to the 160 level where Japan stepped in during 2024.")
+    elif cid == "credit":
+        if sg("HYSPREAD"):
+            out.append(f"Junk-bond spreads {'widened' if sg('HYSPREAD') > 0 else 'narrowed'} ({mv('HYSPREAD')} {hz}): " + ("lenders are asking more from risky companies — a stress signal that usually leads stock falls." if sg("HYSPREAD") > 0 else "lenders are relaxing — supportive for stocks."))
+        if sg("NFCI") > 0:
+            out.append("Financial conditions tightened: credit is getting harder to get.")
+        out.append("Loan-default and write-off figures are quarterly and change slowly: they confirm a trend after it has started, they do not start one.")
+    elif cid == "energy":
+        w = sg("WTI") or sg("BRENT")
+        if w:
+            out.append(f"Oil {'rose' if w > 0 else 'fell'} ({mv('WTI')} {hz}). " + ("Higher oil feeds inflation, which keeps interest rates high — bad for stocks overall, good for energy companies." if w > 0 else "Falling oil eases inflation, but a big drop usually means demand is weakening."))
+        if w and sg("DXY") and sg("DXY") != w:
+            out.append("The dollar moved the opposite way, as usual: oil is priced in dollars, so a stronger dollar pushes it down.")
+        if sg("NATGAS"):
+            out.append(f"Natural gas moved ({mv('NATGAS')}): mostly weather and storage, rarely an economy-wide signal.")
+    elif cid == "value":
+        out.append("Valuation barely changes from day to day. An extreme level describes long-run risk and expected returns over years, not a reason to act this week.")
+        if sg("SPX200"):
+            out.append("The S&P 500 moved a lot against its trend: that is the quickest-moving valuation signal here.")
+    if not out:
+        out.append("Nothing unusual in this group: moves are within their normal range.")
+    if big:
+        head = "Most unusual " + hz + ": " + ", ".join(items[k]["name"] for k in big[:3]) + "."
+    else:
+        head = "Quiet — no unusual move " + hz + "."
+    return {"headline": head, "horizon": hz, "bullets": out[:6]}
