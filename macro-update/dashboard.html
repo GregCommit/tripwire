@@ -54,6 +54,41 @@ h2+.muted{margin-bottom:10px}
 .drvh{font-weight:600;font-size:14px}.drvt{font-size:14px;color:var(--txt);margin-top:4px}
 .drv ul{padding-left:18px;margin:6px 0}.drv li{font-size:14px;line-height:1.5;color:var(--txt);margin:5px 0}
 .ctxhead{margin:14px 0 6px}
+.tiles-head{margin:2px 0 10px}.tlabel{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
+.tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-bottom:8px}
+.tile{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:22px 22px 20px;cursor:pointer;display:flex;flex-direction:column;gap:6px;min-width:0}
+.tile:hover{border-color:#3a3a44}
+.tl{font-size:12px;color:var(--dim)}.tn{font-size:17px;font-weight:600;line-height:1.3}
+.tv{font-size:28px;font-weight:500;letter-spacing:-.01em;font-variant-numeric:tabular-nums;margin-top:8px}
+.tw{font-size:13px;color:var(--mute);margin-left:10px;font-weight:400;letter-spacing:0}
+.tnow{font-size:13px;color:var(--mute)}
+.tnews{margin-top:14px;padding-top:14px;border-top:1px solid var(--line);color:var(--txt);text-decoration:none;font-size:14px;line-height:1.45}
+.tnews:hover{text-decoration:underline}.tnews span{display:block;font-size:11.5px;color:var(--dim);margin-top:5px}
+.calmrow{font-size:16px;color:var(--up);padding:20px 22px;border:1px solid var(--line);border-radius:6px;background:var(--card)}
+.levels{margin:14px 0 6px;font-size:14px;color:var(--mute)}.levels b{color:var(--watch);font-weight:600;display:block;margin-bottom:2px}.levels div{margin-top:4px}
+@media (max-width:800px){.tiles{grid-template-columns:1fr}}
+.qbtn.alert{background:var(--alert);border-color:var(--alert);color:#fff}
+.qbtn.pulse{animation:qp 1.6s ease-out infinite}
+@keyframes qp{0%{box-shadow:0 0 0 0 rgba(255,77,79,.7)}100%{box-shadow:0 0 0 9px rgba(255,77,79,0)}}
+body.wide main{max-width:1320px}
+.map{position:relative;display:grid;grid-template-columns:minmax(230px,1fr) minmax(0,2fr) minmax(230px,1fr);gap:64px;align-items:start;margin-top:6px}
+.mapcol{display:flex;flex-direction:column;gap:22px;position:relative;z-index:2;min-width:0}
+.maplabel{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
+.mapmain{position:relative;z-index:3;min-width:0}.mapmain .grid{display:block}
+.maplines{position:absolute;left:0;top:0;pointer-events:none;z-index:1;overflow:visible}
+.relnode{position:relative;min-width:0}.relnode .ind.mini{margin:8px 0}
+.emptycol{font-size:13px}
+@media (max-width:900px){.map{grid-template-columns:1fr;gap:36px}.mapcol.l{order:1}.mapmain{order:2}.mapcol.r{order:3}}
+#today.sin .ind,#today.sin .tile{animation:sinx .45s ease-out both}
+@keyframes sinx{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+.newsrow{display:flex;gap:12px;overflow-x:auto;padding-bottom:8px;scroll-snap-type:x proximity}
+.ncard{flex:0 0 min(340px,82vw);background:var(--card);border:1px solid var(--line);border-radius:6px;padding:14px 16px;scroll-snap-align:start}
+.ln{stroke-dasharray:1;stroke-dashoffset:1;animation:dr 1s ease-out forwards}
+@keyframes dr{to{stroke-dashoffset:0}}
+.pulsedot{transform-box:fill-box;transform-origin:center;animation:pd 1.8s ease-out infinite}
+@keyframes pd{0%{transform:scale(1);opacity:.7}100%{transform:scale(3.4);opacity:0}}
+@media (prefers-reduced-motion:reduce){.ln{animation:none;stroke-dashoffset:0}.pulsedot,.qbtn.pulse{animation:none}}
+
 .qbtn{width:20px;height:20px;border:1px solid var(--line2);border-radius:3px;background:var(--card2);color:var(--mute);font-size:11px;font-weight:600;line-height:1;cursor:pointer;padding:0;margin-left:8px;display:inline-grid;place-items:center}
 .qbtn:hover{color:var(--txt);border-color:#8a8a96}
 .nmr{display:flex;align-items:center;flex:none}
@@ -115,15 +150,15 @@ details.quiet{margin-top:18px}details.quiet>summary{cursor:pointer;color:var(--m
 <main>
 <section id="pane-today"><div id="today">Loading…</div></section>
 <section id="pane-extremes" hidden><div id="extremes">Loading…</div>
-<div style="margin-top:22px"><button class="btn" id="japanBtn" onclick="toggleJapan()">Japan &amp; yen in detail ▾</button><div id="japan" hidden style="margin-top:12px"></div></div></section>
+<div style="margin-top:22px"><button class="btn" id="japanBtn" onclick="toggleJapan()">Yen carry trade in detail ▾</button><div id="japan" hidden style="margin-top:12px"></div></div></section>
 <section id="pane-alerts" hidden><div id="alerts">Loading…</div></section>
 <section id="pane-guide" hidden class="guide"><div class="card">
 <h3 style="margin-top:0">Why — the purpose</h3>
 <p>Macro Watch keeps an eye on the big picture so you don't have to: US stocks, interest rates, commodities, investor mood, the yen and Japan's inflation. It answers one question first — <b>does anything need a look today?</b> — and emails you when something crosses a level you chose or moves far more than usual.</p>
 <p>It does not tell you to buy or sell anything. It is context for your own decisions.</p>
 <h3>What — the screens</h3>
-<ul><li><b>Today</b>: the answer first, then <b>groups of indicators that belong together</b> — US bonds, rates &amp; the dollar; gold, silver &amp; Dr. Copper; stocks &amp; investor mood; yen &amp; Japan; credit, jobs &amp; defaults ahead; oil; valuation. The most special group is at the top, and inside a group the most special indicator comes first. "Special" means a move far larger than usual over the last day, week or month, or a place at the edge of its own history — weighted by how much that indicator matters for stock investing. Every card says in plain words <b>what it says</b>. Each group has a box <b>"What is moving this group?"</b> that explains the unusual moves with the usual links between these markets (for example: gold falls when real yields and the dollar rise). That box is worked out from the numbers, not from news headlines. Tap a card for a bigger chart; close it with the ✕ at its top right.</li>
-<li><b>Extremes</b>: indicators that only matter when they are far out on one side of their own history — the yen carry trade (USD/JPY, the US–Japan yield gap, Japan's yields), the Buffett indicator, Shiller P/E, credit spreads, the yield curve, the VIX and more. Each sits on a 0–100 scale (its percentile against all the history we have). The outer 5% on either side is an <b>extreme</b> (red), the outer 10% is <b>stretched</b> (amber); everything else is "normal range" and tucked away. Open "Japan &amp; yen in detail" at the bottom for Japan's inflation with the Bank of Japan's forecasts and the interest-gap chart.</li>
+<ul><li><b>Today</b>: the answer first, then <b>groups of indicators that belong together</b> — US bonds, rates &amp; the dollar; gold, silver &amp; Dr. Copper; stocks &amp; investor mood; the yen carry trade; credit, jobs &amp; defaults ahead; oil; valuation. The most special group is at the top, and inside a group the most special indicator comes first. "Special" means a move far larger than usual over the last day, week or month, or a place at the edge of its own history — weighted by how much that indicator matters for stock investing. Every card says in plain words <b>what it says</b>. Each group has a box <b>"What is moving this group?"</b> that explains the unusual moves with the usual links between these markets (for example: gold falls when real yields and the dollar rise). That box is worked out from the numbers, not from news headlines. The small <b>?</b> on a card turns into a red <b>!</b> when there is a headline about it that you have not opened yet. Tap a card for a bigger chart; close it with the ✕ at its top right.</li>
+<li><b>Extremes</b>: indicators that only matter when they are far out on one side of their own history — the yen carry trade (USD/JPY, the US–Japan yield gap, Japan's yields), the Buffett indicator, Shiller P/E, credit spreads, the yield curve, the VIX and more. Each sits on a 0–100 scale (its percentile against all the history we have). The outer 5% on either side is an <b>extreme</b> (red), the outer 10% is <b>stretched</b> (amber); everything else is "normal range" and tucked away. Open "Yen carry trade in detail" at the bottom for USD/JPY, the interest gap and Japan's inflation with the Bank of Japan's forecasts.</li>
 <li><b>Alerts</b>: your levels (e.g. "USD/JPY above 160"), the email setup, the on/off switch for extreme alerts, and the history of every alert.</li></ul>
 <h3>About extremes — please read</h3>
 <p>An extreme is not a prediction. Expensive markets can get more expensive for years, and a calm VIX can stay calm. An extreme says "this is unusual by historical standards, so look carefully" — it is context for your own decisions, not a buy or sell signal. The percentile only knows the history in the data (shown on each card as "since …"); some series are short, so read their percentile with care.</p>
@@ -199,9 +234,10 @@ function sparkSVG(vals, color){
   const pts = vals.map((v, i) => (i / (vals.length - 1) * 100).toFixed(2) + ',' + (34 - (v - lo) / span * 32).toFixed(2)).join(' ');
   return `<svg class="spark" viewBox="0 0 100 36" preserveAspectRatio="none"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.6" vector-effect="non-scaling-stroke" stroke-linejoin="round"/></svg>`;
 }
-// opt: {h, series:[{pts,color,label,fmt}], refs:[{y,label,color}], bands:[{x0,x1,y0,y1,color,y,label}], yfmt, monthly}
+// opt: {h, from, to, series:[{pts,color,label,fmt,width}], refs:[{y,label,color}], bands:[{x0,x1,y0,y1,color,y,label}],
+//       zones:[{y0,y1,color,label}] (horizontal bands, e.g. the extreme zones), area, draw, dot, extra(v), yfmt, monthly}
 function lineChart(el, opt){
-  const W = Math.max(280, el.clientWidth || 600), H = opt.h || 220, padL = 6, padR = 52, padT = 12, padB = 24;
+  const W = Math.max(280, el.clientWidth || 600), H = opt.h || 240, padL = 6, padR = 52, padT = 14, padB = 24;
   const allPts = opt.series.flatMap(s => s.pts);
   if (!allPts.length){ el.innerHTML = '<div class="muted">No data yet.</div>'; return; }
   let x0 = opt.from ?? Math.min(...allPts.map(p => pdate(p[0]).getTime())), x1 = opt.to ?? Math.max(...allPts.map(p => pdate(p[0]).getTime()));
@@ -210,14 +246,20 @@ function lineChart(el, opt){
   for (const b of opt.bands || []) ys.push(b.y0, b.y1);
   let lo = Math.min(...ys), hi = Math.max(...ys); const pad = (hi - lo) * 0.08 || 1; lo -= pad; hi += pad;
   const X = t => padL + (t - x0) / ((x1 - x0) || 1) * (W - padL - padR), Y = v => padT + (hi - v) / (hi - lo) * (H - padT - padB);
-  let g = '';
-  // gridlines + y labels
+  let g = `<defs><linearGradient id="ga${opt.gid || ''}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff" stop-opacity=".16"/><stop offset="1" stop-color="#ffffff" stop-opacity="0"/></linearGradient></defs>`;
+  for (const z of opt.zones || []){
+    const ya = Math.min(z.y1 === undefined || z.y1 === null ? hi : z.y1, hi), yb = Math.max(z.y0 === undefined || z.y0 === null ? lo : z.y0, lo);
+    if (ya <= yb) continue;
+    g += `<rect x="${padL}" y="${Y(ya)}" width="${W - padL - padR}" height="${Math.max(1, Y(yb) - Y(ya))}" fill="${z.color}" opacity=".13"/>`;
+    const edge = z.y0 !== null && z.y0 !== undefined && z.y0 > lo ? z.y0 : z.y1;
+    if (edge !== null && edge !== undefined && edge > lo && edge < hi) g += `<line x1="${padL}" x2="${W - padR}" y1="${Y(edge)}" y2="${Y(edge)}" stroke="${z.color}" stroke-dasharray="3 4" opacity=".6"/>`;
+    if (z.label) g += `<text x="${padL + 6}" y="${z.y0 !== null && z.y0 !== undefined && z.y0 > lo ? Y(ya) + 13 : Y(yb) - 6}" fill="${z.color}" font-size="11" opacity=".95">${esc(z.label)}</text>`;
+  }
   const step = niceStep((hi - lo) / 4);
   for (let v0 = Math.ceil(lo / step) * step; v0 <= hi; v0 += step){
     const v = Math.abs(v0) < step / 1e6 ? 0 : v0;
     g += `<line x1="${padL}" x2="${W - padR}" y1="${Y(v)}" y2="${Y(v)}" stroke="#1b1b1f"/><text x="${W - padR + 6}" y="${Y(v) + 4}" fill="#71717a" font-size="11">${esc(opt.yfmt ? opt.yfmt(v) : num(v, step < 1 ? (step < 0.1 ? 2 : 1) : 0))}</text>`;
   }
-  // x labels
   const spanDays = (x1 - x0) / 864e5, ticks = 5;
   for (let i = 0; i <= ticks; i++){
     const t = x0 + (x1 - x0) * i / ticks, d = new Date(t);
@@ -225,7 +267,7 @@ function lineChart(el, opt){
     g += `<text x="${X(t)}" y="${H - 6}" fill="#71717a" font-size="11" text-anchor="${i === 0 ? 'start' : i === ticks ? 'end' : 'middle'}">${lab}</text>`;
   }
   for (const b of opt.bands || []){
-    g += `<rect x="${X(b.x0)}" y="${Y(b.y1)}" width="${Math.max(1, X(b.x1) - X(b.x0))}" height="${Math.max(2, Y(b.y0) - Y(b.y1))}" fill="${b.color}" opacity=".22" rx="2"/>`;
+    g += `<rect x="${X(b.x0)}" y="${Y(b.y1)}" width="${Math.max(1, X(b.x1) - X(b.x0))}" height="${Math.max(2, Y(b.y0) - Y(b.y1))}" fill="${b.color}" opacity=".22" rx="1"/>`;
     if (b.y !== undefined) g += `<line x1="${X(b.x0)}" x2="${X(b.x1)}" y1="${Y(b.y)}" y2="${Y(b.y)}" stroke="${b.color}" stroke-width="2.5"/>`;
     if (b.label && X(b.x1) - X(b.x0) > 36) g += `<text x="${(X(b.x0) + X(b.x1)) / 2}" y="${Y(b.y1) - 5}" fill="${b.color}" font-size="11" text-anchor="middle">${esc(b.label)}</text>`;
   }
@@ -233,10 +275,16 @@ function lineChart(el, opt){
     g += `<line x1="${padL}" x2="${W - padR}" y1="${Y(r.y)}" y2="${Y(r.y)}" stroke="${r.color || '#9CA3AF'}" stroke-dasharray="4 4" opacity=".8"/>`;
     if (r.label) g += `<text x="${padL + 4}" y="${Y(r.y) - 5}" fill="${r.color || '#9CA3AF'}" font-size="11">${esc(r.label)}</text>`;
   }
-  for (const s of opt.series){
+  let lastX = null, lastY = null, lastC = '#fff';
+  opt.series.forEach((s, si) => {
     const p = s.pts.filter(q => { const t = pdate(q[0]).getTime(); return t >= x0 && t <= x1; });
-    if (p.length) g += `<polyline points="${p.map(q => X(pdate(q[0]).getTime()).toFixed(1) + ',' + Y(q[1]).toFixed(1)).join(' ')}" fill="none" stroke="${s.color}" stroke-width="${s.width || 1.8}" stroke-linejoin="round"/>`;
-  }
+    if (!p.length) return;
+    const pts = p.map(q => X(pdate(q[0]).getTime()).toFixed(1) + ',' + Y(q[1]).toFixed(1));
+    if (opt.area && si === 0) g += `<polygon points="${pts[0].split(',')[0]},${H - padB} ${pts.join(' ')} ${pts[pts.length - 1].split(',')[0]},${H - padB}" fill="url(#ga${opt.gid || ''})"/>`;
+    g += `<polyline class="${opt.draw ? 'ln' : ''}" pathLength="1" points="${pts.join(' ')}" fill="none" stroke="${s.color}" stroke-width="${s.width || 1.8}" stroke-linejoin="round" stroke-linecap="round"/>`;
+    if (si === 0){ [lastX, lastY] = pts[pts.length - 1].split(',').map(Number); lastC = s.color; }
+  });
+  if (opt.dot && lastX !== null) g += `<circle class="pulsedot" cx="${lastX}" cy="${lastY}" r="4" fill="${lastC}"/><circle cx="${lastX}" cy="${lastY}" r="4" fill="${lastC}" stroke="#000" stroke-width="1.5"/>`;
   el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" height="${H}">${g}<line class="cross" x1="0" x2="0" y1="${padT}" y2="${H - padB}" stroke="#9CA3AF" opacity="0"/><circle class="dot" r="4" fill="${opt.series[0].color}" opacity="0"/></svg><div class="tip"></div>`;
   const svg = el.querySelector('svg'), tip = el.querySelector('.tip'), cross = el.querySelector('.cross'), dot = el.querySelector('.dot');
   const main = opt.series[0].pts.filter(q => { const t = pdate(q[0]).getTime(); return t >= x0 && t <= x1; });
@@ -250,7 +298,7 @@ function lineChart(el, opt){
     cross.setAttribute('x1', px); cross.setAttribute('x2', px); cross.setAttribute('opacity', .5);
     dot.setAttribute('cx', px); dot.setAttribute('cy', py); dot.setAttribute('opacity', 1);
     tip.style.display = 'block';
-    tip.innerHTML = esc(fdate(best[0], opt.monthly)) + ' · <b>' + esc(opt.series[0].fmt ? opt.series[0].fmt(best[1]) : num(best[1], 2)) + '</b>';
+    tip.innerHTML = esc(fdate(best[0], opt.monthly)) + ' · <b>' + esc(opt.series[0].fmt ? opt.series[0].fmt(best[1]) : num(best[1], 2)) + '</b>' + (opt.extra ? ' · ' + esc(opt.extra(best[1])) : '');
     const tx = px / W * r.width;
     tip.style.left = Math.min(Math.max(0, tx - tip.offsetWidth / 2), r.width - tip.offsetWidth) + 'px';
   };
@@ -262,6 +310,7 @@ function niceStep(raw){ const p = Math.pow(10, Math.floor(Math.log10(raw || 1)))
 // ── Today ─────────────────────────────────────────────────────────────────
 const RANGES = [['1M', 31], ['6M', 183], ['1Y', 366], ['2Y', 731], ['5Y', 1830], ['Max', 99999]];
 const LINE = '#e4e4e7';
+const DRAWN = new Set();
 const uid = (cid, key) => (cid || 'x') + '-' + key;
 function xBtn(fn){ return `<button class="xbtn" type="button" aria-label="Close" title="Close" onclick="event.stopPropagation();${fn}">✕</button>`; }
 function badge(s){
@@ -280,14 +329,14 @@ function chgRow(s){
   if (!s.hub && s.y1 !== null && s.y1 !== undefined) p.push(`1 yr ${cc(s.y1)}`);
   return p.map(x => `<span>${x}</span>`).join('');
 }
-function saysHTML(s){ return `<div class="says"><b>What it says.</b> ${esc(s.hub ? (s.side ? s.meaning : s.why) : s.says)}</div>`; }
+function saysHTML(s){ return `<div class="says"><b>What it says.</b> ${esc(s.hub ? (s.side ? s.meaning : (s.reading || s.why)) : s.says)}</div>`; }
 function cardHTML(s, cid){
   if (s.hub) return exCardHTML(s, cid);
   const id = cid + '|' + s.key, open = OPEN === id, mo = s.freq === 'monthly';
   const color = s.tone === 'alert' ? '#FF4D4F' : s.tone === 'watch' ? '#F5C518' : '#8a8a96';
   return `<div class="ind${s.horizon ? ' hot' : ''}${open ? ' open' : ''}" data-cid="${id}" id="card-${uid(cid, s.key)}">
     ${open ? xBtn(cid === 'ex' ? 'closeExplain()' : 'openCard(null)') : ''}
-    <div class="nm"><span>${esc(s.name)}</span><span class="nmr"><span class="small">${esc(fdate(s.date, mo))}</span>${qBtn(s.key)}</span></div>
+    <div class="nm"><span>${esc(s.name)}</span><span class="nmr"><span class="small">${esc(fdate(s.date, mo))}</span>${qBtn(s)}</span></div>
     <div class="val">${esc(fmtVal(s, s.value))}</div>
     <span class="chip ${toneWord[s.tone]}">${esc(s.reading)}</span>${badge(s)}
     ${saysHTML(s)}
@@ -332,7 +381,8 @@ async function drawDetail(cid, key){
   if (key === 'USCPI') refs.push({y: 2, label: 'Fed target 2%', color: '#8E96A8'});
   if (key === 'JPCPI') refs.push({y: 2, label: 'BoJ target 2%', color: '#8E96A8'});
   if (key === 'USDJPY' && !refs.some(x => x.y === 160)) refs.push({y: 160, label: '160 — 2024 intervention', color: '#71717a'});
-  lineChart(el, {from, to: end, monthly: s.freq === 'monthly', series: [{pts: pts.filter(p => pdate(p[0]).getTime() >= from), color: LINE, fmt: v => fmtVal(s, v)}], refs});
+  const first = !DRAWN.has(cid + key + r); DRAWN.add(cid + key + r);
+  lineChart(el, {from, to: end, monthly: s.freq === 'monthly', h: 260, area: true, dot: true, draw: first, gid: cid + key, series: [{pts: pts.filter(p => pdate(p[0]).getTime() >= from), color: LINE, fmt: v => fmtVal(s, v)}], refs});
 }
 function setRange(cid, key, r){
   RANGE[cid + '|' + key] = r;
@@ -354,14 +404,22 @@ function driversHTML(c){
     <div class="drvt">${esc(d.headline)}</div><ul>${d.bullets.map(b => `<li>${esc(b)}</li>`).join('')}</ul>
     <div class="small">Worked out from these numbers and the usual links between these markets — not from news headlines.</div></div>`;
 }
+function moverTile(m){
+  const arrow = m.chg > 0 ? '▲' : m.chg < 0 ? '▼' : '', cls = m.extreme ? 'down' : chgClass({good: m.good}, m.chg);
+  const big = m.extreme ? 'At an extreme' : `${arrow} ${fmtChg({chgKind: m.chgKind, unit: m.unit, dec: m.dec}, m.chg)}`;
+  return `<div class="tile" onclick="goCluster('${m.cluster}')"><div class="tl">${esc(m.clusterTitle)}</div><div class="tn">${esc(m.name)}</div>
+    <div class="tv ${cls}">${big}${m.extreme ? '' : `<span class="tw">${esc(m.horizon)}</span>`}</div>
+    <div class="tnow">Now ${esc(fmtVal({unit: m.unit, dec: m.dec, signed: m.signed}, m.value))}</div>
+    ${m.news ? `<a class="tnews" href="${esc(m.news.link)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">${esc(m.news.title)}<span>${esc(m.news.source)} · ${esc(ago(m.news.ts))}</span></a>` : ''}</div>`;
+}
 function renderToday(){
   if (!OV) return;
   if (EXPL){ renderExplain(); return; }
   const S = OV.summary, bad = OV.sources.filter(x => x.stale || x.error);
-  let h = `<div class="card"><div class="answer" style="color:${S.calm ? 'var(--up)' : 'var(--txt)'}">${esc(S.headline)}</div>`;
-  for (const l of S.lines) h += `<p class="sumline"><b>${esc(l.title)}</b> · ${esc(l.horizon)} — ${esc(l.text)} <button class="link" onclick="goCluster('${l.cluster}')">Show ›</button></p>`;
-  for (const l of S.levels) h += `<p class="sumline"><b style="color:var(--watch)">Your level</b> — ${esc(l.text)} <button class="link" onclick="${l.cluster ? `goCluster('${l.cluster}')` : ''}">Show ›</button></p>`;
-  h += `<div class="small" style="margin-top:10px">Groups are sorted by what is most unusual and most important for stocks, most important first. ${bad.length ? '⚠ ' + bad.map(b => esc(b.name) + (b.ok_ts ? ' last updated ' + ago(b.ok_ts) : ' not reached yet')).join(' · ') + ' — showing the last good numbers.' : 'All sources up to date.'} Prices refresh every 15 minutes.</div></div>`;
+  let h = `<div class="tiles-head"><span class="tlabel">What moved</span></div>`;
+  h += S.movers.length ? `<div class="tiles">${S.movers.map(moverTile).join('')}</div>` : `<div class="calmrow">Quiet — nothing is moving unusually.</div>`;
+  if (S.levels.length) h += `<div class="levels"><b>Your levels crossed</b>${S.levels.map(l => `<div>${esc(l.text)} ${l.cluster ? `<button class="link" onclick="goCluster('${l.cluster}')">Show ›</button>` : ''}</div>`).join('')}</div>`;
+  h += `<div class="small" style="margin:10px 0 4px">${bad.length ? '⚠ ' + bad.map(b => esc(b.name) + (b.ok_ts ? ' last updated ' + ago(b.ok_ts) : ' not reached yet')).join(' · ') + ' — showing the last good numbers.' : 'All sources up to date.'} Prices refresh every 15 minutes. Groups below are sorted by what is most unusual and most important for stocks.</div>`;
   for (const c of OV.clusters || []){
     h += `<h2 id="cl-${c.id}">${esc(c.title)}</h2><div class="muted">${esc(c.intro)}${c.id === 'japan' ? ' <button class="link" onclick="openJapan()">Inflation forecasts ›</button>' : ''}</div>${driversHTML(c)}
       <div class="grid">${c.main.map(s => cardHTML(s, c.id)).join('')}</div>`;
@@ -421,56 +479,120 @@ async function renderJapan(){
 
 // ── "How is this connected?" ──────────────────────────────────────────────
 let EXPL = null, EXSTACK = [], EXPL_SCROLL = 0;
-function qBtn(key){ return `<button class="qbtn" type="button" title="How is this connected?" aria-label="How is this connected?" onclick="event.stopPropagation();explain('${key}')">?</button>`; }
+const REDUCED = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+const SEEN = (() => { try { return new Set(JSON.parse(localStorage.getItem('macroSeen') || '[]')); } catch (e) { return new Set(); } })();
+function markSeen(hs){ hs.forEach(h => SEEN.add(h)); try { localStorage.setItem('macroSeen', JSON.stringify([...SEEN].slice(-400))); } catch (e) {} }
+function unseenNews(key){ return ((OV && OV.newsIdx && OV.newsIdx[key]) || []).filter(h => !SEEN.has(h)).length; }
+// "?" normally; a red "!" when there is a headline about this indicator you have not looked at yet (it pulses when the indicator is also moving)
+function qBtn(s){
+  const n = unseenNews(s.key);
+  return `<button class="qbtn${n ? ' alert' : ''}${n && s.horizon ? ' pulse' : ''}" type="button" title="${n ? n + ' new headline' + (n > 1 ? 's' : '') + ' — tap to see' : 'How is this connected?'}" aria-label="${n ? 'New headlines' : 'How is this connected?'}" onclick="event.stopPropagation();explain('${s.key}', this)">${n ? '!' : '?'}</button>`;
+}
 function chipOf(s){ return s.hub ? `<span class="chip ${ZONE[s.zone][1]}">${ZONE[s.zone][0]}</span>` : `<span class="chip ${toneWord[s.tone]}">${esc(s.reading)}</span>`; }
 function sparkColor(s){ return s.hub ? (s.zone.startsWith('extreme') ? '#FF4D4F' : s.zone !== 'quiet' ? '#F5C518' : '#8a8a96') : (s.tone === 'alert' ? '#FF4D4F' : s.tone === 'watch' ? '#F5C518' : '#8a8a96'); }
 function miniHTML(s){
   const mo = s.freq === 'monthly' || s.freq === 'quarterly';
-  return `<div class="ind mini"><div class="nm"><span>${esc(s.name)}</span><span class="nmr"><span class="small">${esc(fdate(s.date, mo))}</span>${qBtn(s.key)}</span></div>
+  return `<div class="ind mini"><div class="nm"><span>${esc(s.name)}</span><span class="nmr"><span class="small">${esc(fdate(s.date, mo))}</span>${qBtn(s)}</span></div>
     <div class="val">${esc(fmtVal(s, s.value))}</div>${chipOf(s)}${badge(s)}
     <div class="chg">${chgRow(s)}</div>${sparkSVG(s.spark, sparkColor(s))}</div>`;
 }
 const REL_LABEL = {asusual: ['AS USUAL', ''], against: ['AGAINST THE USUAL LINK', 'warn'], other: ['OTHER CAUSE', 'warn'], noreact: ['NOT REACTING YET', 'warn'], quiet: ['QUIET', '']};
-function relUnit(l, other){
+function relNode(l, other, side, i){
   const [label, cls] = REL_LABEL[l.status];
-  return `<div class="relunit"><div class="relhead"><span class="reltag ${cls}">${label}</span><span class="small">${esc(l.modeText)}</span></div>
-    <div class="reltext">${esc(l.why)}</div><div class="relnote">${esc(l.note)}</div>${miniHTML(other)}</div>`;
+  return `<div class="relnode" data-side="${side}" data-i="${i}" data-status="${l.status}"><div class="relhead"><span class="reltag ${cls}">${label}</span><span class="small">${esc(l.modeText)}</span></div>
+    ${miniHTML(other)}<div class="reltext">${esc(l.why)}</div><div class="relnote">${esc(l.note)}</div></div>`;
 }
-function newsHTML(E){
+function newsCards(E){
   const st = E.newsStatus;
-  const status = !st ? 'News has not been fetched yet — the app does this a few minutes after starting.' :
-    `Headlines from ${st.ok} of ${st.total} free news feeds, updated ${ago(st.ts)}.`;
-  const body = E.news.length ? E.news.map(n => `<div class="nitem"><a class="ntitle" href="${esc(n.link)}" target="_blank" rel="noopener noreferrer">${esc(n.title)}</a>
+  const status = !st ? 'News has not been fetched yet — the app does this a few minutes after starting.' : `Headlines from ${st.ok} of ${st.total} free news feeds, updated ${ago(st.ts)}.`;
+  const body = E.news.length ? `<div class="newsrow">${E.news.map(n => `<div class="ncard"><a class="ntitle" href="${esc(n.link)}" target="_blank" rel="noopener noreferrer">${esc(n.title)}</a>
       ${n.summary ? `<div class="nsum">${esc(n.summary)}</div>` : ''}
-      <div class="nmeta">${esc(n.source)} · ${esc(ago(n.ts))}${n.tags.length ? ' · about: ' + n.tags.map(esc).join(', ') : ''}</div></div>`).join('')
+      <div class="nmeta">${esc(n.source)} · ${esc(ago(n.ts))}${n.tags.length ? ' · about ' + n.tags.map(esc).join(', ') : ''}</div></div>`).join('')}</div>`
     : `<div class="muted">No matching headlines in the last few days.</div>`;
-  return `<h2>News that fits</h2><div class="small" style="margin:2px 0 6px">${esc(status)}</div><div class="card news">${body}</div>`;
+  return `<h2>News that fits</h2><div class="small" style="margin:2px 0 8px">${esc(status)}</div>${body}`;
 }
 function renderExplain(){
   const E = EXPL, me = E.items[E.key]; if (!me) return;
-  OPEN = 'ex|' + E.key;
+  OPEN = 'ex|' + E.key; document.body.classList.add('wide');
   const drv = E.drivers.filter(l => E.items[l.driver]), eff = E.effects.filter(l => E.items[l.affected]);
-  let h = `<div class="exhead"><button class="btn" onclick="closeExplain()">← Back</button><span class="small">How is this connected? Only what matters for <b>${esc(me.name)}</b> is shown.</span></div>
-    <div class="grid">${cardHTML(me, 'ex')}</div>`;
-  h += `<h2>What explains it</h2>` + (drv.length ? `<div class="relgrid">${drv.map(l => relUnit(l, E.items[l.driver])).join('')}</div>` : `<div class="muted">No direct driver is defined for this indicator.</div>`);
-  h += `<h2>What it moves</h2>` + (eff.length ? `<div class="relgrid">${eff.map(l => relUnit(l, E.items[l.affected])).join('')}</div>` : `<div class="muted">It does not directly move another indicator in this app.</div>`);
-  h += newsHTML(E);
-  $('today').innerHTML = h;
+  const col = (list, key, side) => list.map((l, i) => relNode(l, E.items[l[key]], side, i)).join('') || `<div class="muted emptycol">${side === 'l' ? 'No direct driver is defined.' : 'It does not directly move another indicator here.'}</div>`;
+  $('today').innerHTML = `<div class="exhead"><button class="btn" onclick="closeExplain()">← Back</button><span class="small">How is this connected? Left: what explains it. Right: what it moves.</span></div>
+    <div class="map" id="map"><div class="mapcol l"><div class="maplabel">What explains it</div>${col(drv, 'driver', 'l')}</div>
+    <div class="mapmain" id="mainCard"><div class="grid">${cardHTML(me, 'ex')}</div></div>
+    <div class="mapcol r"><div class="maplabel">What it moves</div>${col(eff, 'affected', 'r')}</div><svg class="maplines" id="maplines"></svg></div>
+    ${newsCards(E)}`;
   drawOpen();
 }
-async function explain(key){
+function relRect(el, root){ let x = 0, y = 0, e = el; while (e && e !== root){ x += e.offsetLeft; y += e.offsetTop; e = e.offsetParent; } return {x, y, w: el.offsetWidth, h: el.offsetHeight}; }
+function drawLines(animate){
+  const map = $('map'), svg = $('maplines'), main = $('mainCard'); if (!map || !svg || !main) return;
+  const W = map.offsetWidth, H = map.offsetHeight, m = relRect(main.querySelector('.ind') || main, map), wide = W >= 900;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.setAttribute('width', W); svg.setAttribute('height', H);
+  let g = `<defs><marker id="arr" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#8a8a96"/></marker>
+    <marker id="arrw" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#F5C518"/></marker></defs>`;
+  const groups = {l: [...map.querySelectorAll('.relnode[data-side="l"]')], r: [...map.querySelectorAll('.relnode[data-side="r"]')]};
+  for (const side of ['l', 'r']){
+    const list = groups[side];
+    list.forEach((nd, i) => {
+      const r = relRect(nd.querySelector('.ind'), nd.offsetParent === map ? map : map), n = relRect(nd, map), t = list.length > 1 ? i / (list.length - 1) : 0.5;
+      const warn = nd.dataset.status !== 'asusual' && nd.dataset.status !== 'quiet';
+      let a, b, d;
+      const cardR = relRect(nd.querySelector('.ind'), map);
+      if (wide){
+        const ay = cardR.y + cardR.h / 2, by = m.y + 40 + t * Math.max(20, m.h - 80);
+        a = side === 'l' ? [n.x + n.w, ay] : [m.x + m.w, by]; b = side === 'l' ? [m.x, by] : [n.x, ay];
+        const dx = Math.abs(b[0] - a[0]) * 0.5; d = `M${a[0]},${a[1]} C${a[0] + dx},${a[1]} ${b[0] - dx},${b[1]} ${b[0]},${b[1]}`;
+      } else {
+        const ax = m.x + 30 + t * Math.max(10, m.w - 60);
+        a = side === 'l' ? [cardR.x + cardR.w / 2, n.y + n.h] : [ax, m.y + m.h]; b = side === 'l' ? [ax, m.y] : [cardR.x + cardR.w / 2, n.y];
+        const dy = Math.abs(b[1] - a[1]) * 0.5; d = `M${a[0]},${a[1]} C${a[0]},${a[1] + dy} ${b[0]},${b[1] - dy} ${b[0]},${b[1]}`;
+      }
+      g += `<path class="mline" d="${d}" pathLength="1" fill="none" stroke="${warn ? '#F5C518' : '#8a8a96'}" stroke-width="1.5" ${warn ? 'stroke-dasharray="0.02 0.012"' : ''} marker-end="url(#${warn ? 'arrw' : 'arr'})"/>`;
+    });
+  }
+  svg.innerHTML = g;
+  if (animate && !REDUCED) svg.querySelectorAll('.mline').forEach((p, i) => p.animate([{strokeDashoffset: 1, opacity: 0}, {strokeDashoffset: 0, opacity: 1}], {duration: 650, delay: i * 80, fill: 'backwards', easing: 'ease-out'}));
+}
+function animateOut(src){
+  const vw = innerWidth, els = [...document.querySelectorAll('#today .ind, #today .tile, #today .relnode')].filter(e => e !== src && !e.contains(src) && !src.contains(e));
+  els.forEach((e, i) => { const r = e.getBoundingClientRect(), dir = r.left + r.width / 2 < vw / 2 ? -1 : 1;
+    e.animate([{transform: 'none', opacity: 1}, {transform: `translateX(${dir * vw * 0.85}px) rotate(${dir * 3}deg)`, opacity: 0}], {duration: 520, delay: Math.min(i * 14, 220), easing: 'cubic-bezier(.55,0,.85,.4)', fill: 'forwards'}); });
+  document.querySelectorAll('#today h2, #today .muted, #today .drv, #today .card, #today .exhead, #today .maplabel, #today .newsrow, #today .maplines').forEach(e => { if (!e.contains(src)) e.animate([{opacity: 1}, {opacity: 0}], {duration: 260, fill: 'forwards'}); });
+  return new Promise(r => setTimeout(r, 600));
+}
+function enterScene(from){
+  const main = $('mainCard'), nodes = [...document.querySelectorAll('#map .relnode')], svg = $('maplines');
+  if (!main) return;
+  const card = main.querySelector('.ind') || main; nodes.forEach(n => n.style.opacity = 0); if (svg) svg.style.opacity = 0;
+  const to = card.getBoundingClientRect(), vw = innerWidth, vh = innerHeight;
+  const sx = Math.max(0.2, from.width / to.width), dx0 = from.left - to.left, dy0 = from.top - to.top;
+  const ms = Math.min(0.72, (vh * 0.62) / to.height), mx = vw / 2 - (to.width * ms) / 2 - to.left, my = vh * 0.5 - (to.height * ms) / 2 - to.top;
+  card.style.transformOrigin = '0 0'; card.style.zIndex = 5;
+  const a = card.animate([{transform: `translate(${dx0}px,${dy0}px) scale(${sx})`}, {transform: `translate(${mx}px,${my}px) scale(${ms})`, offset: 0.45}, {transform: 'none'}],
+                         {duration: 1250, easing: 'cubic-bezier(.45,.05,.2,1)', fill: 'backwards'});
+  a.finished.then(() => { card.style.zIndex = ''; card.style.transformOrigin = '';
+    if (svg) svg.style.opacity = 1; drawLines(true);
+    nodes.forEach((n, i) => { n.style.opacity = ''; n.animate([{opacity: 0, transform: `translateX(${n.dataset.side === 'l' ? -46 : 46}px) scale(.95)`}, {opacity: 1, transform: 'none'}], {duration: 460, delay: i * 90, easing: 'ease-out', fill: 'backwards'}); });
+    drawOpen(); }).catch(() => {});
+}
+async function explain(key, btn){
+  const src = btn ? btn.closest('.ind') : null, from = src ? src.getBoundingClientRect() : null;
+  const animate = !!(src && !REDUCED && (TAB === 'today'));
   try {
-    const E = await api('/api/explain/' + key);
+    const [E] = await Promise.all([api('/api/explain/' + key), animate ? animateOut(src) : Promise.resolve()]);
     if (EXPL) EXSTACK.push(EXPL.key); else { EXPL_SCROLL = window.scrollY; EXSTACK = []; }
-    EXPL = E; OPEN = null;
+    EXPL = E; OPEN = null; markSeen((OV && OV.newsIdx && OV.newsIdx[key]) || []);
     if (TAB !== 'today') showTab('today');
-    renderToday(); window.scrollTo(0, 0); track('Explain ' + key);
+    window.scrollTo(0, 0); renderToday();
+    if (animate && from) enterScene(from); else requestAnimationFrame(() => drawLines(true));
+    track('Explain ' + key);
   } catch (e) { if (e.message !== 'signed out') alert('Could not load the explanation: ' + e.message); }
 }
 async function closeExplain(){
   OPEN = null;
-  if (EXSTACK.length){ const prev = EXSTACK.pop(); try { EXPL = await api('/api/explain/' + prev); renderToday(); window.scrollTo(0, 0); return; } catch (e) {} }
-  EXPL = null; renderToday(); window.scrollTo(0, EXPL_SCROLL);
+  if (EXSTACK.length){ const prev = EXSTACK.pop(); try { EXPL = await api('/api/explain/' + prev); renderToday(); window.scrollTo(0, 0); requestAnimationFrame(() => drawLines(true)); return; } catch (e) {} }
+  EXPL = null; document.body.classList.remove('wide'); renderToday(); window.scrollTo(0, EXPL_SCROLL);
+  if (!REDUCED){ const t = $('today'); t.classList.add('sin'); setTimeout(() => t.classList.remove('sin'), 700); }
 }
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && EXPL) closeExplain(); });
 
@@ -500,7 +622,7 @@ function exCardHTML(h, cid){
   const color = strong ? '#FF4D4F' : hot ? '#F5C518' : '#8a8a96';
   return `<div class="ind${hot ? ' ext' + (strong ? '' : ' stretched') : ''}${open ? ' open' : ''}" ${today ? `data-cid="${id}"` : `data-ex="${h.key}"`} id="ex-${uid(cid, h.key)}">
     ${open ? xBtn(today ? (cid === 'ex' ? 'closeExplain()' : 'openCard(null)') : 'openEx(null)') : ''}
-    <div class="nm"><span>${esc(h.name)}</span><span class="nmr"><span class="small">${esc(fdate(h.date, hubMo(h)))}</span>${qBtn(h.key)}</span></div>
+    <div class="nm"><span>${esc(h.name)}</span><span class="nmr"><span class="small">${esc(fdate(h.date, hubMo(h)))}</span>${qBtn(h)}</span></div>
     <div class="val">${esc(fmtVal(h, h.value))}</div>
     <span class="chip ${cls}">${label}</span><span class="small" style="margin-left:6px">${ordinal(h.pct)} percentile</span>${localBadge(h)}${badge(h)}
     ${pbar(h)}<div class="rngl"><span>lowest</span><span>history since ${h.start.slice(0, 4)}</span><span>highest</span></div>
@@ -529,11 +651,15 @@ async function drawExDetail(key, cid){
   if (!SERIES[key]){ SERIES[key] = (await api('/api/series/' + key)).points; }
   const pts = SERIES[key], r = EXRANGE[key] || 'Max', days = EXRANGES.find(x => x[0] === r)[1];
   const end = pdate(pts[pts.length - 1][0]).getTime(), from = Math.max(pdate(pts[0][0]).getTime(), end - days * 864e5);
-  const refs = [];
-  if (h.sides !== 'high') refs.push({y: h.p5, label: 'bottom 5%', color: '#FF4D4F'});
-  if (h.sides !== 'low') refs.push({y: h.p95, label: 'top 5%', color: '#FF4D4F'});
-  lineChart(el, {from, to: end, monthly: hubMo(h),
-    series: [{pts: pts.filter(p => pdate(p[0]).getTime() >= from), color: LINE, fmt: v => fmtVal(h, v)}], refs});
+  const all = SERIES[key].map(p => p[1]).sort((a, b) => a - b);
+  const pctRank = v => { let lo = 0, hi = all.length; while (lo < hi){ const m = (lo + hi) >> 1; if (all[m] < v) lo = m + 1; else hi = m; } return lo / all.length * 100; };
+  const zones = [];
+  if (h.sides !== 'high') zones.push({y0: null, y1: h.p5, color: '#FF4D4F', label: 'Extreme low zone (bottom 5% of history)'});
+  if (h.sides !== 'low') zones.push({y0: h.p95, y1: null, color: '#FF4D4F', label: 'Extreme high zone (top 5% of history)'});
+  const first = !DRAWN.has('x' + key + r); DRAWN.add('x' + key + r);
+  const last = pts.filter(p => pdate(p[0]).getTime() >= from);
+  lineChart(el, {from, to: end, monthly: hubMo(h), h: 260, zones, area: true, dot: true, draw: first, gid: 'x' + key, extra: v => ordinal(pctRank(v)) + ' percentile',
+    series: [{pts: last, color: LINE, fmt: v => fmtVal(h, v)}], refs: []});
 }
 function setExRange(cid, key, r){
   EXRANGE[key] = r;
@@ -576,7 +702,7 @@ async function loadExtremes(){
 }
 function toggleJapan(){
   JAPAN_OPEN = !JAPAN_OPEN; $('japan').hidden = !JAPAN_OPEN;
-  $('japanBtn').textContent = 'Japan & yen in detail ' + (JAPAN_OPEN ? '▴' : '▾');
+  $('japanBtn').textContent = 'Yen carry trade in detail ' + (JAPAN_OPEN ? '▴' : '▾');
   if (JAPAN_OPEN){ renderJapan().catch(e => { $('japan').innerHTML = '<div class="card muted">Could not load the Japan section: ' + esc(e.message) + '</div>'; }); track('Opened Japan detail'); }
 }
 function openJapan(){ showTab('extremes'); if (!JAPAN_OPEN) toggleJapan(); setTimeout(() => $('japanBtn').scrollIntoView({behavior:'smooth'}), 150); }
@@ -664,7 +790,7 @@ async function load(){
     if (!d.groups.some(g => g.items.length)) $('today').innerHTML = '<div class="card"><div class="answer">Fetching the first data…</div><p class="muted">This takes about a minute after the app starts.</p></div>';
   } catch (e){ if (e.message !== 'signed out') $('upd').textContent = 'Cannot reach the server right now'; }
 }
-let rz; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { if (TAB === 'today' && OPEN) drawDetail(OPEN); if (TAB === 'extremes'){ if (EXOPEN) drawExDetail(EXOPEN); if (JAPAN_OPEN) renderJapan().catch(() => {}); } }, 250); });
+let rz; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { if (EXPL) drawLines(false); if (TAB === 'today' && OPEN) drawDetail(OPEN); if (TAB === 'extremes'){ if (EXOPEN) drawExDetail(EXOPEN); if (JAPAN_OPEN) renderJapan().catch(() => {}); } }, 250); });
 load(); setInterval(load, 60000);
 try { const t = sessionStorage.getItem('macroTab'); if (t && t !== 'today' && document.querySelector(`.tab[data-t="${t}"]`)) showTab(t); } catch (e) {}
 </script></body></html>

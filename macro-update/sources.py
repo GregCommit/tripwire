@@ -453,7 +453,7 @@ def mood_series(spx, vix, ief, hy, days=520, lookback=504):
 # Each one is placed on a 0–100 scale (its percentile against everything we know about it) and
 # flagged "extreme" at the outer 5% on either side, "stretched" at the outer 10%.
 HUB_CATS = [
-    ("yen", "Yen, Japan & dollar", "The yen carry trade and what drives it: a very weak or very strong yen, the interest gap and Japan's own yields."),
+    ("yen", "Yen carry trade", "Traders borrow cheap yen to buy higher-yielding assets. It only matters because a sudden jump in the yen forces them to sell those assets, stocks included."),
     ("value", "Valuation", "How expensive the US stock market is against the economy, its own earnings and its own trend."),
     ("credit", "Credit & economy", "Bond-market and economic warning lights that rarely matter until they are far from normal."),
     ("metals", "Gold, silver & Dr. Copper", "Metals as a mirror of fear, growth and interest rates."),
@@ -736,13 +736,30 @@ def extreme_stats(item, pts):
         spark.append(round(last, 4))
     chg = "pt" if item["unit"] in ("%", " pt") or item.get("signed") else "pct"
     mv = moves(pts, item["freq"], chg)
+
+    def _first(t):
+        t = (t or "").strip()
+        m = re.match(r"(.+?[.!?])(\s|$)", t)
+        return m.group(1) if m else t
+    if side:
+        reading = item.get(side, "")
+    else:
+        near = "high" if pct >= 50 else "low"
+        word = ("on the high side" if pct >= 70 else "a little above the middle" if pct >= 55 else
+                "on the low side" if pct <= 30 else "a little below the middle" if pct <= 45 else "right in the middle")
+        reading = f"Normal range: {word} (higher than {pct:.0f}% of its history). "
+        if sides in ("both", "high") and item.get("high"):
+            reading += f"At the top 5% it would mean: {_first(item['high'])} "
+        if sides in ("both", "low") and item.get("low"):
+            reading += f"At the bottom 5%: {_first(item['low'])}"
+        reading = reading.strip()
     horizon, spec = special(item["freq"], mv, hub_zone=zone, pct=pct)
     return {
         "hub": True, "good": GOOD.get(item["key"], 0), "chgKind": chg, "d1": mv["d1"], "w1": mv["w1"], "m1": mv["m1"], "z1": mv["z1"], "zw": mv["zw"],
         "zm": mv["zm"], "horizon": horizon, "spec": spec, "rank": round(spec * WEIGHT.get(item["key"], 2.5), 2),
         "key": item["key"], "name": item["name"], "cat": item["cat"], "unit": item["unit"], "dec": item["dec"],
         "signed": bool(item.get("signed")), "freq": item["freq"], "why": item["why"], "sides": sides,
-        "meaning": item.get(side or "", "") if side else "",
+        "meaning": item.get(side or "", "") if side else "", "reading": reading,
         "date": last_d, "value": last, "pct": round(pct, 1), "zone": zone, "side": side,
         "since": since, "start": pts[0][0], "n": n, "local": local,
         "p5": q(EXTREME_PCT), "p95": q(100 - EXTREME_PCT), "median": q(50),
@@ -812,8 +829,8 @@ CLUSTERS = [
     dict(id="stocks", title="Stocks & investor mood",
          intro="The big US stock indexes and how scared investors are. Tap the ? on a card to see what usually drives it.",
          main=["SPX", "IXIC", "DJI", "RUT", "VIX", "MOOD", "VOLRATIO"], context=["US10Y", "HYSPREAD"]),
-    dict(id="japan", title="Yen, Japan & the carry trade",
-         intro="Traders borrow cheap yen to buy higher-yielding assets. When the yen jumps, they must buy yen back, selling stocks everywhere.",
+    dict(id="japan", title="Yen carry trade",
+         intro="Traders borrow cheap yen to buy higher-yielding assets. When the yen jumps, they must buy yen back and sell those assets, stocks included.",
          main=["USDJPY", "GAP", "JP10Y", "BOJRATE", "JPCPI", "NIKKEI200"], context=["US10Y", "US2Y"]),
     dict(id="credit", title="Credit, jobs & defaults ahead",
          intro="Will borrowers keep paying their loans? These react before defaults appear in bank statistics: the weakest bonds, layoffs, and banks tightening their lending.",

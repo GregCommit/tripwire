@@ -336,6 +336,29 @@ def news_loop():
         time.sleep(NEWS_EVERY)
 
 
+def link_hash(link):
+    return hashlib.md5(link.encode("utf-8", "replace")).hexdigest()[:10]
+
+
+def news_recent(hours=24):
+    """Headlines of the last `hours` that are directly about an indicator (the key is in the headline
+    itself): {key: [headline, ...]} newest first. Drives the red "!" and the tiles at the top."""
+    cutoff = int(time.time()) - hours * 3600
+    with get_db() as conn:
+        rows = [dict(r) for r in conn.execute("SELECT * FROM news WHERE ts > ? ORDER BY ts DESC LIMIT 400", (cutoff,))]
+    out = {}
+    for r in rows:
+        try:
+            topics = json.loads(r["topics"])
+        except ValueError:
+            continue
+        for k, w in topics:
+            if w >= 2:
+                out.setdefault(k, []).append({"h": link_hash(r["link"]), "title": r["title"], "source": r["source"],
+                                              "ts": r["ts"], "link": r["link"], "summary": r["summary"]})
+    return out
+
+
 def news_for(primary, drivers, effects, limit=10):
     """The headlines that fit this indicator best: about itself first, then about what explains it
     and what it moves. Newer headlines win ties."""
@@ -357,7 +380,7 @@ def news_for(primary, drivers, effects, limit=10):
         score = max(rel[k] * w for k, w in hit) + max(0.0, 1 - (time.time() - r["ts"]) / 3600 / 96)
         tags = [S.BY_KEY[k]["name"] if k in S.BY_KEY else S.HUB_BY_KEY[k]["name"] for k, _ in sorted(hit, key=lambda x: -rel[x[0]])
                 if k in S.BY_KEY or k in S.HUB_BY_KEY][:3]
-        out.append({"score": score, "title": r["title"], "summary": r["summary"], "link": r["link"], "source": r["source"],
+        out.append({"score": score, "h": link_hash(r["link"]), "title": r["title"], "summary": r["summary"], "link": r["link"], "source": r["source"],
                     "ts": r["ts"], "tags": tags})
     out.sort(key=lambda x: -x["score"])
     return out[:limit]
@@ -640,6 +663,9 @@ def healthz():
 
 
 # ── API ─────────────────────────────────────────────────────────────────────
+HZ_FIELD = {"today": "d1", "this week": "w1", "this month": "m1", "this quarter": "d1", "at an extreme": "d1"}
+
+
 def cluster_of(key):
     for c in S.CLUSTERS:
         if key in c["main"]:
@@ -658,17 +684,23 @@ def crossed_levels(sm, rules):
     return out
 
 
-def build_summary(clusters, levels):
-    """A few plain sentences at the top: what changed most and why (from the groups' own explanations)."""
-    lines = []
+def build_summary(clusters, levels, recent):
+    """What moved most: up to three tiles, one per group, each with the move in numbers and, only if
+    there is one, a real headline. Nothing is written for things that did not move."""
+    movers = []
     for c in clusters:
-        d = c["drivers"]
-        real = [b for b in d["bullets"] if not b.startswith(("Nothing unusual", "Valuation barely"))]
-        if c["rank"] >= 2.0 and real and len(lines) < 3:
-            lines.append({"cluster": c["id"], "title": c["title"], "horizon": d["horizon"], "text": real[0]})
-    head = (f"Biggest change {lines[0]['horizon']}: {lines[0]['title']}" if lines
-            else "Quiet — nothing is moving unusually")
-    return {"headline": head, "calm": not lines and not levels, "lines": lines, "levels": levels}
+        special = [x for x in c["main"] if x.get("horizon") and x.get("spec", 0) >= 1.0]
+        if not special:
+            continue
+        x = max(special, key=lambda i: i["rank"])
+        field = HZ_FIELD.get(x["horizon"], "d1")
+        news = (recent.get(x["key"]) or [None])[0]
+        movers.append({"key": x["key"], "name": x["name"], "cluster": c["id"], "clusterTitle": c["title"], "rank": x["rank"],
+                       "horizon": x["horizon"], "hub": bool(x.get("hub")), "value": x["value"], "unit": x["unit"], "dec": x["dec"],
+                       "signed": bool(x.get("signed")), "chgKind": x["chgKind"], "chg": x.get(field), "good": x.get("good", 0),
+                       "extreme": bool(x.get("hub") and x["zone"].startswith("extreme")), "news": news})
+    movers.sort(key=lambda m: -m["rank"])
+    return {"movers": movers[:3], "calm": not movers and not levels, "levels": levels}
 
 
 def build_clusters(sm, hub):
@@ -703,9 +735,11 @@ def api_overview():
               for g, t, intro in S.GROUPS]
     hub = hub_summaries()
     clusters = build_clusters(sm, hub)
+    recent = news_recent(24)
     return jsonify({"role": session.get("role"), "groups": groups, "sources": sources,
                     "clusters": clusters,
-                    "summary": build_summary(clusters, crossed_levels(sm, get_rules())),
+                    "summary": build_summary(clusters, crossed_levels(sm, get_rules()), recent),
+                    "newsIdx": {k: [n["h"] for n in v] for k, v in recent.items()},
                     "moodParts": json.loads(get_setting("mood_parts", "{}") or "{}"),
                     "boj": json.loads(get_setting("boj_outlook", "null") or "null"),
                     "serverTime": int(time.time())})
