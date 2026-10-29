@@ -512,15 +512,15 @@ def login_required(f):
 
 HEAD = """<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png"><link rel="icon" type="image/png" href="/static/icon-512.png">
-<meta name="apple-mobile-web-app-title" content="Macro Watch"><meta name="theme-color" content="#12151F">"""
+<meta name="apple-mobile-web-app-title" content="Macro Watch"><meta name="theme-color" content="#000000">"""
 
 LOGIN_PAGE = """<!doctype html><html><head>""" + HEAD + """<title>Macro Watch — Sign in</title>
-<style>body{background:#0A0C12;color:#E4E0D8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-display:grid;place-items:center;min-height:100vh;margin:0}form{background:#12151F;border:1px solid #1E2235;border-radius:14px;
-padding:28px;width:min(340px,90vw)}h1{color:#818CF8;font-size:22px;margin:0 0 16px}input{width:100%;box-sizing:border-box;
-background:#0A0C12;border:1px solid #2A2F45;color:#E4E0D8;border-radius:10px;padding:12px;font-size:16px}
-button{margin-top:12px;width:100%;background:#818CF8;color:#0A0C12;border:none;border-radius:10px;padding:12px;font-size:16px;font-weight:800}
-.err{color:#F9A8D4;font-size:14px;margin-top:10px}</style></head><body>
+<style>body{background:#000;color:#fff;font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+display:grid;place-items:center;min-height:100vh;margin:0}form{background:#08080a;border:1px solid #1b1b1f;border-radius:6px;
+padding:28px;width:min(340px,90vw)}h1{color:#fff;font-size:20px;font-weight:700;letter-spacing:-.01em;margin:0 0 16px}input{width:100%;box-sizing:border-box;
+background:#000;border:1px solid #2b2b32;color:#fff;border-radius:4px;padding:12px;font-size:16px}
+button{margin-top:12px;width:100%;background:#2447D6;color:#fff;border:none;border-radius:4px;padding:12px;font-size:16px;font-weight:600}
+.err{color:#FF4D4F;font-size:14px;margin-top:10px}</style></head><body>
 <form method="post"><h1>Macro Watch</h1><input type="password" name="password" placeholder="Password" autofocus>
 <button>Sign in</button>{err}</form></body></html>"""
 

@@ -1,55 +1,57 @@
 <!doctype html><html><head>{{HEAD}}<title>Macro Watch</title>
 <style>
-:root{--bg:#0A0C12;--card:#12151F;--card2:#171B28;--line:#1E2235;--line2:#2A2F45;--txt:#E4E0D8;--mute:#9CA3AF;--dim:#6B7280;
---accent:#818CF8;--calm:#9DB4D0;--watch:#F59E0B;--alert:#F472B6;--up:#4ADE80;--down:#F87171}
+:root{--bg:#000;--card:#08080a;--card2:#111114;--line:#1b1b1f;--line2:#2b2b32;--txt:#fff;--mute:#a1a1aa;--dim:#71717a;
+--accent:#4673FF;--royal:#2447D6;--calm:#c4c4cc;--watch:#F5C518;--alert:#FF4D4F;--up:#22C55E;--down:#FF4D4F}
+/* Colour rules: red = danger / negative, green = positive, yellow = second signal (caution), royal blue = neutral accent, white/grey = information */
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--txt);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;-webkit-text-size-adjust:100%}
+body{background:var(--bg);color:var(--txt);font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;min-height:100vh;-webkit-text-size-adjust:100%;-webkit-font-smoothing:antialiased}
+b,strong{font-weight:600}
 button{font:inherit;color:inherit}
 #top{position:sticky;top:0;z-index:10;background:var(--card);border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 16px;height:52px;gap:10px}
-#logo{display:flex;align-items:center;gap:8px;color:var(--accent);font-weight:800;font-size:18px;white-space:nowrap}
+#logo{display:flex;align-items:center;gap:8px;color:var(--txt);font-weight:700;font-size:17px;letter-spacing:-.01em;white-space:nowrap}
 #topRight{display:flex;align-items:center;gap:14px;font-size:12px;color:var(--mute);white-space:nowrap}
 #topRight a{color:var(--mute);text-decoration:none;font-size:13px}
 #tabs{display:flex;overflow-x:auto;background:var(--card);border-bottom:1px solid var(--line);padding:0 8px;position:sticky;top:52px;z-index:9}
 .tab{background:none;border:none;border-bottom:2px solid transparent;color:var(--mute);padding:12px 14px;font-size:14px;cursor:pointer;white-space:nowrap}
-.tab.on{color:var(--accent);border-bottom-color:var(--accent);font-weight:700}
+.tab.on{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
 main{padding:16px;max-width:1100px;margin:0 auto}
-.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:14px}
-.answer{font-size:19px;font-weight:800;line-height:1.3}
+.card{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:16px;margin-bottom:14px}
+.answer{font-size:18px;font-weight:600;line-height:1.3}
 .muted{color:var(--mute);font-size:14px;line-height:1.55}
 .small{font-size:12px;color:var(--dim)}
-h2{font-size:17px;margin:22px 0 2px}
+h2{font-size:16px;font-weight:600;margin:24px 0 2px}
 h2+.muted{margin-bottom:10px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}
-.ind{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;cursor:pointer;transition:border-color .15s;min-width:0}
+.ind{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:14px;cursor:pointer;transition:border-color .15s;min-width:0}
 .ind:hover{border-color:var(--line2)}
 .ind.open{grid-column:1/-1;cursor:default;border-color:var(--accent)}
 .ind .nm{font-size:13px;color:var(--mute);display:flex;justify-content:space-between;gap:8px}
-.ind .val{font-size:24px;font-weight:800;margin:4px 0 2px;font-variant-numeric:tabular-nums}
-.chip{display:inline-block;font-size:12px;font-weight:700;padding:2px 8px;border-radius:99px;border:1px solid currentColor;line-height:1.5}
+.ind .val{font-size:22px;font-weight:500;letter-spacing:-.01em;margin:4px 0 2px;font-variant-numeric:tabular-nums}
+.chip{display:inline-block;font-size:12px;font-weight:600;padding:2px 8px;border-radius:3px;border:1px solid currentColor;line-height:1.5}
 .t-calm{color:var(--calm)}.t-watch{color:var(--watch)}.t-alert{color:var(--alert)}
 .up{color:var(--up)}.down{color:var(--down)}.flat{color:var(--txt)}
 .chg{font-size:12.5px;color:var(--mute);margin-top:6px;font-variant-numeric:tabular-nums;display:flex;flex-wrap:wrap;gap:4px 12px}
-.chg b{font-weight:700}
-.unusual{display:inline-block;margin-top:6px;font-size:12px;font-weight:700;color:var(--alert)}
-.rng{position:relative;height:4px;background:var(--line2);border-radius:2px;margin:12px 0 3px}
-.rng i{position:absolute;top:-4px;width:3px;height:12px;border-radius:2px;background:var(--accent);transform:translateX(-50%)}
+.chg b{font-weight:500}
+.unusual{display:inline-block;margin-top:6px;font-size:12px;font-weight:600;color:var(--alert)}
+.rng{position:relative;height:4px;background:var(--line2);border-radius:1px;margin:12px 0 3px}
+.rng i{position:absolute;top:-4px;width:3px;height:12px;border-radius:1px;background:var(--accent);transform:translateX(-50%)}
 .rngl{display:flex;justify-content:space-between;font-size:11px;color:var(--dim);font-variant-numeric:tabular-nums}
 .spark{display:block;width:100%;height:36px;margin-top:8px}
 .detail{margin-top:14px;border-top:1px solid var(--line);padding-top:14px;cursor:auto}
 .ranges{display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap}
-.ranges button,.btn{background:var(--card2);border:1px solid var(--line2);border-radius:8px;padding:5px 10px;font-size:13px;cursor:pointer;color:var(--mute)}
+.ranges button,.btn{background:var(--card2);border:1px solid var(--line2);border-radius:4px;padding:5px 10px;font-size:13px;cursor:pointer;color:var(--mute)}
 .ranges button.on{color:var(--accent);border-color:var(--accent)}
-.btn.primary{background:var(--accent);border-color:var(--accent);color:#0A0C12;font-weight:800}
+.btn.primary{background:var(--royal);border-color:var(--royal);color:#fff;font-weight:600}
 .btn:disabled{opacity:.5;cursor:default}
 .chart{position:relative;width:100%;touch-action:pan-y}
 .chart svg{display:block;width:100%}
-.tip{position:absolute;top:0;pointer-events:none;background:#0A0C12ee;border:1px solid var(--line2);border-radius:8px;padding:4px 8px;font-size:12px;white-space:nowrap;display:none;font-variant-numeric:tabular-nums}
+.tip{position:absolute;top:0;pointer-events:none;background:#000000ee;border:1px solid var(--line2);border-radius:4px;padding:4px 8px;font-size:12px;white-space:nowrap;display:none;font-variant-numeric:tabular-nums}
 .says{font-size:13px;line-height:1.5;color:var(--mute);margin:8px 0 0}.says b{color:var(--txt)}
-.badge{display:inline-block;margin-left:6px;font-size:11.5px;font-weight:700;padding:1px 8px;border-radius:99px;color:var(--watch);border:1px solid var(--watch);vertical-align:1px}
-.badge.strong{color:var(--alert);border-color:var(--alert)}
-.ind.hot{border-color:#3a3350}
-.drv{background:var(--card2);border:1px solid var(--line2);border-left:3px solid var(--accent);border-radius:10px;padding:12px 14px;margin:10px 0 12px}
-.drvh{font-weight:800;font-size:14px}.drvt{font-size:14px;color:var(--txt);margin-top:4px}
+.badge{display:inline-block;margin-left:6px;font-size:11.5px;font-weight:600;padding:1px 8px;border-radius:3px;color:var(--watch);border:1px solid var(--watch);vertical-align:1px}
+.badge.strong{background:var(--watch);color:#000;border-color:var(--watch)}
+.ind.hot{border-color:#3a3a44}
+.drv{background:var(--card2);border:1px solid var(--line2);border-left:3px solid var(--accent);border-radius:6px;padding:12px 14px;margin:10px 0 12px}
+.drvh{font-weight:600;font-size:14px}.drvt{font-size:14px;color:var(--txt);margin-top:4px}
 .drv ul{padding-left:18px;margin:6px 0}.drv li{font-size:14px;line-height:1.5;color:var(--txt);margin:5px 0}
 .ctxhead{margin:14px 0 6px}
 .xbtn{position:absolute;top:8px;right:8px;width:30px;height:30px;border-radius:50%;background:var(--card2);border:1px solid var(--line2);color:var(--mute);font-size:14px;line-height:1;cursor:pointer;display:grid;place-items:center;z-index:2;padding:0}
@@ -58,29 +60,29 @@ h2+.muted{margin-bottom:10px}
 .close{float:right;background:none;border:none;color:var(--mute);font-size:13px;cursor:pointer;padding:2px 0 8px 10px}
 .parts{display:grid;gap:8px;margin:10px 0}
 .part{display:grid;grid-template-columns:130px 1fr 36px;gap:10px;align-items:center;font-size:13px}
-.bar{height:8px;background:var(--line2);border-radius:4px;overflow:hidden}.bar i{display:block;height:100%;background:var(--accent)}
+.bar{height:6px;background:var(--line2);border-radius:2px;overflow:hidden}.bar i{display:block;height:100%;background:var(--accent)}
 .list{list-style:none}.list li{padding:8px 0;border-top:1px solid var(--line);font-size:14px;line-height:1.45}
 .list li:first-child{border-top:none}
 .link{color:var(--accent);cursor:pointer;text-decoration:none;background:none;border:none;font-size:inherit;padding:0;text-align:left}
 table{border-collapse:collapse;width:100%;font-size:14px;font-variant-numeric:tabular-nums}
 th,td{text-align:left;padding:8px 6px;border-top:1px solid var(--line)}th{color:var(--mute);font-weight:600;font-size:12px;border-top:none}
-input,select{background:var(--bg);border:1px solid var(--line2);color:var(--txt);border-radius:8px;padding:8px 10px;font-size:16px;max-width:100%}
+input,select{background:var(--bg);border:1px solid var(--line2);color:var(--txt);border-radius:4px;padding:8px 10px;font-size:16px;max-width:100%}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .field{display:grid;gap:4px;margin-bottom:10px;font-size:13px;color:var(--mute)}
 .rule{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line);font-size:14px}
 .rule:first-child{border-top:none}.rule.off{opacity:.45}
 .sw{width:42px;height:24px;border-radius:12px;background:var(--line2);border:none;position:relative;cursor:pointer;flex:none}
 .sw::after{content:'';position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:var(--mute);transition:left .15s}
-.sw.on{background:var(--accent)}.sw.on::after{left:21px;background:#0A0C12}
+.sw.on{background:var(--royal)}.sw.on::after{left:21px;background:#fff}
 .kind{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--dim)}
 .guide h3{font-size:15px;margin:14px 0 4px}.guide p,.guide li{color:var(--mute);font-size:14px;line-height:1.6}.guide ul{padding-left:18px}
 .pulse{display:block;margin:8px 0 2px}
-.pbar{position:relative;height:8px;border-radius:4px;margin:14px 0 4px;background:linear-gradient(to right,var(--alert) 0 5%,var(--watch) 5% 10%,var(--line2) 10% 90%,var(--watch) 90% 95%,var(--alert) 95% 100%)}
+.pbar{position:relative;height:6px;border-radius:1px;margin:14px 0 4px;background:linear-gradient(to right,var(--alert) 0 5%,var(--watch) 5% 10%,var(--line2) 10% 90%,var(--watch) 90% 95%,var(--alert) 95% 100%)}
 .pbar.hi{background:linear-gradient(to right,var(--line2) 0 90%,var(--watch) 90% 95%,var(--alert) 95% 100%)}
-.pbar i{position:absolute;top:-5px;width:4px;height:18px;border-radius:2px;background:var(--txt);transform:translateX(-50%);box-shadow:0 0 0 2px var(--card)}
+.pbar i{position:absolute;top:-5px;width:3px;height:16px;border-radius:1px;background:var(--txt);transform:translateX(-50%);box-shadow:0 0 0 2px var(--card)}
 .pbar.mini{height:5px;margin:0}.pbar.mini i{top:-4px;height:13px;width:3px;box-shadow:none}
 .chips{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 4px}
-.chips button{background:var(--card2);border:1px solid var(--line2);border-radius:99px;padding:5px 12px;font-size:13px;cursor:pointer;color:var(--mute)}
+.chips button{background:var(--card2);border:1px solid var(--line2);border-radius:4px;padding:5px 12px;font-size:13px;cursor:pointer;color:var(--mute)}
 .chips button.on{color:var(--accent);border-color:var(--accent)}
 .ext{border-color:var(--alert)}.ext.stretched{border-color:var(--watch)}
 .mean{font-size:13.5px;line-height:1.5;color:var(--txt);margin-top:8px}
@@ -90,7 +92,7 @@ details.quiet{margin-top:18px}details.quiet>summary{cursor:pointer;color:var(--m
 .qopen{border-top:1px solid var(--line);padding:0 0 12px}.qopen .qrow{border-top:none}
 @media (max-width:600px){main{padding:12px 16px}.grid{grid-template-columns:1fr}.part{grid-template-columns:105px 1fr 30px}#upd{display:none}.qrow{grid-template-columns:minmax(0,1fr) 78px}.qrow .qp{display:none}}
 </style></head><body>
-<div id="top"><div id="logo"><svg width="26" height="18" viewBox="0 0 26 18"><polyline points="1,10 7,10 10,3 14,15 17,8 19,10 25,10" fill="none" stroke="#818CF8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Macro Watch</div>
+<div id="top"><div id="logo"><svg width="26" height="18" viewBox="0 0 26 18"><polyline points="1,10 7,10 10,3 14,15 17,8 19,10 25,10" fill="none" stroke="#4673FF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Macro Watch</div>
 <div id="topRight"><span id="upd"></span><a href="/logout">Log out</a></div></div>
 <div id="tabs"><button class="tab on" data-t="today">Today</button><button class="tab" data-t="extremes">Extremes</button><button class="tab" data-t="alerts">Alerts</button><button class="tab" data-t="guide">Guide</button></div>
 <main>
@@ -114,6 +116,12 @@ details.quiet{margin-top:18px}details.quiet>summary{cursor:pointer;color:var(--m
 <li>Monthly figures (inflation, Japan's 10-year yield and overnight rate): checked twice a day; you get an email when a new month's inflation figure appears.</li>
 <li>Extremes tab: long histories (decades) fetched every 3 hours from FRED, Yahoo Finance and multpl.com (Shiller P/E).</li>
 <li>Bank of Japan forecasts: checked twice a day; the BoJ publishes new ones in January, April, July and October, and you get an email when it does.</li></ul>
+<h3>What the colours mean</h3>
+<ul><li><b style="color:var(--alert)">Red</b>: danger or a negative move — an extreme, credit stress, falling stocks, a rising fear gauge.</li>
+<li><b style="color:var(--watch)">Yellow</b>: a second, milder signal — "pay attention" (stretched, or unusually large move).</li>
+<li><b style="color:var(--up)">Green</b>: positive — a good direction for investors (stocks up, fear down, defaults down) or an all-clear.</li>
+<li><b style="color:var(--accent)">Blue</b>: neutral accents — links, the selected tab, buttons, chart lines.</li>
+<li>White and grey: plain information. Moves of things like interest rates, the dollar or gold stay white, because up or down is not clearly good or bad.</li></ul>
 <h3>What an alert means</h3>
 <ul><li><b>Level</b>: a number crossed a level you set. You get one email when it crosses; it won't email again until the number has clearly gone back (by about 1%) and crosses again.</li>
 <li><b>Unusual move</b>: today's change is at least 2.5 times the typical daily change of the past year. On an ordinary day that happens for about 1 indicator in 80, so it is rare by design.</li>
@@ -156,7 +164,8 @@ function fmtChg(s, c){
   const d = s.unit.trim() === '%' || s.unit.trim() === 'pt' ? 2 : Math.max(1, s.dec);
   return sign + num(Math.abs(c), d) + (s.unit.trim() === '%' || s.unit.trim() === 'pt' ? ' pt' : '');
 }
-function chgClass(s, c){ if (!s.money || !c) return 'flat'; return c > 0 ? 'up' : 'down'; }
+// green = moved in a good direction for investors, red = bad direction, white = direction has no clear good or bad
+function chgClass(s, c){ const g = s.good !== undefined && s.good !== null ? s.good : (s.money ? 1 : 0); if (!g || !c) return 'flat'; return (c > 0) === (g > 0) ? 'up' : 'down'; }
 function pdate(d){ return new Date(d + 'T12:00:00'); }
 function fdate(d, monthly){ const x = pdate(d); return monthly ? MONTHS[x.getMonth()] + ' ' + x.getFullYear() : x.getDate() + ' ' + MONTHS[x.getMonth()] + ' ' + x.getFullYear(); }
 function ago(ts){ const m = Math.round((Date.now()/1000 - ts)/60); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m/60) + ' h ago' : Math.round(m/1440) + ' days ago'; }
@@ -185,14 +194,14 @@ function lineChart(el, opt){
   const step = niceStep((hi - lo) / 4);
   for (let v0 = Math.ceil(lo / step) * step; v0 <= hi; v0 += step){
     const v = Math.abs(v0) < step / 1e6 ? 0 : v0;
-    g += `<line x1="${padL}" x2="${W - padR}" y1="${Y(v)}" y2="${Y(v)}" stroke="#1E2235"/><text x="${W - padR + 6}" y="${Y(v) + 4}" fill="#6B7280" font-size="11">${esc(opt.yfmt ? opt.yfmt(v) : num(v, step < 1 ? (step < 0.1 ? 2 : 1) : 0))}</text>`;
+    g += `<line x1="${padL}" x2="${W - padR}" y1="${Y(v)}" y2="${Y(v)}" stroke="#1b1b1f"/><text x="${W - padR + 6}" y="${Y(v) + 4}" fill="#71717a" font-size="11">${esc(opt.yfmt ? opt.yfmt(v) : num(v, step < 1 ? (step < 0.1 ? 2 : 1) : 0))}</text>`;
   }
   // x labels
   const spanDays = (x1 - x0) / 864e5, ticks = 5;
   for (let i = 0; i <= ticks; i++){
     const t = x0 + (x1 - x0) * i / ticks, d = new Date(t);
     const lab = spanDays > 1400 ? String(d.getFullYear()) : MONTHS[d.getMonth()] + (spanDays > 200 ? " '" + String(d.getFullYear()).slice(2) : ' ' + d.getDate());
-    g += `<text x="${X(t)}" y="${H - 6}" fill="#6B7280" font-size="11" text-anchor="${i === 0 ? 'start' : i === ticks ? 'end' : 'middle'}">${lab}</text>`;
+    g += `<text x="${X(t)}" y="${H - 6}" fill="#71717a" font-size="11" text-anchor="${i === 0 ? 'start' : i === ticks ? 'end' : 'middle'}">${lab}</text>`;
   }
   for (const b of opt.bands || []){
     g += `<rect x="${X(b.x0)}" y="${Y(b.y1)}" width="${Math.max(1, X(b.x1) - X(b.x0))}" height="${Math.max(2, Y(b.y0) - Y(b.y1))}" fill="${b.color}" opacity=".22" rx="2"/>`;
@@ -235,7 +244,7 @@ const uid = (cid, key) => (cid || 'x') + '-' + key;
 function xBtn(fn){ return `<button class="xbtn" type="button" aria-label="Close" title="Close" onclick="event.stopPropagation();${fn}">✕</button>`; }
 function badge(s){
   if (!s.horizon || s.horizon === 'at an extreme') return '';
-  return `<span class="badge${s.spec >= 1.5 ? ' strong' : ''}">⚡ special ${esc(s.horizon)}</span>`;
+  return `<span class="badge${s.spec >= 1.5 ? ' strong' : ''}">Special ${esc(s.horizon)}</span>`;
 }
 function chgRow(s){
   const p = [], cc = c => `<b class="${chgClass(s, c)}">${fmtChg(s, c)}</b>`;
@@ -253,7 +262,7 @@ function saysHTML(s){ return `<div class="says"><b>What it says.</b> ${esc(s.hub
 function cardHTML(s, cid){
   if (s.hub) return exCardHTML(s, cid);
   const id = cid + '|' + s.key, open = OPEN === id, mo = s.freq === 'monthly';
-  const color = s.tone === 'alert' ? '#F472B6' : s.tone === 'watch' ? '#F59E0B' : '#818CF8';
+  const color = s.tone === 'alert' ? '#FF4D4F' : s.tone === 'watch' ? '#F5C518' : '#4673FF';
   return `<div class="ind${s.horizon ? ' hot' : ''}${open ? ' open' : ''}" data-cid="${id}" id="card-${uid(cid, s.key)}">
     ${open ? xBtn('openCard(null)') : ''}
     <div class="nm"><span>${esc(s.name)}</span><span class="small">${esc(fdate(s.date, mo))}</span></div>
@@ -279,8 +288,7 @@ function detailHTML(s, cid){
     <div class="ranges">${RANGES.map(([k]) => `<button class="${k === r ? 'on' : ''}" onclick="setRange('${cid}','${s.key}','${k}')">${k}</button>`).join('')}</div>
     <div class="chart" id="chart-${uid(cid, s.key)}"><div class="muted">Loading chart…</div></div>
     ${extra}
-    <p class="muted" style="margin-top:10px">${esc(s.explain)}</p>
-    <p class="small" style="margin-top:8px">Source: ${esc({yahoo:'Yahoo Finance', fred:'FRED (St. Louis Fed)', bis:'BIS', calc:'calculated by Macro Watch from Yahoo and FRED data'}[s.source])} · latest ${esc(fdate(s.date, s.freq === 'monthly'))}${s.prevDate ? ' · previous ' + esc(fdate(s.prevDate, s.freq === 'monthly')) : ''}</p>
+    <p class="small" style="margin-top:10px">Source: ${esc({yahoo:'Yahoo Finance', fred:'FRED (St. Louis Fed)', bis:'BIS', calc:'calculated by Macro Watch from Yahoo and FRED data'}[s.source])} · latest ${esc(fdate(s.date, s.freq === 'monthly'))}${s.prevDate ? ' · previous ' + esc(fdate(s.prevDate, s.freq === 'monthly')) : ''}</p>
   </div>`;
 }
 function findSummary(key){ for (const g of OV.groups) for (const s of g.items) if (s.key === key) return s; return null; }
@@ -295,13 +303,13 @@ async function drawDetail(cid, key){
   const pts = SERIES[key], r = RANGE[cid + '|' + key] || (s.freq === 'monthly' ? '5Y' : '1Y'), days = RANGES.find(x => x[0] === r)[1];
   const end = pdate(pts[pts.length - 1][0]).getTime(), from = Math.max(pdate(pts[0][0]).getTime(), end - days * 864e5);
   const refs = [];
-  OV.rules?.filter(x => x.key === key && x.enabled).forEach(x => refs.push({y: x.level, label: 'your level ' + fmtVal(s, x.level), color: '#F59E0B'}));
-  if (key === 'MOOD'){ refs.push({y: 25, label: 'extreme fear', color: '#6B7280'}, {y: 75, label: 'extreme greed', color: '#6B7280'}); }
-  if (key === 'CURVE' || key === 'VOLRATIO') refs.push({y: 0, color: '#6B7280'});
-  if (key === 'USCPI') refs.push({y: 2, label: 'Fed target 2%', color: '#9DB4D0'});
-  if (key === 'JPCPI') refs.push({y: 2, label: 'BoJ target 2%', color: '#9DB4D0'});
-  if (key === 'USDJPY' && !refs.some(x => x.y === 160)) refs.push({y: 160, label: '160 — 2024 intervention', color: '#6B7280'});
-  lineChart(el, {from, to: end, monthly: s.freq === 'monthly', series: [{pts: pts.filter(p => pdate(p[0]).getTime() >= from), color: '#818CF8', fmt: v => fmtVal(s, v)}], refs});
+  OV.rules?.filter(x => x.key === key && x.enabled).forEach(x => refs.push({y: x.level, label: 'your level ' + fmtVal(s, x.level), color: '#F5C518'}));
+  if (key === 'MOOD'){ refs.push({y: 25, label: 'extreme fear', color: '#71717a'}, {y: 75, label: 'extreme greed', color: '#71717a'}); }
+  if (key === 'CURVE' || key === 'VOLRATIO') refs.push({y: 0, color: '#71717a'});
+  if (key === 'USCPI') refs.push({y: 2, label: 'Fed target 2%', color: '#8E96A8'});
+  if (key === 'JPCPI') refs.push({y: 2, label: 'BoJ target 2%', color: '#8E96A8'});
+  if (key === 'USDJPY' && !refs.some(x => x.y === 160)) refs.push({y: 160, label: '160 — 2024 intervention', color: '#71717a'});
+  lineChart(el, {from, to: end, monthly: s.freq === 'monthly', series: [{pts: pts.filter(p => pdate(p[0]).getTime() >= from), color: '#4673FF', fmt: v => fmtVal(s, v)}], refs});
 }
 function setRange(cid, key, r){
   RANGE[cid + '|' + key] = r;
@@ -326,7 +334,7 @@ function driversHTML(c){
 function renderToday(){
   if (!OV) return;
   const S = OV.inShort, bad = OV.sources.filter(x => x.stale || x.error);
-  let h = `<div class="card"><div class="answer" style="color:${S.items.length ? 'var(--watch)' : 'var(--calm)'}">${S.items.length ? '●' : '✓'} ${esc(S.headline)}</div>`;
+  let h = `<div class="card"><div class="answer" style="color:${S.items.length ? 'var(--watch)' : 'var(--up)'}">${S.items.length ? '●' : '✓'} ${esc(S.headline)}</div>`;
   if (S.items.length) h += `<ul class="list" style="margin-top:8px">${S.items.map(i => `<li><button class="link" onclick="${i.cluster ? `goCard('${i.cluster}','${i.key}')` : `goExtreme('${i.key}')`}">${esc(i.text)} ›</button></li>`).join('')}</ul>`;
   h += `<div class="small" style="margin-top:10px">Most special first: what moved far more than usual today, this week or this month, and what sits at the edge of its history — weighted by how much it matters for stock investing. Related indicators are grouped together. ${bad.length ? '⚠ ' + bad.map(b => esc(b.name) + (b.ok_ts ? ' last updated ' + ago(b.ok_ts) : ' not reached yet')).join(' · ') + ' — showing the last good numbers.' : 'All sources up to date.'} Prices refresh every 15 minutes; this page every minute.</div></div>`;
   for (const c of OV.clusters || []){
@@ -367,21 +375,21 @@ async function renderJapan(){
   $('japan').querySelectorAll('.ind[data-cid]').forEach(c => c.onclick = () => goCard('japan', c.dataset.cid.split('|')[1]));
   // Inflation chart, 10 years + forecast blocks
   const from = Date.now() - 10 * 365.25 * 864e5;
-  const bands = (boj?.rows || []).map(r => ({x0: new Date(r.fy, 3, 1).getTime(), x1: new Date(r.fy + 1, 2, 31).getTime(), y0: r.cpi.low, y1: r.cpi.high, y: r.cpi.median, color: '#F59E0B', label: num(r.cpi.median, 1) + '%'}));
-  lineChart($('jpCpiChart'), {h: 240, from, monthly: true, series: [{pts: cpi, color: '#818CF8', fmt: v => num(v, 1) + '%'}], refs: [{y: 2, label: 'BoJ target 2%', color: '#9DB4D0'}, {y: 0, color: '#6B7280'}], bands});
+  const bands = (boj?.rows || []).map(r => ({x0: new Date(r.fy, 3, 1).getTime(), x1: new Date(r.fy + 1, 2, 31).getTime(), y0: r.cpi.low, y1: r.cpi.high, y: r.cpi.median, color: '#F5C518', label: num(r.cpi.median, 1) + '%'}));
+  lineChart($('jpCpiChart'), {h: 240, from, monthly: true, series: [{pts: cpi, color: '#4673FF', fmt: v => num(v, 1) + '%'}], refs: [{y: 2, label: 'BoJ target 2%', color: '#8E96A8'}, {y: 0, color: '#71717a'}], bands});
   // FX
   const fxR = RANGE.__fx || '2Y';
   $('fxRanges').innerHTML = RANGES.filter(r => r[0] !== '1M').map(([k]) => `<button class="${k === fxR ? 'on' : ''}" onclick="RANGE.__fx='${k}';renderJapan()">${k}</button>`).join('');
   const fxp = SERIES.USDJPY || [];
   if (fxp.length){
     const end = pdate(fxp[fxp.length - 1][0]).getTime(), days = RANGES.find(x => x[0] === fxR)[1];
-    lineChart($('jpFxChart'), {from: Math.max(pdate(fxp[0][0]).getTime(), end - days * 864e5), to: end, series: [{pts: fxp, color: '#818CF8', fmt: v => '¥' + num(v, 2)}], refs: [{y: 160, label: '160', color: '#6B7280'}]});
+    lineChart($('jpFxChart'), {from: Math.max(pdate(fxp[0][0]).getTime(), end - days * 864e5), to: end, series: [{pts: fxp, color: '#4673FF', fmt: v => '¥' + num(v, 2)}], refs: [{y: 160, label: '160', color: '#71717a'}]});
   }
   // Interest gap (monthly)
   const usM = {};
   for (const [d, v] of SERIES.US10Y || []){ const k = d.slice(0, 7); (usM[k] = usM[k] || []).push(v); }
   const gap = (SERIES.JP10Y || []).filter(([d]) => usM[d.slice(0, 7)]).map(([d, v]) => [d, usM[d.slice(0, 7)].reduce((a, b) => a + b) / usM[d.slice(0, 7)].length - v]);
-  lineChart($('jpGapChart'), {h: 180, from, monthly: true, series: [{pts: gap, color: '#818CF8', fmt: v => num(v, 2) + ' pt'}], refs: [{y: 0, color: '#6B7280'}]});
+  lineChart($('jpGapChart'), {h: 180, from, monthly: true, series: [{pts: gap, color: '#4673FF', fmt: v => num(v, 2) + ' pt'}], refs: [{y: 0, color: '#71717a'}]});
   if (gap.length){ const g = gap[gap.length - 1], y = gap.find(p => p[0].slice(0, 7) === (Number(g[0].slice(0, 4)) - 1) + g[0].slice(4, 7));
     $('gapNote').textContent = `${fdate(g[0], true)}: US 10-year yields ${num(g[1], 2)} percentage points more than Japan's` + (y ? ` (a year earlier: ${num(y[1], 2)}) — the gap has ${g[1] < y[1] ? 'narrowed, which supports the yen' : 'widened, which weighs on the yen'}.` : '.'); }
 }
@@ -408,7 +416,7 @@ function findHub(key){
 function exCardHTML(h, cid){
   const today = !!cid, id = cid + '|' + h.key, open = today ? OPEN === id : EXOPEN === h.key;
   const [label, cls] = ZONE[h.zone], strong = h.zone.startsWith('extreme'), hot = h.zone !== 'quiet';
-  const color = strong ? '#F472B6' : hot ? '#F59E0B' : '#818CF8';
+  const color = strong ? '#FF4D4F' : hot ? '#F5C518' : '#4673FF';
   return `<div class="ind${hot ? ' ext' + (strong ? '' : ' stretched') : ''}${open ? ' open' : ''}" ${today ? `data-cid="${id}"` : `data-ex="${h.key}"`} id="ex-${uid(cid, h.key)}">
     ${open ? xBtn(today ? 'openCard(null)' : 'openEx(null)') : ''}
     <div class="nm"><span>${esc(h.name)}</span><span class="small">${esc(fdate(h.date, hubMo(h)))}</span></div>
@@ -441,10 +449,10 @@ async function drawExDetail(key, cid){
   const pts = SERIES[key], r = EXRANGE[key] || 'Max', days = EXRANGES.find(x => x[0] === r)[1];
   const end = pdate(pts[pts.length - 1][0]).getTime(), from = Math.max(pdate(pts[0][0]).getTime(), end - days * 864e5);
   const refs = [];
-  if (h.sides !== 'high') refs.push({y: h.p5, label: 'bottom 5%', color: '#F472B6'});
-  if (h.sides !== 'low') refs.push({y: h.p95, label: 'top 5%', color: '#F472B6'});
+  if (h.sides !== 'high') refs.push({y: h.p5, label: 'bottom 5%', color: '#FF4D4F'});
+  if (h.sides !== 'low') refs.push({y: h.p95, label: 'top 5%', color: '#FF4D4F'});
   lineChart(el, {from, to: end, monthly: hubMo(h),
-    series: [{pts: pts.filter(p => pdate(p[0]).getTime() >= from), color: '#818CF8', fmt: v => fmtVal(h, v)}], refs});
+    series: [{pts: pts.filter(p => pdate(p[0]).getTime() >= from), color: '#4673FF', fmt: v => fmtVal(h, v)}], refs});
 }
 function setExRange(cid, key, r){
   EXRANGE[key] = r;
@@ -466,7 +474,7 @@ function renderExtremes(){
   const hot = EX.items.filter(h => h.zone !== 'quiet').sort(byRank);
   const strong = hot.filter(h => h.zone.startsWith('extreme')), vis = loose.filter(h => h.zone !== 'quiet' && inCat(h)).sort(byRank);
   const quiet = loose.filter(h => h.zone === 'quiet' && inCat(h)).sort(byRank);
-  let h = `<div class="card"><div class="answer" style="color:${strong.length ? 'var(--alert)' : hot.length ? 'var(--watch)' : 'var(--calm)'}">${strong.length ? '●' : hot.length ? '◐' : '✓'} ${strong.length ? strong.length + ' indicator' + (strong.length > 1 ? 's' : '') + ' at an extreme' : hot.length ? 'Nothing at an extreme — ' + hot.length + ' stretched' : 'Nothing at an extreme — all indicators in their normal range'}</div>`;
+  let h = `<div class="card"><div class="answer" style="color:${strong.length ? 'var(--alert)' : hot.length ? 'var(--watch)' : 'var(--up)'}">${strong.length ? '●' : hot.length ? '◐' : '✓'} ${strong.length ? strong.length + ' indicator' + (strong.length > 1 ? 's' : '') + ' at an extreme' : hot.length ? 'Nothing at an extreme — ' + hot.length + ' stretched' : 'Nothing at an extreme — all indicators in their normal range'}</div>`;
   if (strong.length) h += `<ul class="list" style="margin-top:8px">${strong.map(x => `<li><button class="link" onclick="openEx('${x.key}')">${esc(x.name)}: ${ZONE[x.zone][0].toLowerCase()} — ${esc(sinceText(x))} ›</button></li>`).join('')}</ul>`;
   h += `<div class="small" style="margin-top:10px">${EX.items.length} indicators tracked, the most important for stock investing first. An <b>extreme</b> is the outer ${EX.limits.extreme}% of an indicator's own history (on either side), <b>stretched</b> the outer ${EX.limits.stretched}%. Extremes say "unusual — look closely", not "buy" or "sell". Extreme alerts by email are <b>${EX.alertsOn ? 'on' : 'off'}</b> (Alerts tab).</div></div>`;
   h += `<div class="chips"><button class="${EXCAT === 'all' ? 'on' : ''}" onclick="setExCat('all')">All</button>${EX.cats.map(c => `<button class="${EXCAT === c.id ? 'on' : ''}" onclick="setExCat('${c.id}')">${esc(c.title)}</button>`).join('')}</div>`;
@@ -563,7 +571,7 @@ async function checkVersion(){
     if (v === SEEN_VERSION) return;
     const el = document.activeElement, typing = el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName);
     if (typing){
-      if (!$('newVer')){ const b = document.createElement('div'); b.id = 'newVer'; b.style.cssText = 'position:fixed;left:12px;right:12px;bottom:12px;z-index:50;background:var(--accent);color:#0A0C12;border-radius:10px;padding:12px;text-align:center;font-weight:800;cursor:pointer'; b.textContent = 'New version ready — tap to reload'; b.onclick = () => location.reload(); document.body.appendChild(b); }
+      if (!$('newVer')){ const b = document.createElement('div'); b.id = 'newVer'; b.style.cssText = 'position:fixed;left:12px;right:12px;bottom:12px;z-index:50;background:var(--royal);color:#fff;border-radius:4px;padding:12px;text-align:center;font-weight:600;cursor:pointer'; b.textContent = 'New version ready — tap to reload'; b.onclick = () => location.reload(); document.body.appendChild(b); }
     } else location.reload();
   } catch (e) { /* server restarting — try again in 10 s */ }
 }

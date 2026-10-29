@@ -384,6 +384,7 @@ def summarize(ind, pts):
     s["horizon"], s["spec"] = special(ind["freq"], mv, tone=tone, edge=(pos >= 0.98 or pos <= 0.02) and hi > lo)
     s["rank"] = round(s["spec"] * WEIGHT.get(ind["key"], 2), 2)
     s["says"] = SAYS.get(ind["key"]) or ind["explain"]
+    s["good"] = GOOD.get(ind["key"], 1 if ind.get("money") else 0)
     s["hub"] = False
     return s
 
@@ -737,7 +738,7 @@ def extreme_stats(item, pts):
     mv = moves(pts, item["freq"], chg)
     horizon, spec = special(item["freq"], mv, hub_zone=zone, pct=pct)
     return {
-        "hub": True, "chgKind": chg, "d1": mv["d1"], "w1": mv["w1"], "m1": mv["m1"], "z1": mv["z1"], "zw": mv["zw"],
+        "hub": True, "good": GOOD.get(item["key"], 0), "chgKind": chg, "d1": mv["d1"], "w1": mv["w1"], "m1": mv["m1"], "z1": mv["z1"], "zw": mv["zw"],
         "zm": mv["zm"], "horizon": horizon, "spec": spec, "rank": round(spec * WEIGHT.get(item["key"], 2.5), 2),
         "key": item["key"], "name": item["name"], "cat": item["cat"], "unit": item["unit"], "dec": item["dec"],
         "signed": bool(item.get("signed")), "freq": item["freq"], "why": item["why"], "sides": sides,
@@ -762,6 +763,9 @@ WEIGHT = {
     "BUFFETT": 3.5, "CAPE": 3.5, "ERP": 3.5, "SPX200": 3,
 }
 SPECIAL_Z = 2.0
+# Is a rise good (+1) or bad (-1) for stock investors? 0 = no clear good or bad (shown in white, never green/red).
+GOOD = {"SPX": 1, "IXIC": 1, "DJI": 1, "RUT": 1, "VIX": -1, "VOLRATIO": -1, "HYSPREAD": -1, "MORT30": -1, "REAL10": -1, "USCPI": -1,
+        "NFCI": -1, "SAHM": -1, "UMCSENT": 1, "DEL_CONS": -1, "DEL_CARD": -1, "CO_CARD": -1, "DEL_BUS": -1, "CO_BUS": -1}
 HORIZON = {"daily": ("today", "this week", "this month"), "weekly": ("this week", "this week", "this month"),
            "monthly": ("this month", None, None), "quarterly": ("this quarter", None, None)}
 STEPS = {"daily": (1, 5, 21), "weekly": (1, 1, 4), "monthly": (1, None, None), "quarterly": (1, None, None)}
