@@ -1,0 +1,494 @@
+<!doctype html><html><head>{{HEAD}}<title>Macro Watch</title>
+<style>
+:root{--bg:#0A0C12;--card:#12151F;--card2:#171B28;--line:#1E2235;--line2:#2A2F45;--txt:#E4E0D8;--mute:#9CA3AF;--dim:#6B7280;
+--accent:#818CF8;--calm:#9DB4D0;--watch:#F59E0B;--alert:#F472B6;--up:#4ADE80;--down:#F87171}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--txt);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;-webkit-text-size-adjust:100%}
+button{font:inherit;color:inherit}
+#top{position:sticky;top:0;z-index:10;background:var(--card);border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 16px;height:52px;gap:10px}
+#logo{display:flex;align-items:center;gap:8px;color:var(--accent);font-weight:800;font-size:18px;white-space:nowrap}
+#topRight{display:flex;align-items:center;gap:14px;font-size:12px;color:var(--mute);white-space:nowrap}
+#topRight a{color:var(--mute);text-decoration:none;font-size:13px}
+#tabs{display:flex;overflow-x:auto;background:var(--card);border-bottom:1px solid var(--line);padding:0 8px;position:sticky;top:52px;z-index:9}
+.tab{background:none;border:none;border-bottom:2px solid transparent;color:var(--mute);padding:12px 14px;font-size:14px;cursor:pointer;white-space:nowrap}
+.tab.on{color:var(--accent);border-bottom-color:var(--accent);font-weight:700}
+main{padding:16px;max-width:1100px;margin:0 auto}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:14px}
+.answer{font-size:19px;font-weight:800;line-height:1.3}
+.muted{color:var(--mute);font-size:14px;line-height:1.55}
+.small{font-size:12px;color:var(--dim)}
+h2{font-size:17px;margin:22px 0 2px}
+h2+.muted{margin-bottom:10px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}
+.ind{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;cursor:pointer;transition:border-color .15s;min-width:0}
+.ind:hover{border-color:var(--line2)}
+.ind.open{grid-column:1/-1;cursor:default;border-color:var(--accent)}
+.ind .nm{font-size:13px;color:var(--mute);display:flex;justify-content:space-between;gap:8px}
+.ind .val{font-size:24px;font-weight:800;margin:4px 0 2px;font-variant-numeric:tabular-nums}
+.chip{display:inline-block;font-size:12px;font-weight:700;padding:2px 8px;border-radius:99px;border:1px solid currentColor;line-height:1.5}
+.t-calm{color:var(--calm)}.t-watch{color:var(--watch)}.t-alert{color:var(--alert)}
+.up{color:var(--up)}.down{color:var(--down)}.flat{color:var(--txt)}
+.chg{font-size:12.5px;color:var(--mute);margin-top:6px;font-variant-numeric:tabular-nums;display:flex;flex-wrap:wrap;gap:4px 12px}
+.chg b{font-weight:700}
+.unusual{display:inline-block;margin-top:6px;font-size:12px;font-weight:700;color:var(--alert)}
+.rng{position:relative;height:4px;background:var(--line2);border-radius:2px;margin:12px 0 3px}
+.rng i{position:absolute;top:-4px;width:3px;height:12px;border-radius:2px;background:var(--accent);transform:translateX(-50%)}
+.rngl{display:flex;justify-content:space-between;font-size:11px;color:var(--dim);font-variant-numeric:tabular-nums}
+.spark{display:block;width:100%;height:36px;margin-top:8px}
+.detail{margin-top:14px;border-top:1px solid var(--line);padding-top:14px;cursor:auto}
+.ranges{display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap}
+.ranges button,.btn{background:var(--card2);border:1px solid var(--line2);border-radius:8px;padding:5px 10px;font-size:13px;cursor:pointer;color:var(--mute)}
+.ranges button.on{color:var(--accent);border-color:var(--accent)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#0A0C12;font-weight:800}
+.btn:disabled{opacity:.5;cursor:default}
+.chart{position:relative;width:100%;touch-action:pan-y}
+.chart svg{display:block;width:100%}
+.tip{position:absolute;top:0;pointer-events:none;background:#0A0C12ee;border:1px solid var(--line2);border-radius:8px;padding:4px 8px;font-size:12px;white-space:nowrap;display:none;font-variant-numeric:tabular-nums}
+.close{float:right;background:none;border:none;color:var(--mute);font-size:13px;cursor:pointer;padding:2px 0 8px 10px}
+.parts{display:grid;gap:8px;margin:10px 0}
+.part{display:grid;grid-template-columns:130px 1fr 36px;gap:10px;align-items:center;font-size:13px}
+.bar{height:8px;background:var(--line2);border-radius:4px;overflow:hidden}.bar i{display:block;height:100%;background:var(--accent)}
+.list{list-style:none}.list li{padding:8px 0;border-top:1px solid var(--line);font-size:14px;line-height:1.45}
+.list li:first-child{border-top:none}
+.link{color:var(--accent);cursor:pointer;text-decoration:none;background:none;border:none;font-size:inherit;padding:0;text-align:left}
+table{border-collapse:collapse;width:100%;font-size:14px;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:8px 6px;border-top:1px solid var(--line)}th{color:var(--mute);font-weight:600;font-size:12px;border-top:none}
+input,select{background:var(--bg);border:1px solid var(--line2);color:var(--txt);border-radius:8px;padding:8px 10px;font-size:16px;max-width:100%}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.field{display:grid;gap:4px;margin-bottom:10px;font-size:13px;color:var(--mute)}
+.rule{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line);font-size:14px}
+.rule:first-child{border-top:none}.rule.off{opacity:.45}
+.sw{width:42px;height:24px;border-radius:12px;background:var(--line2);border:none;position:relative;cursor:pointer;flex:none}
+.sw::after{content:'';position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:var(--mute);transition:left .15s}
+.sw.on{background:var(--accent)}.sw.on::after{left:21px;background:#0A0C12}
+.kind{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--dim)}
+.guide h3{font-size:15px;margin:14px 0 4px}.guide p,.guide li{color:var(--mute);font-size:14px;line-height:1.6}.guide ul{padding-left:18px}
+.pulse{display:block;margin:8px 0 2px}
+.pbar{position:relative;height:8px;border-radius:4px;margin:14px 0 4px;background:linear-gradient(to right,var(--alert) 0 5%,var(--watch) 5% 10%,var(--line2) 10% 90%,var(--watch) 90% 95%,var(--alert) 95% 100%)}
+.pbar.hi{background:linear-gradient(to right,var(--line2) 0 90%,var(--watch) 90% 95%,var(--alert) 95% 100%)}
+.pbar i{position:absolute;top:-5px;width:4px;height:18px;border-radius:2px;background:var(--txt);transform:translateX(-50%);box-shadow:0 0 0 2px var(--card)}
+.pbar.mini{height:5px;margin:0}.pbar.mini i{top:-4px;height:13px;width:3px;box-shadow:none}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 4px}
+.chips button{background:var(--card2);border:1px solid var(--line2);border-radius:99px;padding:5px 12px;font-size:13px;cursor:pointer;color:var(--mute)}
+.chips button.on{color:var(--accent);border-color:var(--accent)}
+.ext{border-color:var(--alert)}.ext.stretched{border-color:var(--watch)}
+.mean{font-size:13.5px;line-height:1.5;color:var(--txt);margin-top:8px}
+details.quiet{margin-top:18px}details.quiet>summary{cursor:pointer;color:var(--mute);font-size:14px;padding:6px 0}
+.qrow{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr) 90px;gap:10px;align-items:center;padding:10px 0;border-top:1px solid var(--line);font-size:14px;cursor:pointer}
+.qrow .qn{overflow:hidden;text-overflow:ellipsis}.qrow .qv{font-variant-numeric:tabular-nums;text-align:right}
+.qopen{border-top:1px solid var(--line);padding:0 0 12px}.qopen .qrow{border-top:none}
+@media (max-width:600px){main{padding:12px 16px}.grid{grid-template-columns:1fr}.part{grid-template-columns:105px 1fr 30px}#upd{display:none}.qrow{grid-template-columns:minmax(0,1fr) 78px}.qrow .qp{display:none}}
+</style></head><body>
+<div id="top"><div id="logo"><svg width="26" height="18" viewBox="0 0 26 18"><polyline points="1,10 7,10 10,3 14,15 17,8 19,10 25,10" fill="none" stroke="#818CF8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Macro Watch</div>
+<div id="topRight"><span id="upd"></span><a href="/logout">Log out</a></div></div>
+<div id="tabs"><button class="tab on" data-t="today">Today</button><button class="tab" data-t="extremes">Extremes</button><button class="tab" data-t="alerts">Alerts</button><button class="tab" data-t="guide">Guide</button></div>
+<main>
+<section id="pane-today"><div id="today">Loading…</div></section>
+<section id="pane-extremes" hidden><div id="extremes">Loading…</div>
+<div style="margin-top:22px"><button class="btn" id="japanBtn" onclick="toggleJapan()">Japan &amp; yen in detail ▾</button><div id="japan" hidden style="margin-top:12px"></div></div></section>
+<section id="pane-alerts" hidden><div id="alerts">Loading…</div></section>
+<section id="pane-guide" hidden class="guide"><div class="card">
+<h3 style="margin-top:0">Why — the purpose</h3>
+<p>Macro Watch keeps an eye on the big picture so you don't have to: US stocks, interest rates, commodities, investor mood, the yen and Japan's inflation. It answers one question first — <b>does anything need a look today?</b> — and emails you when something crosses a level you chose or moves far more than usual.</p>
+<p>It does not tell you to buy or sell anything. It is context for your own decisions.</p>
+<h3>What — the screens</h3>
+<ul><li><b>Today</b>: the answer first, then every indicator as a card. Each card shows the latest value, a plain-English reading, changes over a day, a month and a year, where it sits in its 1-year range, and a 1-year mini chart. Tap a card for a bigger chart and the explanation.</li>
+<li><b>Extremes</b>: indicators that only matter when they are far out on one side of their own history — the yen carry trade (USD/JPY, the US–Japan yield gap, Japan's yields), the Buffett indicator, Shiller P/E, credit spreads, the yield curve, the VIX and more. Each sits on a 0–100 scale (its percentile against all the history we have). The outer 5% on either side is an <b>extreme</b> (red), the outer 10% is <b>stretched</b> (amber); everything else is "normal range" and tucked away. Open "Japan &amp; yen in detail" at the bottom for Japan's inflation with the Bank of Japan's forecasts and the interest-gap chart.</li>
+<li><b>Alerts</b>: your levels (e.g. "USD/JPY above 160"), the email setup, the on/off switch for extreme alerts, and the history of every alert.</li></ul>
+<h3>About extremes — please read</h3>
+<p>An extreme is not a prediction. Expensive markets can get more expensive for years, and a calm VIX can stay calm. An extreme says "this is unusual by historical standards, so look carefully" — it is context for your own decisions, not a buy or sell signal. The percentile only knows the history in the data (shown on each card as "since …"); some series are short, so read their percentile with care.</p>
+<h3>How — when it checks</h3>
+<ul><li>Prices (stocks, VIX, commodities, dollar, yen): every 15 minutes, around the clock. Index values are the latest trade; futures trade almost 24 hours.</li>
+<li>US interest rates and spreads (FRED): every 2 hours. These are official end-of-day figures, so they run one business day behind.</li>
+<li>Monthly figures (inflation, Japan's 10-year yield and overnight rate): checked twice a day; you get an email when a new month's inflation figure appears.</li>
+<li>Extremes tab: long histories (decades) fetched every 3 hours from FRED, Yahoo Finance and multpl.com (Shiller P/E).</li>
+<li>Bank of Japan forecasts: checked twice a day; the BoJ publishes new ones in January, April, July and October, and you get an email when it does.</li></ul>
+<h3>What an alert means</h3>
+<ul><li><b>Level</b>: a number crossed a level you set. You get one email when it crosses; it won't email again until the number has clearly gone back (by about 1%) and crosses again.</li>
+<li><b>Unusual move</b>: today's change is at least 2.5 times the typical daily change of the past year. On an ordinary day that happens for about 1 indicator in 80, so it is rare by design.</li>
+<li><b>New figure</b>: a new monthly inflation figure, or a new Bank of Japan forecast.</li>
+<li><b>Extreme</b>: an indicator on the Extremes tab entered the outer 5% of its history. One email on entering; it re-arms only after it is back in normal range (inside the outer 90%).</li></ul>
+<h3>About the Fear &amp; Greed number — please read</h3>
+<p>CNN's Fear &amp; Greed Index cannot be read automatically from a server (CNN blocks it). So Macro Watch rebuilds it the way CNN describes it, from <b>four of CNN's seven ingredients</b>: stock momentum (S&amp;P 500 against its 125-day average), volatility (VIX against its 50-day average), safe-haven demand (stocks' 20-day return minus Treasury bonds') and junk-bond demand (the junk-bond spread). Each is scored 0–100 by where it sits in its own last two years, and the four are averaged.</p>
+<p>It follows CNN's direction but <b>is not the same number</b> — on the day it was built it read 22 while CNN showed 34 (both "fear"). The "Volatility vs normal" card is CNN's own volatility ingredient, calculated exactly as CNN describes it.</p>
+<h3>Where the numbers come from</h3>
+<ul><li>Yahoo Finance — stock indexes, VIX, oil, gold, silver, copper, natural gas, dollar index, USD/JPY.</li>
+<li>FRED (Federal Reserve Bank of St. Louis) — Treasury yields, yield curve, mortgage rate, junk-bond spread, Fed funds rate, US CPI, Japan 10-year yield and overnight rate.</li>
+<li>multpl.com — the Shiller P/E table. FRED also supplies the Buffett indicator's inputs, financial conditions, the Sahm rule, consumer sentiment and long yen history.</li>
+<li>BIS (Bank for International Settlements) — Japan's official consumer price inflation.</li>
+<li>Bank of Japan — the Policy Board's inflation forecasts from each quarterly Outlook Report.</li></ul>
+<p>If a source can't be reached, the app keeps the last good numbers and says so under the summary on the Today tab.</p>
+</div></section>
+</main>
+<script>
+// ── helpers ───────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let OV = null, ROLE = 'owner', OPEN = null, RANGE = {}, SERIES = {}, ALERTS = null;
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function track(what){ fetch('/api/track',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({what})}).catch(()=>{}); }
+async function api(url, body){
+  const r = await fetch(url, body===undefined ? {} : {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if (r.status === 401){ location.href = '/login'; throw new Error('signed out'); }
+  return r.json();
+}
+function num(v, dec){ return Number(v).toLocaleString('en-US',{minimumFractionDigits:dec, maximumFractionDigits:dec}); }
+function fmtVal(s, v){
+  const n = num(Math.abs(v), s.dec), sign = v < 0 ? '−' : (s.signed && v > 0 ? '+' : '');
+  if (s.unit === '$' || s.unit === '¥') return sign + s.unit + n;
+  return sign + n + s.unit;
+}
+function fmtChg(s, c){
+  if (c === null || c === undefined) return '—';
+  const sign = c > 0 ? '+' : c < 0 ? '−' : '';
+  if (s.chgKind === 'pct') return sign + num(Math.abs(c), Math.abs(c) < 10 ? 1 : 0) + '%';
+  const d = s.unit.trim() === '%' || s.unit.trim() === 'pt' ? 2 : Math.max(1, s.dec);
+  return sign + num(Math.abs(c), d) + (s.unit.trim() === '%' || s.unit.trim() === 'pt' ? ' pt' : '');
+}
+function chgClass(s, c){ if (!s.money || !c) return 'flat'; return c > 0 ? 'up' : 'down'; }
+function pdate(d){ return new Date(d + 'T12:00:00'); }
+function fdate(d, monthly){ const x = pdate(d); return monthly ? MONTHS[x.getMonth()] + ' ' + x.getFullYear() : x.getDate() + ' ' + MONTHS[x.getMonth()] + ' ' + x.getFullYear(); }
+function ago(ts){ const m = Math.round((Date.now()/1000 - ts)/60); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m/60) + ' h ago' : Math.round(m/1440) + ' days ago'; }
+const toneWord = {calm:'t-calm', watch:'t-watch', alert:'t-alert'};
+
+// ── charts ────────────────────────────────────────────────────────────────
+function sparkSVG(vals, color){
+  if (!vals || vals.length < 2) return '';
+  const lo = Math.min(...vals), hi = Math.max(...vals), span = hi - lo || 1;
+  const pts = vals.map((v, i) => (i / (vals.length - 1) * 100).toFixed(2) + ',' + (34 - (v - lo) / span * 32).toFixed(2)).join(' ');
+  return `<svg class="spark" viewBox="0 0 100 36" preserveAspectRatio="none"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.6" vector-effect="non-scaling-stroke" stroke-linejoin="round"/></svg>`;
+}
+// opt: {h, series:[{pts,color,label,fmt}], refs:[{y,label,color}], bands:[{x0,x1,y0,y1,color,y,label}], yfmt, monthly}
+function lineChart(el, opt){
+  const W = Math.max(280, el.clientWidth || 600), H = opt.h || 220, padL = 6, padR = 52, padT = 12, padB = 24;
+  const allPts = opt.series.flatMap(s => s.pts);
+  if (!allPts.length){ el.innerHTML = '<div class="muted">No data yet.</div>'; return; }
+  let x0 = opt.from ?? Math.min(...allPts.map(p => pdate(p[0]).getTime())), x1 = opt.to ?? Math.max(...allPts.map(p => pdate(p[0]).getTime()));
+  for (const b of opt.bands || []){ x1 = Math.max(x1, b.x1); }
+  let ys = allPts.map(p => p[1]).concat((opt.refs || []).map(r => r.y));
+  for (const b of opt.bands || []) ys.push(b.y0, b.y1);
+  let lo = Math.min(...ys), hi = Math.max(...ys); const pad = (hi - lo) * 0.08 || 1; lo -= pad; hi += pad;
+  const X = t => padL + (t - x0) / ((x1 - x0) || 1) * (W - padL - padR), Y = v => padT + (hi - v) / (hi - lo) * (H - padT - padB);
+  let g = '';
+  // gridlines + y labels
+  const step = niceStep((hi - lo) / 4);
+  for (let v0 = Math.ceil(lo / step) * step; v0 <= hi; v0 += step){
+    const v = Math.abs(v0) < step / 1e6 ? 0 : v0;
+    g += `<line x1="${padL}" x2="${W - padR}" y1="${Y(v)}" y2="${Y(v)}" stroke="#1E2235"/><text x="${W - padR + 6}" y="${Y(v) + 4}" fill="#6B7280" font-size="11">${esc(opt.yfmt ? opt.yfmt(v) : num(v, step < 1 ? (step < 0.1 ? 2 : 1) : 0))}</text>`;
+  }
+  // x labels
+  const spanDays = (x1 - x0) / 864e5, ticks = 5;
+  for (let i = 0; i <= ticks; i++){
+    const t = x0 + (x1 - x0) * i / ticks, d = new Date(t);
+    const lab = spanDays > 1400 ? String(d.getFullYear()) : MONTHS[d.getMonth()] + (spanDays > 200 ? " '" + String(d.getFullYear()).slice(2) : ' ' + d.getDate());
+    g += `<text x="${X(t)}" y="${H - 6}" fill="#6B7280" font-size="11" text-anchor="${i === 0 ? 'start' : i === ticks ? 'end' : 'middle'}">${lab}</text>`;
+  }
+  for (const b of opt.bands || []){
+    g += `<rect x="${X(b.x0)}" y="${Y(b.y1)}" width="${Math.max(1, X(b.x1) - X(b.x0))}" height="${Math.max(2, Y(b.y0) - Y(b.y1))}" fill="${b.color}" opacity=".22" rx="2"/>`;
+    if (b.y !== undefined) g += `<line x1="${X(b.x0)}" x2="${X(b.x1)}" y1="${Y(b.y)}" y2="${Y(b.y)}" stroke="${b.color}" stroke-width="2.5"/>`;
+    if (b.label && X(b.x1) - X(b.x0) > 36) g += `<text x="${(X(b.x0) + X(b.x1)) / 2}" y="${Y(b.y1) - 5}" fill="${b.color}" font-size="11" text-anchor="middle">${esc(b.label)}</text>`;
+  }
+  for (const r of opt.refs || []){
+    g += `<line x1="${padL}" x2="${W - padR}" y1="${Y(r.y)}" y2="${Y(r.y)}" stroke="${r.color || '#9CA3AF'}" stroke-dasharray="4 4" opacity=".8"/>`;
+    if (r.label) g += `<text x="${padL + 4}" y="${Y(r.y) - 5}" fill="${r.color || '#9CA3AF'}" font-size="11">${esc(r.label)}</text>`;
+  }
+  for (const s of opt.series){
+    const p = s.pts.filter(q => { const t = pdate(q[0]).getTime(); return t >= x0 && t <= x1; });
+    if (p.length) g += `<polyline points="${p.map(q => X(pdate(q[0]).getTime()).toFixed(1) + ',' + Y(q[1]).toFixed(1)).join(' ')}" fill="none" stroke="${s.color}" stroke-width="${s.width || 1.8}" stroke-linejoin="round"/>`;
+  }
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" height="${H}">${g}<line class="cross" x1="0" x2="0" y1="${padT}" y2="${H - padB}" stroke="#9CA3AF" opacity="0"/><circle class="dot" r="4" fill="${opt.series[0].color}" opacity="0"/></svg><div class="tip"></div>`;
+  const svg = el.querySelector('svg'), tip = el.querySelector('.tip'), cross = el.querySelector('.cross'), dot = el.querySelector('.dot');
+  const main = opt.series[0].pts.filter(q => { const t = pdate(q[0]).getTime(); return t >= x0 && t <= x1; });
+  if (!main.length) return;
+  const move = ev => {
+    const r = svg.getBoundingClientRect(), x = (ev.clientX - r.left) / r.width * W;
+    const t = x0 + (x - padL) / (W - padL - padR) * (x1 - x0);
+    let best = main[0];
+    for (const q of main){ if (Math.abs(pdate(q[0]).getTime() - t) < Math.abs(pdate(best[0]).getTime() - t)) best = q; }
+    const px = X(pdate(best[0]).getTime()), py = Y(best[1]);
+    cross.setAttribute('x1', px); cross.setAttribute('x2', px); cross.setAttribute('opacity', .5);
+    dot.setAttribute('cx', px); dot.setAttribute('cy', py); dot.setAttribute('opacity', 1);
+    tip.style.display = 'block';
+    tip.innerHTML = esc(fdate(best[0], opt.monthly)) + ' · <b>' + esc(opt.series[0].fmt ? opt.series[0].fmt(best[1]) : num(best[1], 2)) + '</b>';
+    const tx = px / W * r.width;
+    tip.style.left = Math.min(Math.max(0, tx - tip.offsetWidth / 2), r.width - tip.offsetWidth) + 'px';
+  };
+  svg.addEventListener('pointermove', move); svg.addEventListener('pointerdown', move);
+  svg.addEventListener('pointerleave', () => { tip.style.display = 'none'; cross.setAttribute('opacity', 0); dot.setAttribute('opacity', 0); });
+}
+function niceStep(raw){ const p = Math.pow(10, Math.floor(Math.log10(raw || 1))), f = raw / p; return (f < 1.5 ? 1 : f < 3.5 ? 2 : f < 7.5 ? 5 : 10) * p; }
+
+// ── Today ─────────────────────────────────────────────────────────────────
+function cardHTML(s){
+  const daily = s.freq !== 'monthly';
+  const color = s.tone === 'alert' ? '#F472B6' : s.tone === 'watch' ? '#F59E0B' : '#818CF8';
+  const lbl1 = s.freq === 'monthly' ? 'vs prior month' : s.freq === 'weekly' ? 'Week' : 'Day';
+  return `<div class="ind${OPEN === s.key ? ' open' : ''}" data-key="${s.key}" id="card-${s.key}">
+    <div class="nm"><span>${esc(s.name)}</span><span class="small">${esc(fdate(s.date, !daily))}</span></div>
+    <div class="val">${esc(fmtVal(s, s.value))}</div>
+    <span class="chip ${toneWord[s.tone]}">${esc(s.reading)}</span>
+    ${s.unusual ? `<div class="unusual">⚡ Unusual move — about ${num(Math.abs(s.z), 1)}× a typical ${s.freq === 'weekly' ? 'week' : 'day'}</div>` : ''}
+    <div class="chg"><span>${lbl1} <b class="${chgClass(s, s.d1)}">${fmtChg(s, s.d1)}</b></span>${s.freq !== 'monthly' ? `<span>1 mo <b class="${chgClass(s, s.m1)}">${fmtChg(s, s.m1)}</b></span>` : ''}<span>1 yr <b class="${chgClass(s, s.y1)}">${fmtChg(s, s.y1)}</b></span></div>
+    <div class="rng"><i style="left:${(s.pos * 100).toFixed(1)}%"></i></div>
+    <div class="rngl"><span>1-yr low ${esc(fmtVal(s, s.lo))}</span><span>high ${esc(fmtVal(s, s.hi))}</span></div>
+    ${sparkSVG(s.spark, color)}
+    ${OPEN === s.key ? detailHTML(s) : ''}
+  </div>`;
+}
+const RANGES = [['1M', 31], ['6M', 183], ['1Y', 366], ['2Y', 731], ['5Y', 1830], ['Max', 99999]];
+function detailHTML(s){
+  const r = RANGE[s.key] || (s.freq === 'monthly' ? '5Y' : '1Y');
+  let extra = '';
+  if (s.key === 'MOOD'){
+    const P = OV.moodParts || {}, names = {momentum:'Stock momentum', volatility:'Calm (low volatility)', safe_haven:'Stocks over bonds', junk:'Junk-bond appetite'};
+    extra = `<div class="parts">${Object.entries(names).map(([k, n]) => P[k] === undefined ? '' : `<div class="part"><span>${n}</span><div class="bar"><i style="width:${P[k].toFixed(0)}%"></i></div><b>${P[k].toFixed(0)}</b></div>`).join('')}</div>
+      <p class="muted">Each ingredient: 0 = most fearful reading of the last two years, 100 = most greedy. CNN's official number differs (it uses three more ingredients we can't read) — <a class="link" href="https://edition.cnn.com/markets/fear-and-greed" target="_blank" rel="noopener">see CNN's index ›</a></p>`;
+  }
+  return `<div class="detail" onclick="event.stopPropagation()">
+    <button class="close" onclick="openCard(null)">Close ✕</button>
+    <div class="ranges">${RANGES.map(([k]) => `<button class="${k === r ? 'on' : ''}" onclick="setRange('${s.key}','${k}')">${k}</button>`).join('')}</div>
+    <div class="chart" id="chart-${s.key}"><div class="muted">Loading chart…</div></div>
+    ${extra}
+    <p class="muted" style="margin-top:10px">${esc(s.explain)}</p>
+    <p class="small" style="margin-top:8px">Source: ${esc({yahoo:'Yahoo Finance', fred:'FRED (St. Louis Fed)', bis:'BIS', calc:'calculated by Macro Watch from Yahoo and FRED data'}[s.source])} · latest ${esc(fdate(s.date, s.freq === 'monthly'))}${s.prevDate ? ' · previous ' + esc(fdate(s.prevDate, s.freq === 'monthly')) : ''}</p>
+  </div>`;
+}
+function findSummary(key){ for (const g of OV.groups) for (const s of g.items) if (s.key === key) return s; return null; }
+async function drawDetail(key){
+  const s = findSummary(key), el = $('chart-' + key);
+  if (!s || !el) return;
+  if (!SERIES[key]){ const d = await api('/api/series/' + key); SERIES[key] = d.points; }
+  const pts = SERIES[key], r = RANGE[key] || (s.freq === 'monthly' ? '5Y' : '1Y'), days = RANGES.find(x => x[0] === r)[1];
+  const end = pdate(pts[pts.length - 1][0]).getTime(), from = Math.max(pdate(pts[0][0]).getTime(), end - days * 864e5);
+  const refs = [];
+  OV.rules?.filter(x => x.key === key && x.enabled).forEach(x => refs.push({y: x.level, label: 'your level ' + fmtVal(s, x.level), color: '#F59E0B'}));
+  if (key === 'MOOD'){ refs.push({y: 25, label: 'extreme fear', color: '#6B7280'}, {y: 75, label: 'extreme greed', color: '#6B7280'}); }
+  if (key === 'CURVE' || key === 'VOLRATIO') refs.push({y: 0, color: '#6B7280'});
+  if (key === 'USCPI') refs.push({y: 2, label: 'Fed target 2%', color: '#9DB4D0'});
+  if (key === 'JPCPI') refs.push({y: 2, label: 'BoJ target 2%', color: '#9DB4D0'});
+  if (key === 'USDJPY' && !refs.some(x => x.y === 160)) refs.push({y: 160, label: '160 — 2024 intervention', color: '#6B7280'});
+  lineChart(el, {from, to: end, monthly: s.freq === 'monthly', series: [{pts: pts.filter(p => pdate(p[0]).getTime() >= from), color: '#818CF8', fmt: v => fmtVal(s, v)}], refs});
+}
+function setRange(key, r){ RANGE[key] = r; const el = $('card-' + key); if (el) el.querySelectorAll('.ranges button').forEach(b => b.classList.toggle('on', b.textContent === r)); drawDetail(key); track('Range ' + key + ' ' + r); }
+function openCard(key){
+  OPEN = key; renderToday();
+  if (key){ drawDetail(key); setTimeout(() => $('card-' + key)?.scrollIntoView({behavior:'smooth', block:'nearest'}), 50); track('Opened ' + key); }
+}
+function renderToday(){
+  if (!OV) return;
+  const S = OV.inShort, bad = OV.sources.filter(x => x.stale || x.error);
+  let h = `<div class="card"><div class="answer" style="color:${S.items.length ? 'var(--watch)' : 'var(--calm)'}">${S.items.length ? '●' : '✓'} ${esc(S.headline)}</div>`;
+  if (S.items.length) h += `<ul class="list" style="margin-top:8px">${S.items.map(i => `<li><button class="link" onclick="${i.kind === 'extreme' ? `goExtreme('${i.key}')` : `goCard('${i.key}')`}">${esc(i.text)} ›</button></li>`).join('')}</ul>`;
+  h += `<div class="small" style="margin-top:10px">${bad.length ? '⚠ ' + bad.map(b => esc(b.name) + (b.ok_ts ? ' last updated ' + ago(b.ok_ts) : ' not reached yet')).join(' · ') + ' — showing the last good numbers.' : 'All sources up to date.'} Prices refresh every 15 minutes; this page every minute.</div></div>`;
+  for (const g of OV.groups){
+    if (!g.items.length) continue;
+    h += `<h2>${esc(g.title)}</h2><div class="muted">${esc(g.intro)}${g.id === 'japan' ? ' <button class="link" onclick="openJapan()">Inflation forecasts ›</button> <button class="link" onclick="showTab(\'extremes\')">Yen extremes ›</button>' : ''}</div><div class="grid">${g.items.map(cardHTML).join('')}</div>`;
+  }
+  $('today').innerHTML = h;
+  document.querySelectorAll('.ind').forEach(c => c.onclick = () => { if (OPEN !== c.dataset.key) openCard(c.dataset.key); });
+  if (OPEN) drawDetail(OPEN);
+}
+function japanCards(){ const o = OPEN; OPEN = null; const h = (OV.groups.find(g => g.id === 'japan')?.items || []).map(cardHTML).join(''); OPEN = o; return h; }
+function goCard(key){ showTab('today'); openCard(key); }
+
+// ── Japan ─────────────────────────────────────────────────────────────────
+async function renderJapan(){
+  if (!OV) return;
+  const need = ['JPCPI', 'USDJPY', 'JP10Y', 'US10Y'].filter(k => !SERIES[k]);
+  await Promise.all(need.map(async k => { SERIES[k] = (await api('/api/series/' + k)).points; }));
+  const boj = OV.boj, cpi = SERIES.JPCPI || [], fx = findSummary('USDJPY'), jc = findSummary('JPCPI');
+  let h = '<div class="card">';
+  if (fx) h += `<div class="answer">USD/JPY ${esc(fmtVal(fx, fx.value))} <span class="chip ${toneWord[fx.tone]}" style="vertical-align:middle">${esc(fx.reading)}</span></div>`;
+  if (jc) h += `<p class="muted" style="margin-top:6px">Japan's inflation was <b>${num(jc.value, 1)}%</b> in ${esc(fdate(jc.date, true))} (a year ago: ${num(jc.value - jc.y1, 1)}%). `;
+  if (boj && boj.rows.length){ const r0 = boj.rows[0]; h += `The Bank of Japan expects core inflation of <b>${num(r0.cpi.median, 1)}%</b> in fiscal ${r0.fy}` + (boj.rows[1] ? `, <b>${num(boj.rows[1].cpi.median, 1)}%</b> in ${boj.rows[1].fy}` : '') + (boj.rows[2] ? ` and <b>${num(boj.rows[2].cpi.median, 1)}%</b> in ${boj.rows[2].fy}` : '') + ` (${esc(boj.report)} report).`; }
+  h += '</p></div>';
+  h += `<div class="card"><b>Japan's inflation — past and forecast</b><p class="muted" style="margin:4px 0 10px">Line: yearly change in consumer prices, every month for the last 10 years. Coloured blocks: the Bank of Japan's forecast for each fiscal year (April–March) — the thick line is the board's median, the shaded block the range of most members' forecasts.</p><div class="chart" id="jpCpiChart"></div>`;
+  if (boj && boj.rows.length){
+    h += `<table style="margin-top:12px"><tr><th>Fiscal year</th><th>BoJ forecast</th><th>Range</th><th>Previous forecast</th></tr>` +
+      boj.rows.map(r => { const ch = r.prev_cpi ? r.cpi.median - r.prev_cpi.median : null;
+        return `<tr><td>FY${r.fy}<div class="small">Apr ${r.fy} – Mar ${r.fy + 1}</div></td><td><b>${num(r.cpi.median, 1)}%</b></td><td>${num(r.cpi.low, 1)}–${num(r.cpi.high, 1)}%</td><td>${r.prev_cpi ? num(r.prev_cpi.median, 1) + '% <span class="small">(' + esc(r.prev_label) + ')</span>' + (ch ? ` <b class="${ch > 0 ? 't-watch' : 't-calm'}">${ch > 0 ? '▲ raised' : '▼ cut'}</b>` : ' <span class="small">unchanged</span>') : '<span class="small">new</span>'}</td></tr>`; }).join('') +
+      `</table><p class="small" style="margin-top:8px">The BoJ forecasts "core" inflation (excluding fresh food), the measure it targets; the line shows all-items inflation, which also includes fresh food, so the two can differ by a few tenths. Source: <a class="link" href="${esc(boj.url)}" target="_blank" rel="noopener">BoJ Outlook Report, ${esc(boj.report)}</a>; new forecasts come in January, April, July and October.</p>`;
+  } else h += '<p class="muted">Bank of Japan forecasts not loaded yet.</p>';
+  h += '</div>';
+  h += `<div class="card"><b>USD/JPY — yen per dollar</b><p class="muted" style="margin:4px 0 10px">Higher = weaker yen. Japan's Ministry of Finance bought yen near 160 in 2024 to stop its fall.</p><div class="ranges" id="fxRanges"></div><div class="chart" id="jpFxChart"></div></div>`;
+  h += `<div class="card"><b>The interest gap: US minus Japan 10-year yield</b><p class="muted" style="margin:4px 0 10px">Money flows to where it earns more. When US rates are far above Japan's, investors sell yen to buy dollars and the yen weakens; when the gap narrows, the yen tends to strengthen. Monthly averages.</p><div class="chart" id="jpGapChart"></div><p class="small" style="margin-top:8px" id="gapNote"></p></div>`;
+  h += `<h2>All Japan indicators</h2><div class="muted">Tap one on the Today tab for its full chart.</div><div class="grid">${japanCards()}</div>`;
+  $('japan').innerHTML = h;
+  $('japan').querySelectorAll('.ind').forEach(c => c.onclick = () => goCard(c.dataset.key));
+  // Inflation chart, 10 years + forecast blocks
+  const from = Date.now() - 10 * 365.25 * 864e5;
+  const bands = (boj?.rows || []).map(r => ({x0: new Date(r.fy, 3, 1).getTime(), x1: new Date(r.fy + 1, 2, 31).getTime(), y0: r.cpi.low, y1: r.cpi.high, y: r.cpi.median, color: '#F59E0B', label: num(r.cpi.median, 1) + '%'}));
+  lineChart($('jpCpiChart'), {h: 240, from, monthly: true, series: [{pts: cpi, color: '#818CF8', fmt: v => num(v, 1) + '%'}], refs: [{y: 2, label: 'BoJ target 2%', color: '#9DB4D0'}, {y: 0, color: '#6B7280'}], bands});
+  // FX
+  const fxR = RANGE.__fx || '2Y';
+  $('fxRanges').innerHTML = RANGES.filter(r => r[0] !== '1M').map(([k]) => `<button class="${k === fxR ? 'on' : ''}" onclick="RANGE.__fx='${k}';renderJapan()">${k}</button>`).join('');
+  const fxp = SERIES.USDJPY || [];
+  if (fxp.length){
+    const end = pdate(fxp[fxp.length - 1][0]).getTime(), days = RANGES.find(x => x[0] === fxR)[1];
+    lineChart($('jpFxChart'), {from: Math.max(pdate(fxp[0][0]).getTime(), end - days * 864e5), to: end, series: [{pts: fxp, color: '#818CF8', fmt: v => '¥' + num(v, 2)}], refs: [{y: 160, label: '160', color: '#6B7280'}]});
+  }
+  // Interest gap (monthly)
+  const usM = {};
+  for (const [d, v] of SERIES.US10Y || []){ const k = d.slice(0, 7); (usM[k] = usM[k] || []).push(v); }
+  const gap = (SERIES.JP10Y || []).filter(([d]) => usM[d.slice(0, 7)]).map(([d, v]) => [d, usM[d.slice(0, 7)].reduce((a, b) => a + b) / usM[d.slice(0, 7)].length - v]);
+  lineChart($('jpGapChart'), {h: 180, from, monthly: true, series: [{pts: gap, color: '#818CF8', fmt: v => num(v, 2) + ' pt'}], refs: [{y: 0, color: '#6B7280'}]});
+  if (gap.length){ const g = gap[gap.length - 1], y = gap.find(p => p[0].slice(0, 7) === (Number(g[0].slice(0, 4)) - 1) + g[0].slice(4, 7));
+    $('gapNote').textContent = `${fdate(g[0], true)}: US 10-year yields ${num(g[1], 2)} percentage points more than Japan's` + (y ? ` (a year earlier: ${num(y[1], 2)}) — the gap has ${g[1] < y[1] ? 'narrowed, which supports the yen' : 'widened, which weighs on the yen'}.` : '.'); }
+}
+
+// ── Extremes ──────────────────────────────────────────────────────────────
+let EX = null, EXOPEN = null, EXCAT = 'all', EXRANGE = {}, QUIET_OPEN = false, JAPAN_OPEN = false;
+const EXRANGES = [['5Y', 1830], ['10Y', 3660], ['25Y', 9150], ['Max', 99999]];
+const ZONE = {extreme_high:['EXTREME HIGH','t-alert'], extreme_low:['EXTREME LOW','t-alert'], stretched_high:['Stretched high','t-watch'], stretched_low:['Stretched low','t-watch'], quiet:['Normal range','t-calm']};
+function ordinal(n){ n = Math.round(n); const s = ['th','st','nd','rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); }
+function sinceText(h){
+  if (!h.side) return '';
+  const w = h.side === 'high' ? 'Highest' : 'Lowest', monthly = h.freq === 'monthly' || h.freq === 'quarterly';
+  return h.since ? `${w} since ${fdate(h.since, monthly)}` : `${w} on record (data since ${h.start.slice(0, 4)})`;
+}
+function pbar(h, mini){ return `<div class="pbar${mini ? ' mini' : ''}${h.sides === 'high' ? ' hi' : ''}"><i style="left:${Math.min(99, Math.max(1, h.pct))}%"></i></div>`; }
+function localBadge(h){ return h.local ? `<span class="small" style="margin-left:6px">· ${h.local === 'high' ? 'highest' : 'lowest'} in 5 years</span>` : ''; }
+function exCardHTML(h){
+  const [label, cls] = ZONE[h.zone], open = EXOPEN === h.key, strong = h.zone.startsWith('extreme');
+  const color = strong ? '#F472B6' : '#F59E0B';
+  return `<div class="ind ext${strong ? '' : ' stretched'}${open ? ' open' : ''}" data-ex="${h.key}" id="ex-${h.key}">
+    <div class="nm"><span>${esc(h.name)}</span><span class="small">${esc(fdate(h.date, h.freq === 'monthly' || h.freq === 'quarterly'))}</span></div>
+    <div class="val">${esc(fmtVal(h, h.value))}</div>
+    <span class="chip ${cls}">${label}</span><span class="small" style="margin-left:6px">${ordinal(h.pct)} percentile</span>${localBadge(h)}
+    ${pbar(h)}<div class="rngl"><span>lowest</span><span>history since ${h.start.slice(0, 4)}</span><span>highest</span></div>
+    <div class="mean"><b>${esc(sinceText(h))}.</b> ${esc(h.meaning)}</div>
+    ${sparkSVG(h.spark, color)}
+    ${open ? exDetailHTML(h) : ''}</div>`;
+}
+function exRowHTML(h){
+  const open = EXOPEN === h.key;
+  return `<div class="${open ? 'qopen' : ''}" id="ex-${h.key}" data-ex="${h.key}"><div class="qrow"><span class="qn">${esc(h.name)}${localBadge(h)}</span><span class="qp">${pbar(h, true)}</span><span class="qv">${esc(fmtVal(h, h.value))}</span></div>${open ? exDetailHTML(h) : ''}</div>`;
+}
+function exDetailHTML(h){
+  const r = EXRANGE[h.key] || 'Max';
+  return `<div class="detail" onclick="event.stopPropagation()">
+    <button class="close" onclick="openEx(null)">Close ✕</button>
+    <div class="ranges">${EXRANGES.map(([k]) => `<button class="${k === r ? 'on' : ''}" onclick="setExRange('${h.key}','${k}')">${k}</button>`).join('')}</div>
+    <div class="chart" id="exchart-${h.key}"><div class="muted">Loading chart…</div></div>
+    <p class="muted" style="margin-top:10px"><b>What it is.</b> ${esc(h.why)}</p>
+    ${h.side ? '' : `<p class="muted" style="margin-top:6px">Right now it is in its normal range (${ordinal(h.pct)} percentile). The dashed lines on the chart mark the outer 5% of its history.</p>`}
+    <p class="small" style="margin-top:8px">${h.n.toLocaleString('en-US')} data points since ${esc(fdate(h.start, h.freq === 'monthly' || h.freq === 'quarterly'))} · latest ${esc(fdate(h.date, h.freq === 'monthly' || h.freq === 'quarterly'))}${h.y1 !== null && h.y1 !== undefined ? ' · a year earlier ' + esc(fmtVal(h, h.y1)) : ''} · typical (median) ${esc(fmtVal(h, h.median))}</p></div>`;
+}
+async function drawExDetail(key){
+  const h = EX?.items.find(x => x.key === key), el = $('exchart-' + key);
+  if (!h || !el) return;
+  if (!SERIES[key]){ SERIES[key] = (await api('/api/series/' + key)).points; }
+  const pts = SERIES[key], r = EXRANGE[key] || 'Max', days = EXRANGES.find(x => x[0] === r)[1];
+  const end = pdate(pts[pts.length - 1][0]).getTime(), from = Math.max(pdate(pts[0][0]).getTime(), end - days * 864e5);
+  const refs = [];
+  if (h.sides !== 'high') refs.push({y: h.p5, label: 'bottom 5%', color: '#F472B6'});
+  if (h.sides !== 'low') refs.push({y: h.p95, label: 'top 5%', color: '#F472B6'});
+  lineChart(el, {from, to: end, monthly: h.freq === 'monthly' || h.freq === 'quarterly',
+    series: [{pts: pts.filter(p => pdate(p[0]).getTime() >= from), color: '#818CF8', fmt: v => fmtVal(h, v)}], refs});
+}
+function setExRange(key, r){ EXRANGE[key] = r; document.querySelectorAll(`#ex-${key} .ranges button`).forEach(b => b.classList.toggle('on', b.textContent === r)); drawExDetail(key); track('Extreme range ' + key + ' ' + r); }
+function openEx(key){
+  EXOPEN = key; renderExtremes();
+  if (key){ drawExDetail(key); setTimeout(() => $('ex-' + key)?.scrollIntoView({behavior:'smooth', block:'nearest'}), 50); track('Opened extreme ' + key); }
+}
+function goExtreme(key){ EXCAT = 'all'; showTab('extremes'); EXOPEN = key; renderExtremes(); drawExDetail(key); }
+function setExCat(c){ EXCAT = c; renderExtremes(); }
+function renderExtremes(){
+  if (!EX) return;
+  const inCat = h => EXCAT === 'all' || h.cat === EXCAT;
+  const hot = EX.items.filter(h => h.zone !== 'quiet').sort((a, b) => Math.abs(b.pct - 50) - Math.abs(a.pct - 50));
+  const strong = hot.filter(h => h.zone.startsWith('extreme')), vis = hot.filter(inCat), quiet = EX.items.filter(h => h.zone === 'quiet' && inCat(h));
+  let h = `<div class="card"><div class="answer" style="color:${strong.length ? 'var(--alert)' : hot.length ? 'var(--watch)' : 'var(--calm)'}">${strong.length ? '●' : hot.length ? '◐' : '✓'} ${strong.length ? strong.length + ' indicator' + (strong.length > 1 ? 's' : '') + ' at an extreme' : hot.length ? 'Nothing at an extreme — ' + hot.length + ' stretched' : 'Nothing at an extreme — all indicators in their normal range'}</div>`;
+  if (strong.length) h += `<ul class="list" style="margin-top:8px">${strong.map(x => `<li><button class="link" onclick="openEx('${x.key}')">${esc(x.name)}: ${ZONE[x.zone][0].toLowerCase()} — ${esc(sinceText(x))} ›</button></li>`).join('')}</ul>`;
+  h += `<div class="small" style="margin-top:10px">${EX.items.length} indicators tracked. An <b>extreme</b> is the outer ${EX.limits.extreme}% of an indicator's own history (on either side), <b>stretched</b> the outer ${EX.limits.stretched}%. Extremes say "unusual — look closely", not "buy" or "sell". Extreme alerts by email are <b>${EX.alertsOn ? 'on' : 'off'}</b> (Alerts tab).</div></div>`;
+  h += `<div class="chips"><button class="${EXCAT === 'all' ? 'on' : ''}" onclick="setExCat('all')">All</button>${EX.cats.map(c => `<button class="${EXCAT === c.id ? 'on' : ''}" onclick="setExCat('${c.id}')">${esc(c.title)}</button>`).join('')}</div>`;
+  const cat = EX.cats.find(c => c.id === EXCAT); if (cat) h += `<div class="muted">${esc(cat.intro)}</div>`;
+  h += `<h2>At or near an extreme</h2>` + (vis.length ? `<div class="grid">${vis.map(exCardHTML).join('')}</div>` : `<div class="muted">Nothing here is at or near an extreme right now.</div>`);
+  if (quiet.length) h += `<details class="quiet" ${QUIET_OPEN ? 'open' : ''} ontoggle="QUIET_OPEN=this.open"><summary>Normal range — ${quiet.length} indicator${quiet.length > 1 ? 's' : ''} with nothing to see</summary>${quiet.sort((a, b) => Math.abs(b.pct - 50) - Math.abs(a.pct - 50)).map(exRowHTML).join('')}</details>`;
+  const miss = EX.missing.filter(m => EXCAT === 'all' || m.cat === EXCAT);
+  if (miss.length) h += `<p class="small" style="margin-top:14px">⚠ No data yet for: ${miss.map(m => esc(m.name) + ' (' + esc(m.error) + ')').join('; ')}. The app retries every few minutes.</p>`;
+  $('extremes').innerHTML = h;
+  $('extremes').querySelectorAll('.ind[data-ex]').forEach(c => c.onclick = () => { if (EXOPEN !== c.dataset.ex) openEx(c.dataset.ex); });
+  $('extremes').querySelectorAll('.qrow').forEach(c => c.onclick = () => { const k = c.parentElement.dataset.ex; if (EXOPEN !== k) openEx(k); });
+  if (EXOPEN) drawExDetail(EXOPEN);
+}
+async function loadExtremes(){
+  try { EX = await api('/api/extremes'); renderExtremes(); }
+  catch (e){ if (e.message !== 'signed out') $('extremes').innerHTML = '<div class="card muted">Could not load the Extremes page: ' + esc(e.message) + '</div>'; }
+  if (JAPAN_OPEN && !document.activeElement?.closest?.('#japan')) renderJapan().catch(() => {});
+}
+function toggleJapan(){
+  JAPAN_OPEN = !JAPAN_OPEN; $('japan').hidden = !JAPAN_OPEN;
+  $('japanBtn').textContent = 'Japan & yen in detail ' + (JAPAN_OPEN ? '▴' : '▾');
+  if (JAPAN_OPEN){ renderJapan().catch(e => { $('japan').innerHTML = '<div class="card muted">Could not load the Japan section: ' + esc(e.message) + '</div>'; }); track('Opened Japan detail'); }
+}
+function openJapan(){ showTab('extremes'); if (!JAPAN_OPEN) toggleJapan(); setTimeout(() => $('japanBtn').scrollIntoView({behavior:'smooth'}), 150); }
+
+// ── Alerts ────────────────────────────────────────────────────────────────
+async function loadAlerts(){ ALERTS = await api('/api/alerts'); OV && (OV.rules = ALERTS.rules); renderAlerts(); }
+function renderAlerts(){
+  const A = ALERTS; if (!A) return;
+  const guest = ROLE === 'guest', E = A.email, nm = k => (A.choices.find(c => c.key === k) || {name: k}).name;
+  const unit = k => (A.choices.find(c => c.key === k) || {}).unit || '';
+  const lvl = (k, v) => { const u = unit(k); return (u === '$' || u === '¥') ? u + num(v, 2).replace(/\.00$/, '') : String(v) + u; };
+  let h = `<div class="card"><b>Email alerts</b> <span class="chip ${E.enabled ? 't-calm' : 't-watch'}" style="margin-left:6px">${E.enabled ? 'On' : 'Off'}</span>`;
+  if (guest) h += '<p class="muted" style="margin-top:6px">Only the owner can change alerts.</p>';
+  else h += `<p class="muted" style="margin:6px 0 12px">Alerts are sent from your Gmail to yourself. Gmail needs an <b>app password</b> (not your normal password): Google Account → Security → 2-Step Verification → App passwords → create one called "Macro Watch" and paste the 16 letters here. It is stored only on your server.</p>
+    <div class="field">Your Gmail address<input id="eUser" type="email" value="${esc(E.user)}" placeholder="you@gmail.com" autocomplete="off"></div>
+    <div class="field">Gmail app password ${E.hasPassword ? '<span class="small">(saved — leave empty to keep it)</span>' : ''}<input id="ePass" type="password" placeholder="${E.hasPassword ? '••••••••••••••••' : '16 letters'}" autocomplete="new-password"></div>
+    <div class="field">Send alerts to <span class="small">(empty = the same Gmail address)</span><input id="eTo" type="email" value="${esc(E.to)}" autocomplete="off"></div>
+    <div class="row"><button class="btn primary" onclick="saveEmail(true)">${E.enabled ? 'Save' : 'Save and switch on'}</button><button class="btn" onclick="saveEmail(null, true)">Send a test email</button>${E.enabled ? '<button class="btn" onclick="saveEmail(false)">Pause emails</button>' : ''}<span class="small" id="eMsg"></span></div>`;
+  h += '</div>';
+  h += `<div class="card"><b>Your levels</b><p class="muted" style="margin:4px 0 8px">You get one email when a number crosses one of these. Unusual moves and new inflation figures / BoJ forecasts are always watched.</p>` +
+    `<div class="rule"><span>Extreme alerts <span class="small">— email when an indicator on the Extremes tab reaches an extreme of its own history</span></span>${guest ? `<span class="chip ${E.extremeAlerts ? 't-calm' : 't-watch'}">${E.extremeAlerts ? 'On' : 'Off'}</span>` : `<button class="sw${E.extremeAlerts ? ' on' : ''}" title="On/off" onclick="toggleExt()"></button>`}</div>` + A.rules.map(r => `<div class="rule${r.enabled ? '' : ' off'}"><span>${esc(nm(r.key))} <b>${r.op}</b> ${esc(lvl(r.key, r.level))}</span><span class="row">${guest ? '' : `<button class="sw${r.enabled ? ' on' : ''}" title="On/off" onclick="ruleAct('toggle',${r.id})"></button><button class="btn" onclick="ruleAct('delete',${r.id})">Remove</button>`}</span></div>`).join('') +
+    (guest ? '' : `<div class="row" style="margin-top:12px"><select id="rKey">${A.choices.map(c => `<option value="${c.key}">${esc(c.name)}</option>`).join('')}</select><select id="rOp"><option value="above">above</option><option value="below">below</option></select><input id="rLevel" inputmode="decimal" placeholder="level" style="width:100px"><button class="btn primary" onclick="addRule()">Add</button><span class="small" id="rMsg"></span></div><div class="small" id="rNow" style="margin-top:6px"></div>`) + '</div>';
+  h += `<div class="card"><b>History</b>` + (A.alerts.length ? `<ul class="list" style="margin-top:6px">${A.alerts.map(a => `<li><span class="kind">${{level:'Level', move:'Unusual move', news:'New figure', extreme:'Extreme'}[a.kind] || a.kind} · ${new Date(a.ts * 1000).toLocaleString([], {dateStyle:'medium', timeStyle:'short'})}${a.emailed ? ' · emailed' : ''}</span><br><b>${esc(a.title)}</b><div class="muted">${esc(a.detail)}</div></li>`).join('')}</ul>` : '<p class="muted" style="margin-top:6px">No alerts yet. The first check only notes where everything stands; alerts start from the next change.</p>') + '</div>';
+  $('alerts').innerHTML = h;
+  const rk = $('rKey'); if (rk){ const show = () => { const s = OV && findSummary(rk.value); $('rNow').textContent = s ? 'Now: ' + fmtVal(s, s.value) + ' · 1-year range ' + fmtVal(s, s.lo) + ' to ' + fmtVal(s, s.hi) : ''; }; rk.onchange = show; show(); }
+}
+async function saveEmail(enabled, test){
+  const body = {user: $('eUser').value, to: $('eTo').value, password: $('ePass').value};
+  if (enabled !== null && enabled !== undefined) body.enabled = enabled;
+  if (test) body.test = true;
+  $('eMsg').textContent = test ? 'Sending…' : 'Saving…';
+  const r = await api('/api/email', body);
+  await loadAlerts();
+  $('eMsg').textContent = r.message || (r.success ? 'Saved' : r.error);
+  $('eMsg').style.color = r.success ? 'var(--calm)' : 'var(--alert)';
+}
+async function toggleExt(){ await api('/api/email', {extremeAlerts: !ALERTS.email.extremeAlerts}); await loadAlerts(); }
+async function ruleAct(action, id){ if (action === 'delete' && !confirm('Remove this level?')) return; await api('/api/rules', {action, id}); await loadAlerts(); }
+async function addRule(){
+  const r = await api('/api/rules', {action:'add', key: $('rKey').value, op: $('rOp').value, level: $('rLevel').value});
+  if (!r.success){ $('rMsg').textContent = r.error; return; }
+  await loadAlerts(); track('Added level');
+}
+
+// ── tabs and refresh ──────────────────────────────────────────────────────
+let TAB = 'today';
+function showTab(t){
+  TAB = t;
+  document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x.dataset.t === t));
+  document.querySelectorAll('main>section').forEach(s => s.hidden = s.id !== 'pane-' + t);
+  if (t === 'extremes') loadExtremes();
+  if (t === 'alerts') loadAlerts();
+  window.scrollTo(0, 0);
+  track('Opened tab: ' + t);
+}
+document.querySelectorAll('.tab').forEach(b => b.onclick = () => showTab(b.dataset.t));
+async function load(){
+  try {
+    const d = await api('/api/overview');
+    const newest = Math.max(0, ...d.sources.map(s => s.ok_ts || 0));
+    if (OV && OV.serverTime && newest > Math.max(0, ...OV.sources.map(s => s.ok_ts || 0))) SERIES = {};
+    d.rules = OV?.rules || ALERTS?.rules; OV = d; ROLE = d.role;
+    if (!OV.rules){ ALERTS = await api('/api/alerts'); OV.rules = ALERTS.rules; }
+    $('upd').textContent = newest ? 'Updated ' + ago(newest) : 'Fetching data…';
+    if (TAB === 'today') renderToday();
+    if (TAB === 'extremes') loadExtremes();
+    if (!d.groups.some(g => g.items.length)) $('today').innerHTML = '<div class="card"><div class="answer">Fetching the first data…</div><p class="muted">This takes about a minute after the app starts.</p></div>';
+  } catch (e){ if (e.message !== 'signed out') $('upd').textContent = 'Cannot reach the server right now'; }
+}
+let rz; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { if (TAB === 'today' && OPEN) drawDetail(OPEN); if (TAB === 'extremes'){ if (EXOPEN) drawExDetail(EXOPEN); if (JAPAN_OPEN) renderJapan().catch(() => {}); } }, 250); });
+load(); setInterval(load, 60000);
+</script></body></html>
