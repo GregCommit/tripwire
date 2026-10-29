@@ -402,7 +402,7 @@ def check_alerts():
                 word = "highest" if h["side"] == "high" else "lowest"
                 when = (f"{word} since {date_label(h['since'], h['freq'])}" if h["since"]
                         else f"{word} on record (data since {h['start'][:4]})")
-                share = int(h["pct"]) if h["side"] == "high" else int(100 - h["pct"])
+                share = min(99, int(h["pct"]) if h["side"] == "high" else int(100 - h["pct"]))
                 raise_alert(h["key"], "extreme",
                             f"Extreme: {h['name']} at {fmt_hub(h, h['value'])} — {when}",
                             f"{'Higher' if h['side'] == 'high' else 'Lower'} than {share}% of all readings since "
@@ -564,9 +564,6 @@ def healthz():
 
 
 # ── API ─────────────────────────────────────────────────────────────────────
-HZ_FIELD = {"today": "d1", "this week": "w1", "this month": "m1", "this quarter": "d1"}
-
-
 def cluster_of(key):
     for c in S.CLUSTERS:
         if key in c["main"]:
@@ -574,30 +571,28 @@ def cluster_of(key):
     return None
 
 
-def in_short(sm, rules, hub=()):
-    """The answer first: does anything need a look? Levels you set, then whatever is most special
-    today / this week / this month, ranked by how much it matters for stock investing."""
-    items = []
+def crossed_levels(sm, rules):
+    """The levels you set that are currently crossed."""
+    out = []
     for r in rules:
         s = sm.get(r["key"])
         if s and r["enabled"] and rule_beyond(r["op"], s["value"], r["level"]):
-            items.append({"key": r["key"], "kind": "level", "cluster": cluster_of(r["key"]),
-                          "text": f"{s['name']} is {r['op']} your {fmt(r['key'], r['level'])} level "
-                                  f"(now {fmt(r['key'], s['value'])})"})
-    pool = sorted([x for x in list(sm.values()) + list(hub) if x.get("spec", 0) >= 1.0 and cluster_of(x["key"])],
-                  key=lambda x: -x["rank"])
-    for x in pool[:8]:
-        if x.get("hub") and x["zone"].startswith("extreme"):
-            text = f"{x['name']} is at an extreme {x['side']} ({x['pct']:.0f}th percentile of its history)"
-            kind = "extreme"
-        else:
-            c = x.get(HZ_FIELD.get(x["horizon"] or "today", "d1"))
-            text = f"{x['name']}: unusually large move {x['horizon'] or 'recently'} ({S.fchg(x['chgKind'], c)})"
-            kind = "special"
-        items.append({"key": x["key"], "kind": kind, "cluster": cluster_of(x["key"]), "text": text})
-    head = (f"{len(items)} thing{'s' if len(items) > 1 else ''} worth a look" if items
-            else "Nothing unusual — no level crossed, no unusual moves")
-    return {"headline": head, "items": items}
+            out.append({"key": r["key"], "cluster": cluster_of(r["key"]),
+                        "text": f"{s['name']} is {r['op']} your {fmt(r['key'], r['level'])} level (now {fmt(r['key'], s['value'])})"})
+    return out
+
+
+def build_summary(clusters, levels):
+    """A few plain sentences at the top: what changed most and why (from the groups' own explanations)."""
+    lines = []
+    for c in clusters:
+        d = c["drivers"]
+        real = [b for b in d["bullets"] if not b.startswith(("Nothing unusual", "Valuation barely"))]
+        if c["rank"] >= 2.0 and real and len(lines) < 3:
+            lines.append({"cluster": c["id"], "title": c["title"], "horizon": d["horizon"], "text": real[0]})
+    head = (f"Biggest change {lines[0]['horizon']}: {lines[0]['title']}" if lines
+            else "Quiet — nothing is moving unusually")
+    return {"headline": head, "calm": not lines and not levels, "lines": lines, "levels": levels}
 
 
 def build_clusters(sm, hub):
@@ -631,9 +626,10 @@ def api_overview():
                "items": [sm[i["key"]] for i in S.INDICATORS if i["group"] == g and i["key"] in sm]}
               for g, t, intro in S.GROUPS]
     hub = hub_summaries()
+    clusters = build_clusters(sm, hub)
     return jsonify({"role": session.get("role"), "groups": groups, "sources": sources,
-                    "clusters": build_clusters(sm, hub),
-                    "inShort": in_short(sm, get_rules(), hub),
+                    "clusters": clusters,
+                    "summary": build_summary(clusters, crossed_levels(sm, get_rules())),
                     "moodParts": json.loads(get_setting("mood_parts", "{}") or "{}"),
                     "boj": json.loads(get_setting("boj_outlook", "null") or "null"),
                     "serverTime": int(time.time())})

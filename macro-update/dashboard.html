@@ -24,7 +24,7 @@ h2+.muted{margin-bottom:10px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}
 .ind{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:14px;cursor:pointer;transition:border-color .15s;min-width:0}
 .ind:hover{border-color:var(--line2)}
-.ind.open{grid-column:1/-1;cursor:default;border-color:var(--accent)}
+.ind.open{grid-column:1/-1;cursor:default;border-color:#5b5b66}
 .ind .nm{font-size:13px;color:var(--mute);display:flex;justify-content:space-between;gap:8px}
 .ind .val{font-size:22px;font-weight:500;letter-spacing:-.01em;margin:4px 0 2px;font-variant-numeric:tabular-nums}
 .chip{display:inline-block;font-size:12px;font-weight:600;padding:2px 8px;border-radius:3px;border:1px solid currentColor;line-height:1.5}
@@ -34,7 +34,7 @@ h2+.muted{margin-bottom:10px}
 .chg b{font-weight:500}
 .unusual{display:inline-block;margin-top:6px;font-size:12px;font-weight:600;color:var(--alert)}
 .rng{position:relative;height:4px;background:var(--line2);border-radius:1px;margin:12px 0 3px}
-.rng i{position:absolute;top:-4px;width:3px;height:12px;border-radius:1px;background:var(--accent);transform:translateX(-50%)}
+.rng i{position:absolute;top:-4px;width:3px;height:12px;border-radius:1px;background:var(--txt)}
 .rngl{display:flex;justify-content:space-between;font-size:11px;color:var(--dim);font-variant-numeric:tabular-nums}
 .spark{display:block;width:100%;height:36px;margin-top:8px}
 .detail{margin-top:14px;border-top:1px solid var(--line);padding-top:14px;cursor:auto}
@@ -50,12 +50,13 @@ h2+.muted{margin-bottom:10px}
 .badge{display:inline-block;margin-left:6px;font-size:11.5px;font-weight:600;padding:1px 8px;border-radius:3px;color:var(--watch);border:1px solid var(--watch);vertical-align:1px}
 .badge.strong{background:var(--watch);color:#000;border-color:var(--watch)}
 .ind.hot{border-color:#3a3a44}
-.drv{background:var(--card2);border:1px solid var(--line2);border-left:3px solid var(--accent);border-radius:6px;padding:12px 14px;margin:10px 0 12px}
+.drv{background:var(--card2);border:1px solid var(--line2);border-left:3px solid #5b5b66;border-radius:6px;padding:12px 14px;margin:10px 0 12px}
 .drvh{font-weight:600;font-size:14px}.drvt{font-size:14px;color:var(--txt);margin-top:4px}
 .drv ul{padding-left:18px;margin:6px 0}.drv li{font-size:14px;line-height:1.5;color:var(--txt);margin:5px 0}
 .ctxhead{margin:14px 0 6px}
+.sumline{font-size:14px;line-height:1.5;color:var(--txt);margin-top:8px}
 .xbtn{position:absolute;top:8px;right:8px;width:30px;height:30px;border-radius:50%;background:var(--card2);border:1px solid var(--line2);color:var(--mute);font-size:14px;line-height:1;cursor:pointer;display:grid;place-items:center;z-index:2;padding:0}
-.xbtn:hover{color:var(--txt);border-color:var(--accent)}
+.xbtn:hover{color:var(--txt);border-color:#8a8a96}
 .ind.open,.qopen{position:relative}.ind.open .nm{padding-right:38px}.qopen .qrow{padding-right:38px}
 .close{float:right;background:none;border:none;color:var(--mute);font-size:13px;cursor:pointer;padding:2px 0 8px 10px}
 .parts{display:grid;gap:8px;margin:10px 0}
@@ -79,8 +80,8 @@ input,select{background:var(--bg);border:1px solid var(--line2);color:var(--txt)
 .pulse{display:block;margin:8px 0 2px}
 .pbar{position:relative;height:6px;border-radius:1px;margin:14px 0 4px;background:linear-gradient(to right,var(--alert) 0 5%,var(--watch) 5% 10%,var(--line2) 10% 90%,var(--watch) 90% 95%,var(--alert) 95% 100%)}
 .pbar.hi{background:linear-gradient(to right,var(--line2) 0 90%,var(--watch) 90% 95%,var(--alert) 95% 100%)}
-.pbar i{position:absolute;top:-5px;width:3px;height:16px;border-radius:1px;background:var(--txt);transform:translateX(-50%);box-shadow:0 0 0 2px var(--card)}
-.pbar.mini{height:5px;margin:0}.pbar.mini i{top:-4px;height:13px;width:3px;box-shadow:none}
+.pbar i{position:absolute;top:-5px;width:3px;height:16px;border-radius:1px;background:var(--txt)}
+.pbar.mini{height:5px;margin:0}.pbar.mini i{top:-4px;height:13px;width:3px}
 .chips{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 4px}
 .chips button{background:var(--card2);border:1px solid var(--line2);border-radius:4px;padding:5px 12px;font-size:13px;cursor:pointer;color:var(--mute)}
 .chips button.on{color:var(--accent);border-color:var(--accent)}
@@ -105,7 +106,7 @@ details.quiet{margin-top:18px}details.quiet>summary{cursor:pointer;color:var(--m
 <p>Macro Watch keeps an eye on the big picture so you don't have to: US stocks, interest rates, commodities, investor mood, the yen and Japan's inflation. It answers one question first — <b>does anything need a look today?</b> — and emails you when something crosses a level you chose or moves far more than usual.</p>
 <p>It does not tell you to buy or sell anything. It is context for your own decisions.</p>
 <h3>What — the screens</h3>
-<ul><li><b>Today</b>: the answer first, then <b>groups of indicators that belong together</b> — US bonds, rates &amp; the dollar; gold, silver &amp; Dr. Copper (shown next to real yields and the dollar, because interest rates drive them); stocks &amp; investor mood; yen &amp; Japan; credit &amp; loan defaults; oil; valuation. The most special group is at the top, and inside a group the most special indicator comes first. "Special" means a move far larger than usual over the last day, week or month, or a place at the edge of its own history — weighted by how much that indicator matters for stock investing. Every card says in plain words <b>what it says</b>. Each group has a box <b>"What is moving this group?"</b> that explains the unusual moves with the usual links between these markets (for example: gold falls when real yields and the dollar rise). That box is worked out from the numbers, not from news headlines. Tap a card for a bigger chart; close it with the ✕ at its top right.</li>
+<ul><li><b>Today</b>: the answer first, then <b>groups of indicators that belong together</b> — US bonds, rates &amp; the dollar; gold, silver &amp; Dr. Copper (shown next to real yields and the dollar, because interest rates drive them); stocks &amp; investor mood; yen &amp; Japan; credit, jobs &amp; defaults ahead; oil; valuation. The most special group is at the top, and inside a group the most special indicator comes first. "Special" means a move far larger than usual over the last day, week or month, or a place at the edge of its own history — weighted by how much that indicator matters for stock investing. Every card says in plain words <b>what it says</b>. Each group has a box <b>"What is moving this group?"</b> that explains the unusual moves with the usual links between these markets (for example: gold falls when real yields and the dollar rise). That box is worked out from the numbers, not from news headlines. Tap a card for a bigger chart; close it with the ✕ at its top right.</li>
 <li><b>Extremes</b>: indicators that only matter when they are far out on one side of their own history — the yen carry trade (USD/JPY, the US–Japan yield gap, Japan's yields), the Buffett indicator, Shiller P/E, credit spreads, the yield curve, the VIX and more. Each sits on a 0–100 scale (its percentile against all the history we have). The outer 5% on either side is an <b>extreme</b> (red), the outer 10% is <b>stretched</b> (amber); everything else is "normal range" and tucked away. Open "Japan &amp; yen in detail" at the bottom for Japan's inflation with the Bank of Japan's forecasts and the interest-gap chart.</li>
 <li><b>Alerts</b>: your levels (e.g. "USD/JPY above 160"), the email setup, the on/off switch for extreme alerts, and the history of every alert.</li></ul>
 <h3>About extremes — please read</h3>
@@ -133,7 +134,7 @@ details.quiet{margin-top:18px}details.quiet>summary{cursor:pointer;color:var(--m
 <h3>Where the numbers come from</h3>
 <ul><li>Yahoo Finance — stock indexes, VIX, oil, gold, silver, copper, natural gas, dollar index, USD/JPY.</li>
 <li>FRED (Federal Reserve Bank of St. Louis) — Treasury yields, yield curve, mortgage rate, junk-bond spread, Fed funds rate, US CPI, Japan 10-year yield and overnight rate.</li>
-<li>multpl.com — the Shiller P/E table. FRED also supplies the Buffett indicator's inputs, financial conditions, the Sahm rule, consumer sentiment, long yen history and the Federal Reserve's bank loan figures (late payments and write-offs, quarterly, published about two months after each quarter).</li>
+<li>multpl.com — the Shiller P/E table. FRED also supplies the Buffett indicator's inputs, financial conditions, the Sahm rule, consumer sentiment, long yen history, jobless claims, junk-bond spreads and the Federal Reserve's survey of bank lending standards (quarterly).</li>
 <li>BIS (Bank for International Settlements) — Japan's official consumer price inflation.</li>
 <li>Bank of Japan — the Policy Board's inflation forecasts from each quarterly Outlook Report.</li></ul>
 <p>If a source can't be reached, the app keeps the last good numbers and says so under the summary on the Today tab.</p>
@@ -240,6 +241,7 @@ function niceStep(raw){ const p = Math.pow(10, Math.floor(Math.log10(raw || 1)))
 
 // ── Today ─────────────────────────────────────────────────────────────────
 const RANGES = [['1M', 31], ['6M', 183], ['1Y', 366], ['2Y', 731], ['5Y', 1830], ['Max', 99999]];
+const LINE = '#e4e4e7';
 const uid = (cid, key) => (cid || 'x') + '-' + key;
 function xBtn(fn){ return `<button class="xbtn" type="button" aria-label="Close" title="Close" onclick="event.stopPropagation();${fn}">✕</button>`; }
 function badge(s){
@@ -262,7 +264,7 @@ function saysHTML(s){ return `<div class="says"><b>What it says.</b> ${esc(s.hub
 function cardHTML(s, cid){
   if (s.hub) return exCardHTML(s, cid);
   const id = cid + '|' + s.key, open = OPEN === id, mo = s.freq === 'monthly';
-  const color = s.tone === 'alert' ? '#FF4D4F' : s.tone === 'watch' ? '#F5C518' : '#4673FF';
+  const color = s.tone === 'alert' ? '#FF4D4F' : s.tone === 'watch' ? '#F5C518' : '#8a8a96';
   return `<div class="ind${s.horizon ? ' hot' : ''}${open ? ' open' : ''}" data-cid="${id}" id="card-${uid(cid, s.key)}">
     ${open ? xBtn('openCard(null)') : ''}
     <div class="nm"><span>${esc(s.name)}</span><span class="small">${esc(fdate(s.date, mo))}</span></div>
@@ -270,7 +272,7 @@ function cardHTML(s, cid){
     <span class="chip ${toneWord[s.tone]}">${esc(s.reading)}</span>${badge(s)}
     ${saysHTML(s)}
     <div class="chg">${chgRow(s)}</div>
-    <div class="rng"><i style="left:${(s.pos * 100).toFixed(1)}%"></i></div>
+    <div class="rng"><i style="left:${(s.pos * 100).toFixed(1)}%;transform:translateX(-${(s.pos * 100).toFixed(1)}%)"></i></div>
     <div class="rngl"><span>1-yr low ${esc(fmtVal(s, s.lo))}</span><span>high ${esc(fmtVal(s, s.hi))}</span></div>
     ${sparkSVG(s.spark, color)}
     ${open ? detailHTML(s, cid) : ''}
@@ -309,7 +311,7 @@ async function drawDetail(cid, key){
   if (key === 'USCPI') refs.push({y: 2, label: 'Fed target 2%', color: '#8E96A8'});
   if (key === 'JPCPI') refs.push({y: 2, label: 'BoJ target 2%', color: '#8E96A8'});
   if (key === 'USDJPY' && !refs.some(x => x.y === 160)) refs.push({y: 160, label: '160 — 2024 intervention', color: '#71717a'});
-  lineChart(el, {from, to: end, monthly: s.freq === 'monthly', series: [{pts: pts.filter(p => pdate(p[0]).getTime() >= from), color: '#4673FF', fmt: v => fmtVal(s, v)}], refs});
+  lineChart(el, {from, to: end, monthly: s.freq === 'monthly', series: [{pts: pts.filter(p => pdate(p[0]).getTime() >= from), color: LINE, fmt: v => fmtVal(s, v)}], refs});
 }
 function setRange(cid, key, r){
   RANGE[cid + '|' + key] = r;
@@ -333,12 +335,13 @@ function driversHTML(c){
 }
 function renderToday(){
   if (!OV) return;
-  const S = OV.inShort, bad = OV.sources.filter(x => x.stale || x.error);
-  let h = `<div class="card"><div class="answer" style="color:${S.items.length ? 'var(--watch)' : 'var(--up)'}">${S.items.length ? '●' : '✓'} ${esc(S.headline)}</div>`;
-  if (S.items.length) h += `<ul class="list" style="margin-top:8px">${S.items.map(i => `<li><button class="link" onclick="${i.cluster ? `goCard('${i.cluster}','${i.key}')` : `goExtreme('${i.key}')`}">${esc(i.text)} ›</button></li>`).join('')}</ul>`;
-  h += `<div class="small" style="margin-top:10px">Most special first: what moved far more than usual today, this week or this month, and what sits at the edge of its history — weighted by how much it matters for stock investing. Related indicators are grouped together. ${bad.length ? '⚠ ' + bad.map(b => esc(b.name) + (b.ok_ts ? ' last updated ' + ago(b.ok_ts) : ' not reached yet')).join(' · ') + ' — showing the last good numbers.' : 'All sources up to date.'} Prices refresh every 15 minutes; this page every minute.</div></div>`;
+  const S = OV.summary, bad = OV.sources.filter(x => x.stale || x.error);
+  let h = `<div class="card"><div class="answer" style="color:${S.calm ? 'var(--up)' : 'var(--txt)'}">${esc(S.headline)}</div>`;
+  for (const l of S.lines) h += `<p class="sumline"><b>${esc(l.title)}</b> · ${esc(l.horizon)} — ${esc(l.text)} <button class="link" onclick="goCluster('${l.cluster}')">Show ›</button></p>`;
+  for (const l of S.levels) h += `<p class="sumline"><b style="color:var(--watch)">Your level</b> — ${esc(l.text)} <button class="link" onclick="${l.cluster ? `goCluster('${l.cluster}')` : ''}">Show ›</button></p>`;
+  h += `<div class="small" style="margin-top:10px">Groups are sorted by what is most unusual and most important for stocks, most important first. ${bad.length ? '⚠ ' + bad.map(b => esc(b.name) + (b.ok_ts ? ' last updated ' + ago(b.ok_ts) : ' not reached yet')).join(' · ') + ' — showing the last good numbers.' : 'All sources up to date.'} Prices refresh every 15 minutes.</div></div>`;
   for (const c of OV.clusters || []){
-    h += `<h2>${esc(c.title)}</h2><div class="muted">${esc(c.intro)}${c.id === 'japan' ? ' <button class="link" onclick="openJapan()">Inflation forecasts ›</button>' : ''}</div>${driversHTML(c)}
+    h += `<h2 id="cl-${c.id}">${esc(c.title)}</h2><div class="muted">${esc(c.intro)}${c.id === 'japan' ? ' <button class="link" onclick="openJapan()">Inflation forecasts ›</button>' : ''}</div>${driversHTML(c)}
       <div class="grid">${c.main.map(s => cardHTML(s, c.id)).join('')}</div>`;
     if (c.context.length) h += `<div class="small ctxhead">Shown alongside, because they explain the moves above:</div><div class="grid">${c.context.map(s => cardHTML(s, c.id)).join('')}</div>`;
   }
@@ -347,6 +350,7 @@ function renderToday(){
   drawOpen();
 }
 function japanCards(){ const o = OPEN; OPEN = null; const h = (OV.groups.find(g => g.id === 'japan')?.items || []).map(s => cardHTML(s, 'jp')).join(''); OPEN = o; return h; }
+function goCluster(id){ showTab('today'); setTimeout(() => $('cl-' + id)?.scrollIntoView({behavior:'smooth', block:'start'}), 30); }
 function goCard(cid, key){ showTab('today'); openCard(cid + '|' + key); }
 
 // ── Japan ─────────────────────────────────────────────────────────────────
@@ -376,20 +380,20 @@ async function renderJapan(){
   // Inflation chart, 10 years + forecast blocks
   const from = Date.now() - 10 * 365.25 * 864e5;
   const bands = (boj?.rows || []).map(r => ({x0: new Date(r.fy, 3, 1).getTime(), x1: new Date(r.fy + 1, 2, 31).getTime(), y0: r.cpi.low, y1: r.cpi.high, y: r.cpi.median, color: '#F5C518', label: num(r.cpi.median, 1) + '%'}));
-  lineChart($('jpCpiChart'), {h: 240, from, monthly: true, series: [{pts: cpi, color: '#4673FF', fmt: v => num(v, 1) + '%'}], refs: [{y: 2, label: 'BoJ target 2%', color: '#8E96A8'}, {y: 0, color: '#71717a'}], bands});
+  lineChart($('jpCpiChart'), {h: 240, from, monthly: true, series: [{pts: cpi, color: LINE, fmt: v => num(v, 1) + '%'}], refs: [{y: 2, label: 'BoJ target 2%', color: '#8E96A8'}, {y: 0, color: '#71717a'}], bands});
   // FX
   const fxR = RANGE.__fx || '2Y';
   $('fxRanges').innerHTML = RANGES.filter(r => r[0] !== '1M').map(([k]) => `<button class="${k === fxR ? 'on' : ''}" onclick="RANGE.__fx='${k}';renderJapan()">${k}</button>`).join('');
   const fxp = SERIES.USDJPY || [];
   if (fxp.length){
     const end = pdate(fxp[fxp.length - 1][0]).getTime(), days = RANGES.find(x => x[0] === fxR)[1];
-    lineChart($('jpFxChart'), {from: Math.max(pdate(fxp[0][0]).getTime(), end - days * 864e5), to: end, series: [{pts: fxp, color: '#4673FF', fmt: v => '¥' + num(v, 2)}], refs: [{y: 160, label: '160', color: '#71717a'}]});
+    lineChart($('jpFxChart'), {from: Math.max(pdate(fxp[0][0]).getTime(), end - days * 864e5), to: end, series: [{pts: fxp, color: LINE, fmt: v => '¥' + num(v, 2)}], refs: [{y: 160, label: '160', color: '#71717a'}]});
   }
   // Interest gap (monthly)
   const usM = {};
   for (const [d, v] of SERIES.US10Y || []){ const k = d.slice(0, 7); (usM[k] = usM[k] || []).push(v); }
   const gap = (SERIES.JP10Y || []).filter(([d]) => usM[d.slice(0, 7)]).map(([d, v]) => [d, usM[d.slice(0, 7)].reduce((a, b) => a + b) / usM[d.slice(0, 7)].length - v]);
-  lineChart($('jpGapChart'), {h: 180, from, monthly: true, series: [{pts: gap, color: '#4673FF', fmt: v => num(v, 2) + ' pt'}], refs: [{y: 0, color: '#71717a'}]});
+  lineChart($('jpGapChart'), {h: 180, from, monthly: true, series: [{pts: gap, color: LINE, fmt: v => num(v, 2) + ' pt'}], refs: [{y: 0, color: '#71717a'}]});
   if (gap.length){ const g = gap[gap.length - 1], y = gap.find(p => p[0].slice(0, 7) === (Number(g[0].slice(0, 4)) - 1) + g[0].slice(4, 7));
     $('gapNote').textContent = `${fdate(g[0], true)}: US 10-year yields ${num(g[1], 2)} percentage points more than Japan's` + (y ? ` (a year earlier: ${num(y[1], 2)}) — the gap has ${g[1] < y[1] ? 'narrowed, which supports the yen' : 'widened, which weighs on the yen'}.` : '.'); }
 }
@@ -398,7 +402,7 @@ async function renderJapan(){
 let EX = null, EXOPEN = null, EXCAT = 'all', EXRANGE = {}, QUIET_OPEN = false, JAPAN_OPEN = false;
 const EXRANGES = [['5Y', 1830], ['10Y', 3660], ['25Y', 9150], ['Max', 99999]];
 const ZONE = {extreme_high:['EXTREME HIGH','t-alert'], extreme_low:['EXTREME LOW','t-alert'], stretched_high:['Stretched high','t-watch'], stretched_low:['Stretched low','t-watch'], quiet:['Normal range','t-calm']};
-const DEF_KEYS = ['DEL_CONS', 'DEL_CARD', 'CO_CARD', 'DEL_BUS', 'CO_BUS'];
+const DEF_KEYS = [];
 const hubMo = h => h.freq === 'monthly' || h.freq === 'quarterly';
 function ordinal(n){ n = Math.round(n); const s = ['th','st','nd','rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); }
 function sinceText(h){
@@ -406,7 +410,7 @@ function sinceText(h){
   const w = h.side === 'high' ? 'Highest' : 'Lowest';
   return h.since ? `${w} since ${fdate(h.since, hubMo(h))}` : `${w} on record (data since ${h.start.slice(0, 4)})`;
 }
-function pbar(h, mini){ return `<div class="pbar${mini ? ' mini' : ''}${h.sides === 'high' ? ' hi' : ''}"><i style="left:${Math.min(99, Math.max(1, h.pct))}%"></i></div>`; }
+function pbar(h, mini){ const p = Math.min(100, Math.max(0, h.pct)); return `<div class="pbar${mini ? ' mini' : ''}${h.sides === 'high' ? ' hi' : ''}"><i style="left:${p}%;transform:translateX(-${p}%)"></i></div>`; }
 function localBadge(h){ return h.local ? `<span class="small" style="margin-left:6px">· ${h.local === 'high' ? 'highest' : 'lowest'} in 5 years</span>` : ''; }
 function findHub(key){
   const a = EX?.items.find(x => x.key === key); if (a) return a;
@@ -416,7 +420,7 @@ function findHub(key){
 function exCardHTML(h, cid){
   const today = !!cid, id = cid + '|' + h.key, open = today ? OPEN === id : EXOPEN === h.key;
   const [label, cls] = ZONE[h.zone], strong = h.zone.startsWith('extreme'), hot = h.zone !== 'quiet';
-  const color = strong ? '#FF4D4F' : hot ? '#F5C518' : '#4673FF';
+  const color = strong ? '#FF4D4F' : hot ? '#F5C518' : '#8a8a96';
   return `<div class="ind${hot ? ' ext' + (strong ? '' : ' stretched') : ''}${open ? ' open' : ''}" ${today ? `data-cid="${id}"` : `data-ex="${h.key}"`} id="ex-${uid(cid, h.key)}">
     ${open ? xBtn(today ? 'openCard(null)' : 'openEx(null)') : ''}
     <div class="nm"><span>${esc(h.name)}</span><span class="small">${esc(fdate(h.date, hubMo(h)))}</span></div>
@@ -452,7 +456,7 @@ async function drawExDetail(key, cid){
   if (h.sides !== 'high') refs.push({y: h.p5, label: 'bottom 5%', color: '#FF4D4F'});
   if (h.sides !== 'low') refs.push({y: h.p95, label: 'top 5%', color: '#FF4D4F'});
   lineChart(el, {from, to: end, monthly: hubMo(h),
-    series: [{pts: pts.filter(p => pdate(p[0]).getTime() >= from), color: '#4673FF', fmt: v => fmtVal(h, v)}], refs});
+    series: [{pts: pts.filter(p => pdate(p[0]).getTime() >= from), color: LINE, fmt: v => fmtVal(h, v)}], refs});
 }
 function setExRange(cid, key, r){
   EXRANGE[key] = r;
@@ -479,13 +483,6 @@ function renderExtremes(){
   h += `<div class="small" style="margin-top:10px">${EX.items.length} indicators tracked, the most important for stock investing first. An <b>extreme</b> is the outer ${EX.limits.extreme}% of an indicator's own history (on either side), <b>stretched</b> the outer ${EX.limits.stretched}%. Extremes say "unusual — look closely", not "buy" or "sell". Extreme alerts by email are <b>${EX.alertsOn ? 'on' : 'off'}</b> (Alerts tab).</div></div>`;
   h += `<div class="chips"><button class="${EXCAT === 'all' ? 'on' : ''}" onclick="setExCat('all')">All</button>${EX.cats.map(c => `<button class="${EXCAT === c.id ? 'on' : ''}" onclick="setExCat('${c.id}')">${esc(c.title)}</button>`).join('')}</div>`;
   const cat = EX.cats.find(c => c.id === EXCAT); if (cat) h += `<div class="muted">${esc(cat.intro)}</div>`;
-  const pinned = DEF_KEYS.map(k => EX.items.find(x => x.key === k)).filter(Boolean).sort(byRank);
-  const pinMiss = EX.missing.filter(m => DEF_KEYS.includes(m.key));
-  if ((EXCAT === 'all' || EXCAT === 'credit') && (pinned.length || pinMiss.length)){
-    h += `<h2>Loan defaults</h2><div class="muted">How much US bank lending is not being paid back — always shown. <b>Late</b> = 30 or more days behind. <b>Write-off</b> = the bank gave up and booked the loan as lost (a real default). Quarterly Federal Reserve data for all US commercial banks, published about two months after each quarter. Rising late payments warn that households or companies are under pressure and that banks will lend less; write-offs peak during or just after recessions.</div>`;
-    h += pinned.length ? `<div class="grid">${pinned.map(x => exCardHTML(x)).join('')}</div>` : '';
-    if (pinMiss.length) h += `<p class="small" style="margin-top:8px">⚠ No data yet for: ${pinMiss.map(m => esc(m.name) + ' (' + esc(m.error) + ')').join('; ')}.</p>`;
-  }
   h += `<h2>At or near an extreme</h2>` + (vis.length ? `<div class="grid">${vis.map(x => exCardHTML(x)).join('')}</div>` : `<div class="muted">Nothing here is at or near an extreme right now.</div>`);
   if (quiet.length) h += `<details class="quiet" ${QUIET_OPEN ? 'open' : ''} ontoggle="QUIET_OPEN=this.open"><summary>Normal range — ${quiet.length} indicator${quiet.length > 1 ? 's' : ''} with nothing to see</summary>${quiet.map(exRowHTML).join('')}</details>`;
   const miss = EX.missing.filter(m => !DEF_KEYS.includes(m.key) && (EXCAT === 'all' || m.cat === EXCAT));

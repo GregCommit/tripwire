@@ -526,31 +526,31 @@ HUB = [
          why="Rises when unemployment's 3-month average is above its 12-month low. A reading of 0.5 or more has signalled the start of every US recession since 1970.",
          high="Unemployment is rising fast enough that, historically, the economy was already in a recession. Check the news: is it real or a distortion?",
          low=""),
-    dict(key="DEL_CONS", name="Late payments: consumer loans", cat="credit", kind="fred", sym="DRCLACBS", start="1987-01-01",
-         unit="%", dec=2, freq="quarterly",
-         why="Share of all consumer loans at US banks (credit cards, car loans, personal loans) where the borrower is 30 or more days behind, seasonally adjusted. Federal Reserve data, published about two months after each quarter ends.",
-         high="Households are falling behind on payments much more than usual. This usually follows job losses or squeezed budgets, and it makes banks lend less — which slows spending and the economy.",
-         low="Households are paying on time more than almost ever. Good news for banks and spending — but lenders tend to be most relaxed (and defaults most surprising) at exactly this point of the cycle."),
-    dict(key="DEL_CARD", name="Late payments: credit cards", cat="credit", kind="fred", sym="DRCCLACBS", start="1987-01-01",
-         unit="%", dec=2, freq="quarterly",
-         why="Share of credit-card balances at US banks that are 30 or more days overdue, seasonally adjusted. Credit cards are the first loan people stop paying when money gets tight, so this moves before other consumer loans do.",
-         high="Cardholders are struggling to keep up. It is an early sign of stressed households, and a high reading rarely comes alone: it usually travels with weak jobs or a squeeze from high interest rates.",
-         low="Very few cardholders are behind. Households are healthy, and spending is well supported."),
-    dict(key="CO_CARD", name="Write-offs: credit cards (defaulted)", cat="credit", kind="fred", sym="CORCCACBS", start="1987-01-01",
-         unit="%", dec=2, freq="quarterly",
-         why="Share of credit-card balances that banks gave up on and wrote off as lost during the quarter (annualised, seasonally adjusted). This is real default, not just lateness.",
-         high="Banks are writing off an unusually large share of card debt as lost. Banks then tighten their lending and raise their prices, which cools spending.",
-         low="Banks are writing off very little. Households are in good shape, and lending standards are relaxed."),
-    dict(key="DEL_BUS", name="Late payments: business loans", cat="credit", kind="fred", sym="DRBLACBS", start="1987-01-01",
-         unit="%", dec=2, freq="quarterly",
-         why="Share of business loans at US banks (commercial and industrial, and commercial property) that are 30 or more days overdue, seasonally adjusted. It reacts later than consumer loans, because companies hold out longer before they miss a payment.",
-         high="Companies are falling behind on their loans. That usually comes with falling profits, and banks respond by lending less to businesses — which hurts hiring and investment and can turn a slowdown into a recession.",
-         low="Companies are paying on time almost without exception. Profits and credit conditions are healthy — though that is also the point where lending standards are loosest."),
-    dict(key="CO_BUS", name="Write-offs: business loans (defaulted)", cat="credit", kind="fred", sym="CORBLACBS", start="1987-01-01",
-         unit="%", dec=2, freq="quarterly",
-         why="Share of business loans banks gave up on and wrote off as lost during the quarter (annualised, seasonally adjusted). The clearest measure of companies actually defaulting.",
-         high="Banks are losing real money on business loans. Write-offs peak during or just after recessions, so a rise means the damage is already happening in the economy.",
-         low="Business defaults are very rare. Corporate health is strong."),
+    dict(key="CCC", name="Weakest junk bonds: extra interest (CCC)", cat="credit", kind="fred", sym="BAMLH0A3HYC", unit=" pt", dec=2,
+         freq="daily",
+         why="Extra interest the riskiest companies (rated CCC and below) pay over the government, updated daily. These weakest borrowers default first, so their spread widens months before defaults show up in bank statistics — it is an early warning, not a report on the past.",
+         high="Lenders are afraid the weakest companies will not pay back. Defaults usually rise within months, and stocks tend to fall with it.",
+         low="Lenders are relaxed even about the weakest borrowers. Money is easy, which also means little cushion if sentiment turns."),
+    dict(key="ICSA", name="New jobless claims (weekly)", cat="credit", kind="fred", sym="ICSA", start="1967-01-01", unit="", dec=0,
+         freq="weekly",
+         why="How many Americans filed for unemployment benefits for the first time last week, published every Thursday. People who lose their job fall behind on their loans a few months later, so claims lead household loan defaults.",
+         high="Layoffs are rising fast. Household incomes — and soon their ability to pay loans — are under pressure, which usually precedes more defaults and weaker spending.",
+         low="Very few layoffs: households' incomes are secure, so loan defaults should stay low."),
+    dict(key="SLOOS_CARD", name="Banks tightening credit-card lending", cat="credit", kind="fred", sym="DRTSCLCC", start="1990-01-01",
+         unit="%", dec=0, freq="quarterly", signed=True,
+         why="Share of US banks tightening their standards for credit cards, minus the share loosening (Federal Reserve survey of loan officers, quarterly). Banks see their customers' problems first and react by lending less — which slows spending and often comes before more defaults.",
+         high="Many banks are making it harder to borrow on cards: they expect more households to struggle. Spending usually slows afterwards.",
+         low="Banks are loosening: they feel confident about households' ability to pay."),
+    dict(key="SLOOS_BUS", name="Banks tightening business lending", cat="credit", kind="fred", sym="DRTSCILM", start="1990-01-01",
+         unit="%", dec=0, freq="quarterly", signed=True,
+         why="Share of US banks tightening their standards for loans to medium and large companies, minus the share loosening (Federal Reserve survey, quarterly). Tighter lending starves companies of money, so it leads slower hiring and investment, and often recessions.",
+         high="Banks are clamping down on business loans — historically a reliable warning that a slowdown or recession is coming.",
+         low="Banks are loosening: credit is flowing to companies, which supports growth."),
+    dict(key="STLFSI", name="Financial stress (St. Louis Fed)", cat="credit", kind="fred", sym="STLFSI4", start="1993-01-01", unit="", dec=2,
+         freq="weekly", signed=True,
+         why="Index of 18 weekly market measures (interest rates, spreads, volatility). Zero is average stress; above zero is more stress than usual.",
+         high="Financial markets are under unusual stress — typical of crises, when borrowers struggle and lenders pull back.",
+         low="Very little stress in the financial system: money is easy and conditions are calm."),
     dict(key="US10Y_L", name="US 10-year yield", cat="credit", kind="fred", sym="DGS10", start="1962-01-01", unit="%",
          dec=2, freq="daily",
          why="The benchmark long-term borrowing cost.",
@@ -759,13 +759,13 @@ WEIGHT = {
     "US2Y": 4, "US1Y": 3, "CURVE": 4, "MORT30": 2, "FEDFUNDS": 4, "DXY": 4, "USCPI": 4, "REAL10": 4, "HYSPREAD": 4.5,
     "GOLD": 3, "SILVER": 2, "COPPER": 3.5, "CUAU": 3.5, "GSR": 2, "WTI": 3.5, "BRENT": 3, "NATGAS": 2,
     "USDJPY": 4.5, "GAP": 4, "JP10Y": 3.5, "BOJRATE": 3, "JPCPI": 3, "NIKKEI200": 3,
-    "NFCI": 3.5, "SAHM": 4, "UMCSENT": 2.5, "DEL_CONS": 3, "DEL_CARD": 3, "CO_CARD": 3, "DEL_BUS": 3, "CO_BUS": 3,
+    "NFCI": 3.5, "SAHM": 4, "UMCSENT": 2.5, "CCC": 4, "ICSA": 3.5, "SLOOS_CARD": 3, "SLOOS_BUS": 3, "STLFSI": 3,
     "BUFFETT": 3.5, "CAPE": 3.5, "ERP": 3.5, "SPX200": 3,
 }
 SPECIAL_Z = 2.0
 # Is a rise good (+1) or bad (-1) for stock investors? 0 = no clear good or bad (shown in white, never green/red).
 GOOD = {"SPX": 1, "IXIC": 1, "DJI": 1, "RUT": 1, "VIX": -1, "VOLRATIO": -1, "HYSPREAD": -1, "MORT30": -1, "REAL10": -1, "USCPI": -1,
-        "NFCI": -1, "SAHM": -1, "UMCSENT": 1, "DEL_CONS": -1, "DEL_CARD": -1, "CO_CARD": -1, "DEL_BUS": -1, "CO_BUS": -1}
+        "NFCI": -1, "SAHM": -1, "UMCSENT": 1, "CCC": -1, "ICSA": -1, "SLOOS_CARD": -1, "SLOOS_BUS": -1, "STLFSI": -1}
 HORIZON = {"daily": ("today", "this week", "this month"), "weekly": ("this week", "this week", "this month"),
            "monthly": ("this month", None, None), "quarterly": ("this quarter", None, None)}
 STEPS = {"daily": (1, 5, 21), "weekly": (1, 1, 4), "monthly": (1, None, None), "quarterly": (1, None, None)}
@@ -815,9 +815,9 @@ CLUSTERS = [
     dict(id="japan", title="Yen, Japan & the carry trade",
          intro="Traders borrow cheap yen to buy higher-yielding assets. When the yen jumps, they must buy yen back, selling stocks everywhere.",
          main=["USDJPY", "GAP", "JP10Y", "BOJRATE", "JPCPI", "NIKKEI200"], context=["US10Y", "US2Y"]),
-    dict(id="credit", title="Credit, jobs & loan defaults",
-         intro="Are borrowers paying their loans? Credit stress shows up here first, long before it reaches stock prices.",
-         main=["HYSPREAD", "NFCI", "SAHM", "UMCSENT", "DEL_CONS", "DEL_CARD", "CO_CARD", "DEL_BUS", "CO_BUS"], context=["US10Y", "CURVE"]),
+    dict(id="credit", title="Credit, jobs & defaults ahead",
+         intro="Will borrowers keep paying their loans? These react before defaults appear in bank statistics: the weakest bonds, layoffs, and banks tightening their lending.",
+         main=["HYSPREAD", "CCC", "ICSA", "SLOOS_CARD", "SLOOS_BUS", "STLFSI", "NFCI", "SAHM", "UMCSENT"], context=["US10Y", "CURVE"]),
     dict(id="energy", title="Oil & energy",
          intro="Oil drives inflation and, through inflation, interest rates; the dollar and oil usually move in opposite directions.",
          main=["WTI", "BRENT", "NATGAS"], context=["DXY", "USCPI"]),
@@ -1003,9 +1003,21 @@ def drivers(cid, items, main=None):
     elif cid == "credit":
         if sg("HYSPREAD"):
             out.append(f"Junk-bond spreads {'widened' if sg('HYSPREAD') > 0 else 'narrowed'} ({mv('HYSPREAD')} {hz}): " + ("lenders are asking more from risky companies — a stress signal that usually leads stock falls." if sg("HYSPREAD") > 0 else "lenders are relaxing — supportive for stocks."))
-        if sg("NFCI") > 0:
-            out.append("Financial conditions tightened: credit is getting harder to get.")
-        out.append("Loan-default and write-off figures are quarterly and change slowly: they confirm a trend after it has started, they do not start one.")
+        if sg("CCC") > 0:
+            out.append(f"The weakest borrowers' spread widened ({mv('CCC')}): they default first, so defaults tend to follow within months.")
+        elif sg("CCC") < 0:
+            out.append(f"The weakest borrowers' spread narrowed ({mv('CCC')}): fear of defaults is easing.")
+        if sg("ICSA") > 0:
+            out.append(f"Jobless claims rose ({mv('ICSA')}). People who lose their job fall behind on loans a few months later, so rising claims point to more household defaults and weaker spending.")
+        elif sg("ICSA") < 0:
+            out.append(f"Jobless claims fell ({mv('ICSA')}): fewer layoffs, so household loan defaults should stay low.")
+        if sg("NFCI") > 0 or sg("STLFSI") > 0:
+            out.append("Financial conditions tightened: credit is getting harder and more expensive to get.")
+        sc, sb = val("SLOOS_CARD"), val("SLOOS_BUS")
+        if sc is not None and sc > 20:
+            out.append(f"{sc:.0f}% net of banks are tightening credit-card lending (quarterly survey): they see their customers struggle, and spending usually slows afterwards.")
+        if sb is not None and sb > 20:
+            out.append(f"{sb:.0f}% net of banks are tightening business lending (quarterly survey): historically a reliable warning of a slowdown.")
     elif cid == "energy":
         w = sg("WTI") or sg("BRENT")
         if w:
