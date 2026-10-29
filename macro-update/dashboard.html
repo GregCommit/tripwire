@@ -44,6 +44,9 @@ h2+.muted{margin-bottom:10px}
 .chart{position:relative;width:100%;touch-action:pan-y}
 .chart svg{display:block;width:100%}
 .tip{position:absolute;top:0;pointer-events:none;background:#0A0C12ee;border:1px solid var(--line2);border-radius:8px;padding:4px 8px;font-size:12px;white-space:nowrap;display:none;font-variant-numeric:tabular-nums}
+.xbtn{position:absolute;top:8px;right:8px;width:30px;height:30px;border-radius:50%;background:var(--card2);border:1px solid var(--line2);color:var(--mute);font-size:14px;line-height:1;cursor:pointer;display:grid;place-items:center;z-index:2;padding:0}
+.xbtn:hover{color:var(--txt);border-color:var(--accent)}
+.ind.open,.qopen{position:relative}.ind.open .nm{padding-right:38px}.qopen .qrow{padding-right:38px}
 .close{float:right;background:none;border:none;color:var(--mute);font-size:13px;cursor:pointer;padding:2px 0 8px 10px}
 .parts{display:grid;gap:8px;margin:10px 0}
 .part{display:grid;grid-template-columns:130px 1fr 36px;gap:10px;align-items:center;font-size:13px}
@@ -224,6 +227,7 @@ function cardHTML(s){
   const color = s.tone === 'alert' ? '#F472B6' : s.tone === 'watch' ? '#F59E0B' : '#818CF8';
   const lbl1 = s.freq === 'monthly' ? 'vs prior month' : s.freq === 'weekly' ? 'Week' : 'Day';
   return `<div class="ind${OPEN === s.key ? ' open' : ''}" data-key="${s.key}" id="card-${s.key}">
+    ${OPEN === s.key ? '<button class="xbtn" type="button" aria-label="Close" title="Close" onclick="event.stopPropagation();openCard(null)">✕</button>' : ''}
     <div class="nm"><span>${esc(s.name)}</span><span class="small">${esc(fdate(s.date, !daily))}</span></div>
     <div class="val">${esc(fmtVal(s, s.value))}</div>
     <span class="chip ${toneWord[s.tone]}">${esc(s.reading)}</span>
@@ -352,6 +356,7 @@ function exCardHTML(h){
   const [label, cls] = ZONE[h.zone], open = EXOPEN === h.key, strong = h.zone.startsWith('extreme');
   const color = strong ? '#F472B6' : '#F59E0B';
   return `<div class="ind ext${strong ? '' : ' stretched'}${open ? ' open' : ''}" data-ex="${h.key}" id="ex-${h.key}">
+    ${open ? '<button class="xbtn" type="button" aria-label="Close" title="Close" onclick="event.stopPropagation();openEx(null)">✕</button>' : ''}
     <div class="nm"><span>${esc(h.name)}</span><span class="small">${esc(fdate(h.date, h.freq === 'monthly' || h.freq === 'quarterly'))}</span></div>
     <div class="val">${esc(fmtVal(h, h.value))}</div>
     <span class="chip ${cls}">${label}</span><span class="small" style="margin-left:6px">${ordinal(h.pct)} percentile</span>${localBadge(h)}
@@ -362,7 +367,7 @@ function exCardHTML(h){
 }
 function exRowHTML(h){
   const open = EXOPEN === h.key;
-  return `<div class="${open ? 'qopen' : ''}" id="ex-${h.key}" data-ex="${h.key}"><div class="qrow"><span class="qn">${esc(h.name)}${localBadge(h)}</span><span class="qp">${pbar(h, true)}</span><span class="qv">${esc(fmtVal(h, h.value))}</span></div>${open ? exDetailHTML(h) : ''}</div>`;
+  return `<div class="${open ? 'qopen' : ''}" id="ex-${h.key}" data-ex="${h.key}">${open ? '<button class="xbtn" type="button" aria-label="Close" title="Close" onclick="event.stopPropagation();openEx(null)">✕</button>' : ''}<div class="qrow"><span class="qn">${esc(h.name)}${localBadge(h)}</span><span class="qp">${pbar(h, true)}</span><span class="qv">${esc(fmtVal(h, h.value))}</span></div>${open ? exDetailHTML(h) : ''}</div>`;
 }
 function exDetailHTML(h){
   const r = EXRANGE[h.key] || 'Max';
@@ -388,11 +393,25 @@ async function drawExDetail(key){
 }
 function setExRange(key, r){ EXRANGE[key] = r; document.querySelectorAll(`#ex-${key} .ranges button`).forEach(b => b.classList.toggle('on', b.textContent === r)); drawExDetail(key); track('Extreme range ' + key + ' ' + r); }
 function openEx(key){
+  const it = EX?.items.find(x => x.key === key);
+  if (it && it.zone === 'quiet') QUIET_OPEN = true;      // the row lives in the collapsed list
   EXOPEN = key; renderExtremes();
   if (key){ drawExDetail(key); setTimeout(() => $('ex-' + key)?.scrollIntoView({behavior:'smooth', block:'nearest'}), 50); track('Opened extreme ' + key); }
 }
 function goExtreme(key){ EXCAT = 'all'; showTab('extremes'); EXOPEN = key; renderExtremes(); drawExDetail(key); }
 function setExCat(c){ EXCAT = c; renderExtremes(); }
+const DEF_KEYS = ['DEL_CONS', 'DEL_CARD', 'CO_CARD', 'DEL_BUS', 'CO_BUS'];
+function defaultsHTML(){
+  const rows = DEF_KEYS.map(k => EX.items.find(x => x.key === k)).filter(Boolean);
+  const missing = EX.missing.filter(m => DEF_KEYS.includes(m.key));
+  if (!rows.length && !missing.length) return '';
+  const tbl = rows.length ? `<div style="overflow-x:auto"><table style="margin-top:8px"><tr><th>Loans</th><th>Now</th><th>Year ago</th><th>Typical</th><th>Compared with history</th></tr>` + rows.map(h => {
+    const [label, cls] = ZONE[h.zone], mo = h.freq === 'monthly' || h.freq === 'quarterly';
+    return `<tr style="cursor:pointer" onclick="EXCAT='all';openEx('${h.key}')"><td>${esc(h.name)}<div class="small">${esc(fdate(h.date, mo))}</div></td><td><b>${esc(fmtVal(h, h.value))}</b></td><td>${h.y1 === null || h.y1 === undefined ? '—' : esc(fmtVal(h, h.y1))}</td><td>${esc(fmtVal(h, h.median))}</td><td><span class="chip ${cls}">${label}</span> <span class="small">${ordinal(h.pct)} pct.</span></td></tr>`; }).join('') + `</table></div>` : '';
+  return `<div class="card"><b>Loan defaults right now</b><p class="muted" style="margin:4px 0 0">How much US bank lending is not being paid back. <b>Late</b> = the borrower is 30 or more days behind. <b>Write-off</b> = the bank gave up and booked the loan as lost (a real default). Always shown, extreme or not; tap a row for the full history.</p>${tbl}
+    ${missing.length ? `<p class="small" style="margin-top:8px">⚠ No data yet for: ${missing.map(m => esc(m.name) + ' (' + esc(m.error) + ')').join('; ')}.</p>` : ''}
+    <p class="small" style="margin-top:8px">Federal Reserve figures for all US commercial banks, quarterly (published about two months after each quarter), seasonally adjusted, since 1987. "Typical" is the median of that history. Rising late payments warn that households or companies are under pressure and that banks will lend less; write-offs peak during or just after recessions.</p></div>`;
+}
 function renderExtremes(){
   if (!EX) return;
   const inCat = h => EXCAT === 'all' || h.cat === EXCAT;
@@ -401,6 +420,7 @@ function renderExtremes(){
   let h = `<div class="card"><div class="answer" style="color:${strong.length ? 'var(--alert)' : hot.length ? 'var(--watch)' : 'var(--calm)'}">${strong.length ? '●' : hot.length ? '◐' : '✓'} ${strong.length ? strong.length + ' indicator' + (strong.length > 1 ? 's' : '') + ' at an extreme' : hot.length ? 'Nothing at an extreme — ' + hot.length + ' stretched' : 'Nothing at an extreme — all indicators in their normal range'}</div>`;
   if (strong.length) h += `<ul class="list" style="margin-top:8px">${strong.map(x => `<li><button class="link" onclick="openEx('${x.key}')">${esc(x.name)}: ${ZONE[x.zone][0].toLowerCase()} — ${esc(sinceText(x))} ›</button></li>`).join('')}</ul>`;
   h += `<div class="small" style="margin-top:10px">${EX.items.length} indicators tracked. An <b>extreme</b> is the outer ${EX.limits.extreme}% of an indicator's own history (on either side), <b>stretched</b> the outer ${EX.limits.stretched}%. Extremes say "unusual — look closely", not "buy" or "sell". Extreme alerts by email are <b>${EX.alertsOn ? 'on' : 'off'}</b> (Alerts tab).</div></div>`;
+  h += defaultsHTML();
   h += `<div class="chips"><button class="${EXCAT === 'all' ? 'on' : ''}" onclick="setExCat('all')">All</button>${EX.cats.map(c => `<button class="${EXCAT === c.id ? 'on' : ''}" onclick="setExCat('${c.id}')">${esc(c.title)}</button>`).join('')}</div>`;
   const cat = EX.cats.find(c => c.id === EXCAT); if (cat) h += `<div class="muted">${esc(cat.intro)}</div>`;
   h += `<h2>At or near an extreme</h2>` + (vis.length ? `<div class="grid">${vis.map(exCardHTML).join('')}</div>` : `<div class="muted">Nothing here is at or near an extreme right now.</div>`);
