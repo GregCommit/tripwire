@@ -53,6 +53,32 @@ h2+.muted{margin-bottom:10px}
 .drv{background:var(--card2);border:1px solid var(--line2);border-left:3px solid #5b5b66;border-radius:6px;padding:12px 14px;margin:10px 0 12px}
 .drvh{font-weight:600;font-size:14px}.drvt{font-size:14px;color:var(--txt);margin-top:4px}
 .drv ul{padding-left:18px;margin:6px 0}.drv li{font-size:14px;line-height:1.5;color:var(--txt);margin:5px 0}
+.exsum{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:16px 18px;margin-bottom:14px}
+.exsumh{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
+.exsumt{font-size:15px;line-height:1.55;margin-top:6px}
+.mapnews{grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-top:38px;position:relative;z-index:2}
+.mapnews .ncard{flex:none;position:relative}
+.ncard.new{border-color:var(--alert)}
+.newtag{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.06em;background:var(--alert);color:#fff;padding:1px 6px;border-radius:2px;margin-bottom:6px}
+.gwhy{margin-top:14px}.gwhy>summary{cursor:pointer;color:var(--mute);font-size:14px;padding:6px 0}.gwhy ul{padding-left:18px;margin-top:6px}.gwhy li{font-size:13.5px;line-height:1.5;color:var(--mute);margin:5px 0}
+.gcap{margin:2px 2px 12px;font-size:13px;color:var(--mute);line-height:1.6}.gcap b{color:var(--txt)}
+.lg{display:inline-flex;align-items:center;gap:6px;margin-left:14px;font-size:12px;color:var(--dim)}
+@media (max-width:700px){.lg{display:flex;margin:4px 0 0}.gcap{overflow-wrap:anywhere}}
+.lg i{display:inline-block;width:18px;height:2px}.lg i.dash{border-top:2px dashed var(--watch);height:0}
+.gwrap{position:relative;border:1px solid var(--line);border-radius:6px;background:var(--card);overflow:hidden}
+.glines{position:absolute;left:0;top:0;pointer-events:none}
+.gl{transition:opacity .2s}.gl.dim{opacity:.1}
+.gnode{position:absolute;border:1px solid var(--line2);border-radius:6px;background:#0d0d10;padding:10px 12px;cursor:pointer;overflow:hidden;transition:opacity .2s,border-color .2s}
+.gnode:hover{border-color:#8a8a96}.gnode.ex{border-color:var(--alert)}.gnode.wa{border-color:var(--watch)}
+.gn{font-size:12.5px;color:var(--mute);line-height:1.25;max-height:32px;overflow:hidden}.gnode.big .gn{color:var(--txt);font-size:13.5px}
+.gv{font-size:17px;font-weight:500;margin-top:4px;font-variant-numeric:tabular-nums;line-height:1.2}.gnum{white-space:nowrap}.gh{font-size:11px;color:var(--mute);margin-left:4px;font-weight:400}
+.gs{font-size:12px;color:var(--dim);margin-top:2px}
+.gdot{position:absolute;top:8px;right:8px;width:9px;height:9px;border-radius:50%;background:var(--alert)}
+.gnews{position:absolute;display:block;border:1px dashed #3a3a44;border-radius:6px;background:#08080a;padding:9px 11px;text-decoration:none;color:var(--txt);overflow:hidden;transition:opacity .2s}
+.gnews:hover{border-color:#8a8a96}.gnews .gt{font-size:12.5px;line-height:1.35;max-height:50px;overflow:hidden}.gnews .gm{font-size:11px;color:var(--dim);margin-top:4px}
+.gnode.dim,.gnews.dim{opacity:.22}
+.gtag{display:inline-block;font-size:9.5px;letter-spacing:.05em;padding:0 5px;border-radius:2px;border:1px solid;margin-left:6px;vertical-align:1px}
+.gtag.up{color:var(--txt);border-color:var(--dim)}.gtag.low{color:var(--watch);border-color:var(--watch)}
 .ctxhead{margin:14px 0 6px}
 .tiles-head{margin:2px 0 10px}.tlabel{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
 .tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-bottom:8px}
@@ -146,9 +172,10 @@ details.quiet{margin-top:18px}details.quiet>summary{cursor:pointer;color:var(--m
 </style></head><body>
 <div id="top"><div id="logo"><svg width="26" height="18" viewBox="0 0 26 18"><polyline points="1,10 7,10 10,3 14,15 17,8 19,10 25,10" fill="none" stroke="#4673FF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Macro Watch</div>
 <div id="topRight"><span id="upd"></span><a href="/logout">Log out</a></div></div>
-<div id="tabs"><button class="tab on" data-t="today">Today</button><button class="tab" data-t="extremes">Extremes</button><button class="tab" data-t="alerts">Alerts</button><button class="tab" data-t="guide">Guide</button></div>
+<div id="tabs"><button class="tab on" data-t="today">Today</button><button class="tab" data-t="overview">Overview</button><button class="tab" data-t="extremes">Extremes</button><button class="tab" data-t="alerts">Alerts</button><button class="tab" data-t="guide">Guide</button></div>
 <main>
 <section id="pane-today"><div id="today">Loading…</div></section>
+<section id="pane-overview" hidden><div id="overview">Loading…</div></section>
 <section id="pane-extremes" hidden><div id="extremes">Loading…</div>
 <div style="margin-top:22px"><button class="btn" id="japanBtn" onclick="toggleJapan()">Yen carry trade in detail ▾</button><div id="japan" hidden style="margin-top:12px"></div></div></section>
 <section id="pane-alerts" hidden><div id="alerts">Loading…</div></section>
@@ -158,6 +185,7 @@ details.quiet{margin-top:18px}details.quiet>summary{cursor:pointer;color:var(--m
 <p>It does not tell you to buy or sell anything. It is context for your own decisions.</p>
 <h3>What — the screens</h3>
 <ul><li><b>Today</b>: the answer first, then <b>groups of indicators that belong together</b> — US bonds, rates &amp; the dollar; gold, silver &amp; Dr. Copper; stocks &amp; investor mood; the yen carry trade; credit, jobs &amp; defaults ahead; oil; valuation. The most special group is at the top, and inside a group the most special indicator comes first. "Special" means a move far larger than usual over the last day, week or month, or a place at the edge of its own history — weighted by how much that indicator matters for stock investing. Every card says in plain words <b>what it says</b>. Each group has a box <b>"What is moving this group?"</b> that explains the unusual moves with the usual links between these markets (for example: gold falls when real yields and the dollar rise). That box is worked out from the numbers, not from news headlines. The small <b>?</b> on a card turns into a red <b>!</b> when there is a headline about it that you have not opened yet. Tap a card for a bigger chart; close it with the ✕ at its top right.</li>
+<li><b>Overview</b>: one map of everything that matters right now. The most important indicators are boxes, the links between them are lines, and the headlines about them hang on those boxes. It ranks on purpose and leaves the rest out. Things that usually move together and both are far out <b>reinforce</b> each other (white line); if one moves and its usual partner does not follow (yellow dashed line), the link is weaker than usual and <b>both count for less</b>. Tap a box to see how it is connected.</li>
 <li><b>Extremes</b>: indicators that only matter when they are far out on one side of their own history — the yen carry trade (USD/JPY, the US–Japan yield gap, Japan's yields), the Buffett indicator, Shiller P/E, credit spreads, the yield curve, the VIX and more. Each sits on a 0–100 scale (its percentile against all the history we have). The outer 5% on either side is an <b>extreme</b> (red), the outer 10% is <b>stretched</b> (amber); everything else is "normal range" and tucked away. Open "Yen carry trade in detail" at the bottom for USD/JPY, the interest gap and Japan's inflation with the Bank of Japan's forecasts.</li>
 <li><b>Alerts</b>: your levels (e.g. "USD/JPY above 160"), the email setup, the on/off switch for extreme alerts, and the history of every alert.</li></ul>
 <h3>About extremes — please read</h3>
@@ -478,7 +506,7 @@ async function renderJapan(){
 }
 
 // ── "How is this connected?" ──────────────────────────────────────────────
-let EXPL = null, EXSTACK = [], EXPL_SCROLL = 0;
+let EXPL = null, EXSTACK = [], EXPL_SCROLL = 0, EXPL_ORIGIN = null, EXPL_NEW = new Set();
 const REDUCED = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const SEEN = (() => { try { return new Set(JSON.parse(localStorage.getItem('macroSeen') || '[]')); } catch (e) { return new Set(); } })();
 function markSeen(hs){ hs.forEach(h => SEEN.add(h)); try { localStorage.setItem('macroSeen', JSON.stringify([...SEEN].slice(-400))); } catch (e) {} }
@@ -496,31 +524,33 @@ function miniHTML(s){
     <div class="val">${esc(fmtVal(s, s.value))}</div>${chipOf(s)}${badge(s)}
     <div class="chg">${chgRow(s)}</div>${sparkSVG(s.spark, sparkColor(s))}</div>`;
 }
-const REL_LABEL = {asusual: ['AS USUAL', ''], against: ['AGAINST THE USUAL LINK', 'warn'], other: ['OTHER CAUSE', 'warn'], noreact: ['NOT REACTING YET', 'warn'], quiet: ['QUIET', '']};
+const REL_LABEL = {asusual: ['AS USUAL', ''], against: ['AGAINST THE USUAL LINK', 'warn'], other: ['OTHER CAUSE', 'warn'], noreact: ['NOT FOLLOWING', 'warn'], quiet: ['QUIET', '']};
 function relNode(l, other, side, i){
   const [label, cls] = REL_LABEL[l.status];
-  return `<div class="relnode" data-side="${side}" data-i="${i}" data-status="${l.status}"><div class="relhead"><span class="reltag ${cls}">${label}</span><span class="small">${esc(l.modeText)}</span></div>
+  return `<div class="relnode" data-side="${side}" data-i="${i}" data-key="${other.key}" data-status="${l.status}"><div class="relhead"><span class="reltag ${cls}">${label}</span><span class="small">${esc(l.modeText)}</span></div>
     ${miniHTML(other)}<div class="reltext">${esc(l.why)}</div><div class="relnote">${esc(l.note)}</div></div>`;
 }
-function newsCards(E){
-  const st = E.newsStatus;
-  const status = !st ? 'News has not been fetched yet — the app does this a few minutes after starting.' : `Headlines from ${st.ok} of ${st.total} free news feeds, updated ${ago(st.ts)}.`;
-  const body = E.news.length ? `<div class="newsrow">${E.news.map(n => `<div class="ncard"><a class="ntitle" href="${esc(n.link)}" target="_blank" rel="noopener noreferrer">${esc(n.title)}</a>
-      ${n.summary ? `<div class="nsum">${esc(n.summary)}</div>` : ''}
-      <div class="nmeta">${esc(n.source)} · ${esc(ago(n.ts))}${n.tags.length ? ' · about ' + n.tags.map(esc).join(', ') : ''}</div></div>`).join('')}</div>`
-    : `<div class="muted">No matching headlines in the last few days.</div>`;
-  return `<h2>News that fits</h2><div class="small" style="margin:2px 0 8px">${esc(status)}</div>${body}`;
+function newsCard(n){
+  const isNew = EXPL_NEW.has(n.h);
+  return `<div class="ncard${isNew ? ' new' : ''}" data-keys="${esc((n.keys || []).join(','))}">${isNew ? '<span class="newtag">NEW</span>' : ''}<a class="ntitle" href="${esc(n.link)}" target="_blank" rel="noopener noreferrer">${esc(n.title)}</a>
+    ${n.summary ? `<div class="nsum">${esc(n.summary)}</div>` : ''}<div class="nmeta">${esc(n.source)} · ${esc(ago(n.ts))}${n.tags.length ? ' · about ' + n.tags.map(esc).join(', ') : ''}</div></div>`;
 }
 function renderExplain(){
   const E = EXPL, me = E.items[E.key]; if (!me) return;
   OPEN = 'ex|' + E.key; document.body.classList.add('wide');
   const drv = E.drivers.filter(l => E.items[l.driver]), eff = E.effects.filter(l => E.items[l.affected]);
   const col = (list, key, side) => list.map((l, i) => relNode(l, E.items[l[key]], side, i)).join('') || `<div class="muted emptycol">${side === 'l' ? 'No direct driver is defined.' : 'It does not directly move another indicator here.'}</div>`;
-  $('today').innerHTML = `<div class="exhead"><button class="btn" onclick="closeExplain()">← Back</button><span class="small">How is this connected? Left: what explains it. Right: what it moves.</span></div>
+  const st = E.newsStatus, shown = E.news.slice(0, 4), more = E.news.slice(4);
+  const nNew = E.news.filter(n => EXPL_NEW.has(n.h)).length;
+  const head = EXPL_NEW.size ? `${EXPL_NEW.size} new headline${EXPL_NEW.size > 1 ? 's' : ''} about ${me.name}` : `How ${me.name} is connected`;
+  $('today').innerHTML = `<div class="exhead"><button class="btn" onclick="closeExplain()">← Back</button></div>
+    <div class="exsum"><div class="exsumh">${esc(head)}</div><div class="exsumt">${esc(E.summary)}</div></div>
     <div class="map" id="map"><div class="mapcol l"><div class="maplabel">What explains it</div>${col(drv, 'driver', 'l')}</div>
-    <div class="mapmain" id="mainCard"><div class="grid">${cardHTML(me, 'ex')}</div></div>
-    <div class="mapcol r"><div class="maplabel">What it moves</div>${col(eff, 'affected', 'r')}</div><svg class="maplines" id="maplines"></svg></div>
-    ${newsCards(E)}`;
+    <div class="mapmain" id="mainCard" data-key="${me.key}"><div class="grid">${cardHTML(me, 'ex')}</div></div>
+    <div class="mapcol r"><div class="maplabel">What it moves</div>${col(eff, 'affected', 'r')}</div>
+    ${shown.length ? `<div class="mapnews">${shown.map(newsCard).join('')}</div>` : ''}<svg class="maplines" id="maplines"></svg></div>
+    ${more.length ? `<details class="gwhy"><summary>${more.length} more headline${more.length > 1 ? 's' : ''}</summary><div class="mapnews" style="margin-top:12px">${more.map(newsCard).join('')}</div></details>` : ''}
+    <div class="small" style="margin:14px 0">${!E.news.length ? 'No matching headlines in the last few days. ' : ''}${!st ? 'News has not been fetched yet — the app does this a few minutes after starting.' : `Headlines from ${st.ok} of ${st.total} free news feeds, updated ${ago(st.ts)}.`}</div>`;
   drawOpen();
 }
 function relRect(el, root){ let x = 0, y = 0, e = el; while (e && e !== root){ x += e.offsetLeft; y += e.offsetTop; e = e.offsetParent; } return {x, y, w: el.offsetWidth, h: el.offsetHeight}; }
@@ -528,16 +558,15 @@ function drawLines(animate){
   const map = $('map'), svg = $('maplines'), main = $('mainCard'); if (!map || !svg || !main) return;
   const W = map.offsetWidth, H = map.offsetHeight, m = relRect(main.querySelector('.ind') || main, map), wide = W >= 900;
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.setAttribute('width', W); svg.setAttribute('height', H);
-  let g = `<defs><marker id="arr" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#8a8a96"/></marker>
-    <marker id="arrw" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#F5C518"/></marker></defs>`;
+  let g = `<defs><marker id="arr" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#8a8a96"/></marker>
+    <marker id="arrw" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#F5C518"/></marker></defs>`;
   const groups = {l: [...map.querySelectorAll('.relnode[data-side="l"]')], r: [...map.querySelectorAll('.relnode[data-side="r"]')]};
   for (const side of ['l', 'r']){
     const list = groups[side];
     list.forEach((nd, i) => {
-      const r = relRect(nd.querySelector('.ind'), nd.offsetParent === map ? map : map), n = relRect(nd, map), t = list.length > 1 ? i / (list.length - 1) : 0.5;
+      const t = list.length > 1 ? i / (list.length - 1) : 0.5, n = relRect(nd, map), cardR = relRect(nd.querySelector('.ind'), map);
       const warn = nd.dataset.status !== 'asusual' && nd.dataset.status !== 'quiet';
       let a, b, d;
-      const cardR = relRect(nd.querySelector('.ind'), map);
       if (wide){
         const ay = cardR.y + cardR.h / 2, by = m.y + 40 + t * Math.max(20, m.h - 80);
         a = side === 'l' ? [n.x + n.w, ay] : [m.x + m.w, by]; b = side === 'l' ? [m.x, by] : [n.x, ay];
@@ -550,20 +579,36 @@ function drawLines(animate){
       g += `<path class="mline" d="${d}" pathLength="1" fill="none" stroke="${warn ? '#F5C518' : '#8a8a96'}" stroke-width="1.5" ${warn ? 'stroke-dasharray="0.02 0.012"' : ''} marker-end="url(#${warn ? 'arrw' : 'arr'})"/>`;
     });
   }
+  if (wide) map.querySelectorAll('.mapnews .ncard').forEach(c => {          // headlines are part of the map: dotted lines up to what they are about
+    const keys = (c.dataset.keys || '').split(',').filter(Boolean);
+    for (const k of keys.slice(0, 2)){
+      const target = k === EXPL.key ? main.querySelector('.ind') : map.querySelector(`.relnode[data-key="${k}"] .ind`); if (!target) continue;
+      const a = relRect(c, map), b = relRect(target, map), p = [a.x + a.w / 2, a.y], q = [b.x + b.w / 2, b.y + b.h], dy = Math.abs(p[1] - q[1]) * 0.45;
+      g += `<path class="mline nl" d="M${p[0]},${p[1]} C${p[0]},${p[1] - dy} ${q[0]},${q[1] + dy} ${q[0]},${q[1]}" fill="none" stroke="#5b5b66" stroke-width="1.2" stroke-dasharray="2 4"/>`;
+    }
+  });
   svg.innerHTML = g;
   if (animate && !REDUCED) svg.querySelectorAll('.mline').forEach((p, i) => p.animate([{strokeDashoffset: 1, opacity: 0}, {strokeDashoffset: 0, opacity: 1}], {duration: 650, delay: i * 80, fill: 'backwards', easing: 'ease-out'}));
 }
-function animateOut(src){
-  const vw = innerWidth, els = [...document.querySelectorAll('#today .ind, #today .tile, #today .relnode')].filter(e => e !== src && !e.contains(src) && !src.contains(e));
+const SLIDERS = '#today .ind, #today .tile, #today .relnode, #today .ncard, #overview .gnode, #overview .gnews, #extremes .ind';
+function slideOut(src, ms){
+  const vw = innerWidth, els = [...document.querySelectorAll(SLIDERS)].filter(e => e !== src && !e.contains(src) && !src.contains(e));
   els.forEach((e, i) => { const r = e.getBoundingClientRect(), dir = r.left + r.width / 2 < vw / 2 ? -1 : 1;
     e.animate([{transform: 'none', opacity: 1}, {transform: `translateX(${dir * vw * 0.85}px) rotate(${dir * 3}deg)`, opacity: 0}], {duration: 520, delay: Math.min(i * 14, 220), easing: 'cubic-bezier(.55,0,.85,.4)', fill: 'forwards'}); });
-  document.querySelectorAll('#today h2, #today .muted, #today .drv, #today .card, #today .exhead, #today .maplabel, #today .newsrow, #today .maplines').forEach(e => { if (!e.contains(src)) e.animate([{opacity: 1}, {opacity: 0}], {duration: 260, fill: 'forwards'}); });
-  return new Promise(r => setTimeout(r, 600));
+  document.querySelectorAll('#today h2, #today .muted, #today .drv, #today .card, #today .exhead, #today .exsum, #today .maplabel, #today .mapnews, #today .maplines, #today .tiles-head, #today .levels, #today .calmrow, #overview .gcap, #overview .glines, #overview .gwhy').forEach(e => { if (!e.contains(src)) e.animate([{opacity: 1}, {opacity: 0}], {duration: 260, fill: 'forwards'}); });
+  return new Promise(r => setTimeout(r, ms || 600));
+}
+function slideIn(skip){
+  const vw = innerWidth, els = [...document.querySelectorAll(SLIDERS)].filter(e => e !== skip);
+  els.forEach((e, i) => { const r = e.getBoundingClientRect(), dir = r.left + r.width / 2 < vw / 2 ? -1 : 1;
+    e.animate([{transform: `translateX(${dir * vw * 0.85}px) rotate(${dir * 3}deg)`, opacity: 0}, {transform: 'none', opacity: 1}], {duration: 700, delay: 160 + Math.min(i * 12, 240), easing: 'cubic-bezier(.2,.75,.2,1)', fill: 'backwards'}); });
+  document.querySelectorAll('#today h2, #today .muted, #today .drv, #today .tiles-head, #today .levels, #today .calmrow, #overview .gcap, #overview .glines, #overview .gwhy').forEach(e => e.animate([{opacity: 0}, {opacity: 1}], {duration: 500, delay: 300, fill: 'backwards'}));
 }
 function enterScene(from){
-  const main = $('mainCard'), nodes = [...document.querySelectorAll('#map .relnode')], svg = $('maplines');
+  const main = $('mainCard'), nodes = [...document.querySelectorAll('#map .relnode, #map .ncard')], svg = $('maplines');
   if (!main) return;
   const card = main.querySelector('.ind') || main; nodes.forEach(n => n.style.opacity = 0); if (svg) svg.style.opacity = 0;
+  document.querySelectorAll('#today .exsum').forEach(e => e.style.opacity = 0);
   const to = card.getBoundingClientRect(), vw = innerWidth, vh = innerHeight;
   const sx = Math.max(0.2, from.width / to.width), dx0 = from.left - to.left, dy0 = from.top - to.top;
   const ms = Math.min(0.72, (vh * 0.62) / to.height), mx = vw / 2 - (to.width * ms) / 2 - to.left, my = vh * 0.5 - (to.height * ms) / 2 - to.top;
@@ -572,15 +617,18 @@ function enterScene(from){
                          {duration: 1250, easing: 'cubic-bezier(.45,.05,.2,1)', fill: 'backwards'});
   a.finished.then(() => { card.style.zIndex = ''; card.style.transformOrigin = '';
     if (svg) svg.style.opacity = 1; drawLines(true);
-    nodes.forEach((n, i) => { n.style.opacity = ''; n.animate([{opacity: 0, transform: `translateX(${n.dataset.side === 'l' ? -46 : 46}px) scale(.95)`}, {opacity: 1, transform: 'none'}], {duration: 460, delay: i * 90, easing: 'ease-out', fill: 'backwards'}); });
+    document.querySelectorAll('#today .exsum').forEach(e => { e.style.opacity = ''; e.animate([{opacity: 0, transform: 'translateY(-8px)'}, {opacity: 1, transform: 'none'}], {duration: 420, fill: 'backwards'}); });
+    nodes.forEach((n, i) => { n.style.opacity = ''; const side = n.dataset.side; n.animate([{opacity: 0, transform: side ? `translateX(${side === 'l' ? -46 : 46}px) scale(.95)` : 'translateY(24px)'}, {opacity: 1, transform: 'none'}], {duration: 460, delay: i * 90, easing: 'ease-out', fill: 'backwards'}); });
     drawOpen(); }).catch(() => {});
 }
-async function explain(key, btn){
-  const src = btn ? btn.closest('.ind') : null, from = src ? src.getBoundingClientRect() : null;
-  const animate = !!(src && !REDUCED && (TAB === 'today'));
+async function explain(key, el){
+  const src = el ? (el.closest('.ind') || el.closest('.gnode')) : null, from = src ? src.getBoundingClientRect() : null;
+  const animate = !!(src && !REDUCED);
   try {
-    const [E] = await Promise.all([api('/api/explain/' + key), animate ? animateOut(src) : Promise.resolve()]);
-    if (EXPL) EXSTACK.push(EXPL.key); else { EXPL_SCROLL = window.scrollY; EXSTACK = []; }
+    const [E] = await Promise.all([api('/api/explain/' + key), animate ? slideOut(src) : Promise.resolve()]);
+    if (EXPL) EXSTACK.push(EXPL.key);
+    else { EXPL_SCROLL = window.scrollY; EXSTACK = []; EXPL_ORIGIN = {tab: TAB, key, cid: src && src.dataset ? (src.dataset.cid || null) : null}; }
+    EXPL_NEW = new Set(((OV && OV.newsIdx && OV.newsIdx[key]) || []).filter(h => !SEEN.has(h)));
     EXPL = E; OPEN = null; markSeen((OV && OV.newsIdx && OV.newsIdx[key]) || []);
     if (TAB !== 'today') showTab('today');
     window.scrollTo(0, 0); renderToday();
@@ -588,13 +636,135 @@ async function explain(key, btn){
     track('Explain ' + key);
   } catch (e) { if (e.message !== 'signed out') alert('Could not load the explanation: ' + e.message); }
 }
+function renderOrigin(tab){ if (tab === 'overview') renderOverview(); else if (tab === 'extremes') renderExtremes(); else renderToday(); }
+function findOriginEl(o){
+  if (!o) return null;
+  if (o.tab === 'overview') return document.querySelector(`#overview .gnode[data-key="${o.key}"]`);
+  if (o.tab === 'extremes') return document.querySelector(`#extremes .ind[data-ex="${o.key}"]`) || document.querySelector(`#extremes [data-ex="${o.key}"] .qrow`);
+  return (o.cid && document.querySelector(`#today .ind[data-cid="${o.cid}"]`)) || document.querySelector(`#today .ind[data-cid$="|${o.key}"]`);
+}
+// Back: the big card shrinks to where it came from while everything else slides back to its place
 async function closeExplain(){
-  OPEN = null;
-  if (EXSTACK.length){ const prev = EXSTACK.pop(); try { EXPL = await api('/api/explain/' + prev); renderToday(); window.scrollTo(0, 0); requestAnimationFrame(() => drawLines(true)); return; } catch (e) {} }
-  EXPL = null; document.body.classList.remove('wide'); renderToday(); window.scrollTo(0, EXPL_SCROLL);
-  if (!REDUCED){ const t = $('today'); t.classList.add('sin'); setTimeout(() => t.classList.remove('sin'), 700); }
+  if (EXSTACK.length){ OPEN = null; const prev = EXSTACK.pop(); try { EXPL = await api('/api/explain/' + prev); EXPL_NEW = new Set(); renderToday(); window.scrollTo(0, 0); requestAnimationFrame(() => drawLines(true)); return; } catch (e) {} }
+  const origin = EXPL_ORIGIN || {tab: 'today'}, main = $('mainCard'), card = main && main.querySelector('.ind');
+  let clone = null, from = null;
+  if (!REDUCED && card){
+    from = card.getBoundingClientRect(); clone = card.cloneNode(true);
+    clone.querySelectorAll('[id]').forEach(e => e.removeAttribute('id')); clone.removeAttribute('id');
+    Object.assign(clone.style, {position: 'fixed', left: from.left + 'px', top: from.top + 'px', width: from.width + 'px', height: from.height + 'px', margin: '0', zIndex: '60', transformOrigin: '0 0', pointerEvents: 'none', gridColumn: 'auto'});
+    document.body.appendChild(clone); card.style.visibility = 'hidden';
+    document.querySelectorAll('#today .relnode, #today .ncard, #today .exsum, #today .maplabel, #today .exhead, #today .maplines, #today .gwhy').forEach(e => e.animate([{opacity: 1}, {opacity: 0, transform: 'translateY(10px)'}], {duration: 240, fill: 'forwards'}));
+    await new Promise(r => setTimeout(r, 250));
+  }
+  OPEN = null; EXPL = null; EXSTACK = []; EXPL_NEW = new Set(); document.body.classList.remove('wide');
+  showTab(origin.tab); renderOrigin(origin.tab); if (origin.tab !== 'today') renderToday(); window.scrollTo(0, EXPL_SCROLL || 0);
+  if (clone){
+    const target = findOriginEl(origin), dest = target ? target.getBoundingClientRect() : null;
+    slideIn(target);
+    if (dest){
+      target.animate([{opacity: 0}, {opacity: 0, offset: 0.78}, {opacity: 1}], {duration: 1000, easing: 'linear'});
+      const sx = dest.width / from.width, sy = dest.height / from.height, tr = `translate(${dest.left - from.left}px,${dest.top - from.top}px) scale(${sx},${sy})`;
+      clone.animate([{transform: 'none', opacity: 1}, {transform: tr, opacity: 1, offset: 0.78}, {transform: tr, opacity: 0}], {duration: 1000, easing: 'cubic-bezier(.45,.05,.2,1)'}).finished.then(() => clone.remove()).catch(() => clone.remove());
+    } else clone.animate([{opacity: 1}, {opacity: 0}], {duration: 300}).finished.then(() => clone.remove()).catch(() => clone.remove());
+  }
 }
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && EXPL) closeExplain(); });
+
+// ── Overview: the whole map ───────────────────────────────────────────────
+let GRAPH = null, GSIG = '';
+function hashStr(s){ let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return Math.abs(h); }
+async function loadOverview(force){
+  try {
+    const g = await api('/api/graph?n=' + (innerWidth < 700 ? 10 : 14));
+    const sig = JSON.stringify([g.nodes.map(x => [x.key, Math.round(x.rank)]), g.news.map(x => x.h), g.edges.map(e => e.status)]);
+    if (!force && sig === GSIG && GRAPH) return;
+    GSIG = sig; GRAPH = g; if (TAB === 'overview') renderOverview();
+  } catch (e) { if (e.message !== 'signed out') $('overview').innerHTML = '<div class="card muted">Could not load the overview: ' + esc(e.message) + '</div>'; }
+}
+function layoutGraph(g, W, H){
+  const mobile = W < 700, nw = mobile ? 152 : 182, nh = mobile ? 100 : 94, hw = mobile ? 168 : 214, hh = mobile ? 84 : 80;
+  const items = [...g.nodes.map(n => ({id: n.key, type: 'n', w: nw, h: nh, rank: n.rank})), ...g.news.map(n => ({id: 'h:' + n.h, type: 'h', w: hw, h: hh, rank: 0}))];
+  const idx = Object.fromEntries(items.map((it, i) => [it.id, i])), links = [];
+  g.edges.forEach(e => { if (idx[e.a] !== undefined && idx[e.b] !== undefined) links.push([idx[e.a], idx[e.b], mobile ? 200 : 290, 0.012]); });
+  g.news.forEach(n => n.keys.forEach(k => { if (idx[k] !== undefined) links.push([idx['h:' + n.h], idx[k], mobile ? 160 : 200, 0.02]); }));
+  const cx = W / 2, cy = H / 2;
+  items.forEach(it => { const a = (hashStr(it.id) % 360) * Math.PI / 180, r = it.type === 'n' ? 0.34 : 0.45; it.x = cx + Math.cos(a) * W * r; it.y = cy + Math.sin(a) * H * r; });
+  items.filter(i => i.type === 'n').sort((a, b) => b.rank - a.rank).slice(0, 3).forEach((it, i) => { it.x = cx + (i - 1) * 200; it.y = cy + (i % 2 ? 70 : -70); });
+  const clamp = it => { it.x = Math.min(W - it.w / 2 - 8, Math.max(it.w / 2 + 8, it.x)); it.y = Math.min(H - it.h / 2 - 8, Math.max(it.h / 2 + 8, it.y)); };
+  const collide = (gapX, gapY) => { let moved = 0;
+    for (let i = 0; i < items.length; i++) for (let j = i + 1; j < items.length; j++){
+      const a = items[i], b = items[j], dx = b.x - a.x, dy = b.y - a.y, ox = (a.w + b.w) / 2 + gapX - Math.abs(dx), oy = (a.h + b.h) / 2 + gapY - Math.abs(dy);
+      if (ox > 0 && oy > 0){ moved++;
+        if (ox < oy){ const s = Math.sign(dx) || (i % 2 ? 1 : -1); a.x -= s * (ox / 2 + 0.5); b.x += s * (ox / 2 + 0.5); }
+        else { const s = Math.sign(dy) || (j % 2 ? 1 : -1); a.y -= s * (oy / 2 + 0.5); b.y += s * (oy / 2 + 0.5); } } }
+    return moved; };
+  const N = 500;
+  for (let step = 0; step < N; step++){
+    const cool = 1 - step / N;
+    for (let i = 0; i < items.length; i++) for (let j = i + 1; j < items.length; j++){
+      const a = items[i], b = items[j], dx = b.x - a.x, dy = b.y - a.y, d2 = dx * dx + dy * dy + 1, d = Math.sqrt(d2), f = 11000 / d2 * (0.25 + 0.75 * cool);
+      a.x -= dx / d * f; a.y -= dy / d * f; b.x += dx / d * f; b.y += dy / d * f;
+    }
+    for (const [i, j, L, k] of links){ const a = items[i], b = items[j], dx = b.x - a.x, dy = b.y - a.y, d = Math.sqrt(dx * dx + dy * dy) || 1, f = (d - L) * k * (0.3 + 0.7 * cool); a.x += dx / d * f; a.y += dy / d * f; b.x -= dx / d * f; b.y -= dy / d * f; }
+    for (const it of items){ it.x += (cx - it.x) * 0.0025; it.y += (cy - it.y) * 0.0025; }
+    collide(30, 26); items.forEach(clamp);
+  }
+  for (let pass = 0; pass < 400; pass++){ if (!collide(26, 22)) break; items.forEach(clamp); }
+  return items;
+}
+function borderPoint(it, tx, ty){ const dx = tx - it.x, dy = ty - it.y, t = Math.min((it.w / 2 + 3) / Math.abs(dx || 1e-6), (it.h / 2 + 3) / Math.abs(dy || 1e-6)); return [it.x + dx * t, it.y + dy * t]; }
+function gnodeHTML(n, it){
+  const arrow = n.chg > 0 ? '▲' : n.chg < 0 ? '▼' : '', ext = n.hub && n.zone && n.zone.startsWith('extreme');
+  const cls = ext ? 'down' : chgClass({good: n.good}, n.chg);
+  const big = n.horizon === 'at an extreme' ? 'At an extreme' : n.horizon ? `${arrow} ${fmtChg({chgKind: n.chgKind, unit: n.unit, dec: n.dec}, n.chg)}` : '';
+  const border = ext || n.tone === 'alert' ? ' ex' : (n.hub && n.zone && n.zone !== 'quiet') || n.tone === 'watch' ? ' wa' : '';
+  const tag = n.boost >= 3 && n.boost >= 0.9 * (n.rank0 || n.rank) ? '<span class="gtag up">REINFORCED</span>' : n.factor <= 0.85 ? '<span class="gtag low">WEAKER</span>' : '';
+  return `<div class="gnode${border}${it.rank >= GRAPH_TOP ? ' big' : ''}" data-key="${n.key}" style="left:${(it.x - it.w / 2).toFixed(1)}px;top:${(it.y - it.h / 2).toFixed(1)}px;width:${it.w}px;height:${it.h}px" onclick="explain('${n.key}', this)">
+    ${unseenNews(n.key) ? '<span class="gdot" title="New headline"></span>' : ''}<div class="gn">${esc(n.name)}${tag}</div>
+    <div class="gv ${cls}"><span class="gnum">${esc(big)}</span>${n.horizon && n.horizon !== 'at an extreme' ? ` <span class="gh">${esc(n.horizon)}</span>` : ''}</div><div class="gs">${esc(fmtVal(n, n.value))}</div></div>`;
+}
+let GRAPH_TOP = 0;
+function renderOverview(){
+  const g = GRAPH, root = $('overview'); if (!g) return;
+  const W = Math.max(320, root.clientWidth || innerWidth - 32), mobile = W < 700;
+  const H = mobile ? 132 * Math.ceil((g.nodes.length + g.news.length) / 2) + 60 : 820;
+  GRAPH_TOP = [...g.nodes].sort((a, b) => b.rank - a.rank)[Math.min(2, g.nodes.length - 1)]?.rank ?? 0;
+  const items = layoutGraph(g, W, H), by = Object.fromEntries(items.map(it => [it.id, it]));
+  let svg = `<defs><marker id="ga" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#8a8a96"/></marker>
+    <marker id="gaw" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#F5C518"/></marker>
+    <marker id="gar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#ffffff"/></marker></defs>`;
+  const curve = (p, q) => { const mx = (p[0] + q[0]) / 2, my = (p[1] + q[1]) / 2, dx = q[0] - p[0], dy = q[1] - p[1], k = 0.07; return `M${p[0].toFixed(1)},${p[1].toFixed(1)} Q${(mx - dy * k).toFixed(1)},${(my + dx * k).toFixed(1)} ${q[0].toFixed(1)},${q[1].toFixed(1)}`; };
+  for (const e of g.edges){
+    const A = by[e.a], B = by[e.b]; if (!A || !B) continue;
+    const p = borderPoint(A, B.x, B.y), q = borderPoint(B, A.x, A.y), warn = e.status === 'noreact' || e.status === 'against';
+    const stroke = e.reinforce ? '#ffffff' : warn ? '#F5C518' : '#5b5b66', mk = e.reinforce ? 'gar' : warn ? 'gaw' : 'ga';
+    svg += `<path class="gl mline" data-a="${e.a}" data-b="${e.b}" d="${curve(p, q)}" pathLength="1" fill="none" stroke="${stroke}" stroke-width="${e.reinforce ? 2.2 : 1.3}" ${warn ? 'stroke-dasharray="0.02 0.014"' : ''} marker-end="url(#${mk})"/>`;
+    if (warn) svg += `<text class="gl" data-a="${e.a}" data-b="${e.b}" x="${((p[0] + q[0]) / 2).toFixed(1)}" y="${((p[1] + q[1]) / 2 - 5).toFixed(1)}" fill="#F5C518" font-size="10.5" text-anchor="middle" stroke="#08080a" stroke-width="4" paint-order="stroke">${e.status === 'noreact' ? 'not following' : 'against the usual link'}</text>`;
+  }
+  for (const n of g.news) for (const k of n.keys){
+    const A = by['h:' + n.h], B = by[k]; if (!A || !B) continue;
+    const p = borderPoint(A, B.x, B.y), q = borderPoint(B, A.x, A.y);
+    svg += `<path class="gl" data-a="h:${n.h}" data-b="${k}" d="M${p[0].toFixed(1)},${p[1].toFixed(1)} L${q[0].toFixed(1)},${q[1].toFixed(1)}" stroke="#4a4a54" stroke-width="1" stroke-dasharray="2 4" fill="none"/>`;
+  }
+  const nodes = g.nodes.map(n => gnodeHTML(n, by[n.key])).join('');
+  const news = g.news.map(n => { const it = by['h:' + n.h]; return `<a class="gnews" data-key="h:${n.h}" href="${esc(n.link)}" target="_blank" rel="noopener noreferrer" style="left:${(it.x - it.w / 2).toFixed(1)}px;top:${(it.y - it.h / 2).toFixed(1)}px;width:${it.w}px;height:${it.h}px"><div class="gt">${esc(n.title)}</div><div class="gm">${esc(n.source)} · ${esc(ago(n.ts))}</div></a>`; }).join('');
+  root.innerHTML = `<div class="gcap">The <b>${g.shown}</b> most important of ${g.total} indicators right now, with the links between them and the headlines about them. Everything else is left out on purpose.
+      <span class="lg"><i style="background:#fff"></i>both far out and moving together as usual — each counts for more</span>
+      <span class="lg"><i style="background:#5b5b66"></i>usual link</span><span class="lg"><i class="dash"></i>not following — both count for less</span></div>
+    <div class="gwrap" style="height:${H}px"><svg class="glines" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">${svg}</svg>${nodes}${news}</div>
+    ${g.notes.length ? `<details class="gwhy"><summary>Why some things count more or less</summary><ul>${g.notes.map(x => `<li>${esc(x)}</li>`).join('')}</ul></details>` : ''}`;
+  root.querySelectorAll('.gnode').forEach(el => { el.onmouseenter = () => focusNode(el.dataset.key); el.onmouseleave = blurNodes; });
+  if (!REDUCED){
+    root.querySelectorAll('.gnode, .gnews').forEach((el, i) => el.animate([{opacity: 0, transform: 'scale(.92)'}, {opacity: 1, transform: 'none'}], {duration: 420, delay: Math.min(i * 40, 600), easing: 'ease-out', fill: 'backwards'}));
+    root.querySelectorAll('.mline').forEach((p, i) => p.animate([{strokeDashoffset: 1, opacity: 0}, {strokeDashoffset: 0, opacity: 1}], {duration: 650, delay: 300 + i * 40, fill: 'backwards', easing: 'ease-out'}));
+  }
+}
+function focusNode(key){
+  const root = $('overview'), near = new Set([key]);
+  root.querySelectorAll('.gl').forEach(l => { const hit = l.dataset.a === key || l.dataset.b === key; l.classList.toggle('dim', !hit); if (hit){ near.add(l.dataset.a); near.add(l.dataset.b); } });
+  root.querySelectorAll('.gnode, .gnews').forEach(n => n.classList.toggle('dim', !near.has(n.dataset.key)));
+}
+function blurNodes(){ $('overview').querySelectorAll('.dim').forEach(e => e.classList.remove('dim')); }
 
 // ── Extremes ──────────────────────────────────────────────────────────────
 let EX = null, EXOPEN = null, EXCAT = 'all', EXRANGE = {}, QUIET_OPEN = false, JAPAN_OPEN = false;
@@ -754,7 +924,9 @@ function showTab(t){
   try { sessionStorage.setItem('macroTab', t); } catch (e) {}
   document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x.dataset.t === t));
   document.querySelectorAll('main>section').forEach(s => s.hidden = s.id !== 'pane-' + t);
+  if (t === 'today' && OV) renderToday();
   if (t === 'extremes') loadExtremes();
+  if (t === 'overview') loadOverview();
   if (t === 'alerts') loadAlerts();
   window.scrollTo(0, 0);
   track('Opened tab: ' + t);
@@ -787,10 +959,11 @@ async function load(){
     if (TAB === 'today' && EXPL){ try { EXPL = await api('/api/explain/' + EXPL.key); } catch (e) {} }
     if (TAB === 'today') renderToday();
     if (TAB === 'extremes') loadExtremes();
+    if (TAB === 'overview') loadOverview();
     if (!d.groups.some(g => g.items.length)) $('today').innerHTML = '<div class="card"><div class="answer">Fetching the first data…</div><p class="muted">This takes about a minute after the app starts.</p></div>';
   } catch (e){ if (e.message !== 'signed out') $('upd').textContent = 'Cannot reach the server right now'; }
 }
-let rz; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { if (EXPL) drawLines(false); if (TAB === 'today' && OPEN) drawDetail(OPEN); if (TAB === 'extremes'){ if (EXOPEN) drawExDetail(EXOPEN); if (JAPAN_OPEN) renderJapan().catch(() => {}); } }, 250); });
+let rz; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { if (EXPL) drawLines(false); if (TAB === 'overview') renderOverview(); if (TAB === 'today' && OPEN) drawDetail(OPEN); if (TAB === 'extremes'){ if (EXOPEN) drawExDetail(EXOPEN); if (JAPAN_OPEN) renderJapan().catch(() => {}); } }, 250); });
 load(); setInterval(load, 60000);
 try { const t = sessionStorage.getItem('macroTab'); if (t && t !== 'today' && document.querySelector(`.tab[data-t="${t}"]`)) showTab(t); } catch (e) {}
 </script></body></html>

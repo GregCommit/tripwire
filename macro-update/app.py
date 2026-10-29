@@ -380,7 +380,8 @@ def news_for(primary, drivers, effects, limit=10):
         score = max(rel[k] * w for k, w in hit) + max(0.0, 1 - (time.time() - r["ts"]) / 3600 / 96)
         tags = [S.BY_KEY[k]["name"] if k in S.BY_KEY else S.HUB_BY_KEY[k]["name"] for k, _ in sorted(hit, key=lambda x: -rel[x[0]])
                 if k in S.BY_KEY or k in S.HUB_BY_KEY][:3]
-        out.append({"score": score, "h": link_hash(r["link"]), "title": r["title"], "summary": r["summary"], "link": r["link"], "source": r["source"],
+        keys = [k for k, _ in sorted(hit, key=lambda x: -rel[x[0]])]
+        out.append({"score": score, "keys": keys, "h": link_hash(r["link"]), "title": r["title"], "summary": r["summary"], "link": r["link"], "source": r["source"],
                     "ts": r["ts"], "tags": tags})
     out.sort(key=lambda x: -x["score"])
     return out[:limit]
@@ -703,6 +704,19 @@ def build_summary(clusters, levels, recent):
     return {"movers": movers[:3], "calm": not movers and not levels, "levels": levels}
 
 
+def apply_link_ranking(items):
+    """Re-rank by importance after the links: things that move together as usual reinforce each other,
+    things whose usual partner did not follow lose weight. Items are updated in place."""
+    for it in items.values():
+        it.setdefault("rank0", it.get("rank", 0.0))
+        it["rank"] = it["rank0"]
+    adj, edges = S.adjusted_scores(items)
+    for k, v in adj.items():
+        items[k]["rank"] = v["adj"]
+        items[k]["linkBoost"], items[k]["linkFactor"] = v["boost"], v["factor"]
+    return adj, edges
+
+
 def build_clusters(sm, hub):
     """The groups that belong together, most important first. Within a group the most special
     (and most important for stocks) comes first; 'context' members are shown alongside."""
@@ -734,6 +748,7 @@ def api_overview():
                "items": [sm[i["key"]] for i in S.INDICATORS if i["group"] == g and i["key"] in sm]}
               for g, t, intro in S.GROUPS]
     hub = hub_summaries()
+    apply_link_ranking({**sm, **{h["key"]: h for h in hub}})
     clusters = build_clusters(sm, hub)
     recent = news_recent(24)
     return jsonify({"role": session.get("role"), "groups": groups, "sources": sources,
@@ -766,7 +781,62 @@ def api_version():
 
 
 def all_items():
-    return {**summaries(), **{h["key"]: h for h in hub_summaries()}}
+    items = {**summaries(), **{h["key"]: h for h in hub_summaries()}}
+    apply_link_ranking(items)
+    return items
+
+
+def build_graph(items, edges, n):
+    """The overview map: the most important indicators (after the link adjustment), the links between
+    them and the headlines about them. Everything else is left out on purpose."""
+    ranked = sorted(items, key=lambda k: -items[k]["rank"])
+    sel = [k for k in ranked if items[k]["rank"] >= 0.5][:n]
+    if len(sel) < 6:
+        sel = ranked[:6]
+    keyset = set(sel)
+    nodes = []
+    for k in sel:
+        it = items[k]
+        field = HZ_FIELD.get(it.get("horizon") or "today", "d1")
+        nodes.append({"key": k, "name": it["name"], "value": it["value"], "unit": it["unit"], "dec": it["dec"], "signed": bool(it.get("signed")),
+                      "chgKind": it["chgKind"], "chg": it.get(field), "horizon": it.get("horizon"), "good": it.get("good", 0),
+                      "hub": bool(it.get("hub")), "zone": it.get("zone"), "tone": it.get("tone"), "rank": it["rank"],
+                      "boost": it.get("linkBoost", 0), "factor": it.get("linkFactor", 1), "rank0": it.get("rank0", it["rank"]), "cluster": cluster_of(k)})
+    es = [{"a": e["driver"], "b": e["affected"], "mode": e["mode"], "status": e["status"], "reinforce": e.get("reinforce", False),
+           "note": e["note"]} for e in edges if e["driver"] in keyset and e["affected"] in keyset]
+    notes = []
+    for e in es:
+        da, ab = items[e["a"]]["name"], items[e["b"]]["name"]
+        if e["reinforce"]:
+            notes.append(f"{da} and {ab} usually move {'together' if e['mode'] == 'same' else 'in opposite directions'} and both are far out — each counts for more.")
+        elif e["status"] in ("noreact", "against"):
+            notes.append(e["note"])
+    cutoff = int(time.time()) - 72 * 3600
+    with get_db() as conn:
+        rows = [dict(r) for r in conn.execute("SELECT * FROM news WHERE ts > ? ORDER BY ts DESC LIMIT 600", (cutoff,))]
+    news = []
+    for r in rows:
+        try:
+            topics = json.loads(r["topics"])
+        except ValueError:
+            continue
+        hit = [(k, w) for k, w in topics if k in keyset]
+        if not hit:
+            continue
+        score = sum(items[k]["rank"] * (1.0 if w >= 2 else 0.4) for k, w in hit) * (0.5 + max(0.0, 1 - (time.time() - r["ts"]) / 3600 / 72))
+        news.append({"score": score, "h": link_hash(r["link"]), "title": r["title"], "summary": r["summary"], "link": r["link"],
+                     "source": r["source"], "ts": r["ts"], "keys": [k for k, _ in sorted(hit, key=lambda x: -items[x[0]]["rank"])][:2]})
+    news.sort(key=lambda x: -x["score"])
+    return {"nodes": nodes, "edges": es, "news": news[:6], "notes": notes[:6], "total": len(items), "shown": len(nodes)}
+
+
+@app.route("/api/graph")
+@login_required
+def api_graph():
+    items = all_items()
+    _, edges = S.adjusted_scores(items)
+    n = max(6, min(18, int(request.args.get("n", 14))))
+    return jsonify(build_graph(items, edges, n))
 
 
 @app.route("/api/explain/<key>")

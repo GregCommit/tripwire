@@ -1109,51 +1109,140 @@ RELATIONS = [
     ("SPX", "SPX200", "same", "The S&P 500's distance from its 200-day average moves with the index."),
     ("SPX", "CAPE", "same", "The Shiller P/E is the S&P 500's price over its 10-year average earnings: rising prices lift it."),
     ("SPX", "BUFFETT", "same", "Between quarterly releases the Buffett indicator is moved forward with the S&P 500."),
+    ("CAPE", "BUFFETT", "same", "Both compare stock prices with fundamentals (earnings, the size of the economy), so they get extreme together when the market becomes very expensive."),
+    ("BUFFETT", "CAPE", "same", "Both compare stock prices with fundamentals, so they get extreme together when the market becomes very expensive."),
+    ("SPX200", "VIX", "inverse", "A market far above its 200-day average is usually calm (low VIX); far below it, fear is high."),
     ("CAPE", "ERP", "inverse", "The stock reward over bonds is 100 ÷ the Shiller P/E minus the real yield: a more expensive market lowers it."),
     ("REAL10", "ERP", "inverse", "The stock reward over bonds is the earnings yield minus the real yield: a higher real yield lowers it."),
 ]
 _MODE_WORDS = {"same": "usually move together", "inverse": "usually move in opposite directions"}
 
 
+def stress(item):
+    """-1..+1: how far out this indicator is right now — its biggest unusual move (today, this week or
+    this month) or, for slow indicators, its place at the edge of its own history. Sign = direction."""
+    zs = [item.get(k) or 0 for k in (("z1", "zw", "zm") if item.get("freq") == "daily" else ("z1",))]
+    z = max(zs, key=abs, default=0)
+    mv = max(-1.0, min(1.0, z / 3.0))
+    lvl = 0.0
+    if item.get("hub"):
+        p, sides = item.get("pct", 50), item.get("sides", "both")
+        if p >= 90 and sides != "low":
+            lvl = min(1.0, (p - 80) / 20)
+        elif p <= 10 and sides != "high":
+            lvl = -min(1.0, (20 - p) / 20)
+    return mv if abs(mv) >= abs(lvl) else lvl
+
+
+def _names(items, keys):
+    return ", ".join(items[k]["name"] for k in keys)
+
+
+def rel_eval(items, driver, affected, mode, why=""):
+    """Is this pair behaving the way it usually does? status: asusual / against / noreact / other / quiet."""
+    d, a = items.get(driver), items.get(affected)
+    if not d or not a:
+        return None
+    names, zk, ck = ("today", "this week", "this month"), ("z1", "zw", "zm"), ("d1", "w1", "m1")
+    score = [max(abs(d.get(z) or 0), abs(a.get(z) or 0)) for z in zk]
+    hi = max(range(3), key=lambda i: score[i]) if any(score) else 0
+    hz = names[hi] if (d.get("freq") == "daily" or a.get("freq") == "daily") else "this month"
+    cd, ca = fchg(d["chgKind"], d.get(ck[hi])), fchg(a["chgKind"], a.get(ck[hi]))
+    sd, sa = stress(d), stress(a)
+    expected = sd * (1 if mode == "same" else -1)
+    if abs(sd) < 0.25 and abs(sa) < 0.25:
+        status = "quiet"
+    elif abs(sd) >= 0.35 and abs(sa) < 0.2:
+        status = "noreact"
+    elif abs(sd) < 0.2 and abs(sa) >= 0.35:
+        status = "other"
+    else:
+        status = "asusual" if sa * expected > 0 else "against"
+    # Other connected indicators that explain what the affected one is doing (or pulling the other way)
+    helpers = []
+    for dd, aa, mm, _ in RELATIONS:
+        if aa == affected and dd != driver and dd in items:
+            sc = stress(items[dd])
+            if abs(sc) >= 0.35:
+                helpers.append((dd, sc * (1 if mm == "same" else -1)))
+    pull_same = [k for k, e in helpers if e * sa > 0] if abs(sa) >= 0.2 else []
+    pull_other = [k for k, e in helpers if e * (expected or 1) < 0]
+    if status == "quiet":
+        note = f"Neither moved much {hz}."
+    elif status == "asusual":
+        note = f"{d['name']} {cd}, {a['name']} {ca} {hz}: the usual link is working."
+    elif status == "noreact":
+        note = f"{d['name']} moved ({cd} {hz}) but {a['name']} has not followed."
+        note += (f" {_names(items, pull_other)} pulls the other way, which explains it." if pull_other else
+                 " The link is weaker than usual, so treat both signals with less weight.")
+    elif status == "against":
+        note = f"{d['name']} {cd}, {a['name']} {ca} {hz}: moving against the usual link."
+        note += (f" {_names(items, pull_same)} explains it." if pull_same else " Something else is driving it; check the news.")
+    else:
+        note = f"{a['name']} moved ({ca} {hz}) without a matching move in {d['name']}."
+        note += (f" {_names(items, pull_same)} explains it." if pull_same else " No tracked driver explains it; check the news.")
+    return {"driver": driver, "affected": affected, "mode": mode, "modeText": _MODE_WORDS[mode], "why": why,
+            "status": status, "note": note, "horizon": hz, "sd": round(sd, 2), "sa": round(sa, 2)}
+
+
+def adjusted_scores(items):
+    """Importance after the links are taken into account. Two things that usually move together and both
+    do (or both sit at extremes) reinforce each other; if one moves and the partner does not follow, the
+    link is weaker than usual and both lose weight. Returns ({key: {"adj", "boost", "factor"}}, [edges])."""
+    base = {k: it.get("rank", 0.0) for k, it in items.items()}
+    boost, factor, edges = {k: 0.0 for k in items}, {k: 1.0 for k in items}, []
+    for d, a, mode, why in RELATIONS:
+        e = rel_eval(items, d, a, mode, why)
+        if not e or e["status"] == "quiet" and max(abs(e["sd"]), abs(e["sa"])) < 0.35:
+            continue
+        reinforce = e["status"] == "asusual" and min(abs(e["sd"]), abs(e["sa"])) >= 0.4
+        if reinforce:
+            b = 0.5 * min(base[d], base[a])
+            boost[d] += b
+            boost[a] += b
+        elif e["status"] in ("noreact", "against"):
+            f = 0.85 if e["status"] == "noreact" else 0.9
+            factor[d], factor[a] = max(0.6, factor[d] * f), max(0.6, factor[a] * f)
+        e["reinforce"] = reinforce
+        edges.append(e)
+    boost = {k: min(boost[k], base[k]) for k in items}                  # a link can at most double an indicator's weight
+    return {k: {"adj": round((base[k] + boost[k]) * factor[k], 2), "boost": round(boost[k], 2), "factor": round(factor[k], 2)} for k in items}, edges
+
+
 def explain(key, items):
-    """What explains this indicator and what does it move? Each link says how the two usually behave
-    and whether they are behaving that way right now. items: {key: summary}."""
+    """What explains this indicator and what does it move? Each link says how the two usually behave and
+    whether they are behaving that way right now; a short summary ties it together."""
     me = items.get(key)
     if not me:
         return None
-    names = ("today", "this week", "this month")
-    zk, ck = ("z1", "zw", "zm"), ("d1", "w1", "m1")
-
-    def link(driver, affected, mode, why):
-        d, a = items.get(driver), items.get(affected)
-        if not d or not a:
-            return None
-        score = [max(abs(d.get(z) or 0), abs(a.get(z) or 0)) for z in zk]
-        hi = max(range(3), key=lambda i: score[i]) if any(score) else 0
-        zd, za = (d.get(zk[hi]) or 0), (a.get(zk[hi]) or 0)
-        hz = names[hi]
-        cd, ca = fchg(d["chgKind"], d.get(ck[hi])), fchg(a["chgKind"], a.get(ck[hi]))
-        if abs(zd) < 1 and abs(za) < 1:
-            status, note = "quiet", f"Neither moved much {hz}."
-        elif abs(zd) >= 1 and abs(za) < 1:
-            status, note = "noreact", f"{d['name']} moved ({cd} {hz}) but {a['name']} has not reacted (yet)."
-        elif abs(zd) < 1:
-            status, note = "other", f"{a['name']} moved ({ca} {hz}) without a matching move in {d['name']}: look for another cause."
-        else:
-            expected = (1 if zd > 0 else -1) * (1 if mode == "same" else -1)
-            if (1 if za > 0 else -1) == expected:
-                status, note = "asusual", f"{d['name']} {cd}, {a['name']} {ca} {hz}: the usual link is working."
-            else:
-                status, note = "against", f"{d['name']} {cd}, {a['name']} {ca} {hz}: moving against the usual link — something else is driving it."
-        return {"driver": driver, "affected": affected, "mode": mode, "modeText": _MODE_WORDS[mode], "why": why,
-                "status": status, "note": note, "horizon": hz}
-
-    drivers = [x for x in (link(d, a, m, w) for d, a, m, w in RELATIONS if a == key) if x]
-    effects = [x for x in (link(d, a, m, w) for d, a, m, w in RELATIONS if d == key) if x]
+    drivers = [x for x in (rel_eval(items, d, a, m, w) for d, a, m, w in RELATIONS if a == key) if x]
+    effects = [x for x in (rel_eval(items, d, a, m, w) for d, a, m, w in RELATIONS if d == key) if x]
     order = {"against": 0, "other": 1, "noreact": 2, "asusual": 3, "quiet": 4}
     drivers.sort(key=lambda x: order[x["status"]])
     effects.sort(key=lambda x: order[x["status"]])
-    return {"key": key, "drivers": drivers, "effects": effects}
+    # one connected summary
+    hz = me.get("horizon")
+    ck = {"today": "d1", "this week": "w1", "this month": "m1", "this quarter": "d1"}.get(hz or "")
+    parts = []
+    if hz and ck and me.get(ck) is not None:
+        parts.append(f"{me['name']} moved {fchg(me['chgKind'], me[ck])} {hz} — unusually far.")
+    elif hz == "at an extreme":
+        parts.append(f"{me['name']} sits at an extreme of its own history.")
+    else:
+        parts.append(f"{me['name']} is not moving unusually right now.")
+    ok = [x["driver"] for x in drivers if x["status"] == "asusual"]
+    ag = [x["driver"] for x in drivers if x["status"] == "against"]
+    nr = [x["driver"] for x in drivers if x["status"] == "noreact"]
+    if ok:
+        parts.append(f"{_names(items, ok)} moved the usual way and explain{'s' if len(ok) == 1 else ''} it.")
+    if ag:
+        parts.append(f"{_names(items, ag)} moved against the usual link, so something else is also at work.")
+    if nr:
+        parts.append(f"{_names(items, nr)} moved but {me['name']} did not follow, so that link counts for less today.")
+    out = [x["affected"] for x in effects if x["status"] == "asusual"]
+    if out:
+        parts.append(f"In turn it is moving {_names(items, out)}.")
+    return {"key": key, "drivers": drivers, "effects": effects, "summary": " ".join(parts)}
 
 
 # ══ News ═══════════════════════════════════════════════════════════════════════════════════════
