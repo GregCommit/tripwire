@@ -807,10 +807,10 @@ CLUSTERS = [
          intro="Interest rates and the dollar are the weather for every other market: they move together and explain each other.",
          main=["US10Y", "US2Y", "US1Y", "CURVE", "MORT30", "FEDFUNDS", "DXY", "REAL10", "USCPI"], context=[]),
     dict(id="metals", title="Gold, silver & Dr. Copper",
-         intro="Gold, silver and copper only make sense next to interest rates and the dollar, so those are shown here too.",
+         intro="Gold, silver and copper move with interest rates and the dollar. Tap the ? on any card to see exactly how.",
          main=["GOLD", "SILVER", "COPPER", "CUAU", "GSR"], context=["REAL10", "US10Y", "DXY"]),
     dict(id="stocks", title="Stocks & investor mood",
-         intro="The big US stock indexes, how scared investors are, and the two things that most often drive them: yields and credit.",
+         intro="The big US stock indexes and how scared investors are. Tap the ? on a card to see what usually drives it.",
          main=["SPX", "IXIC", "DJI", "RUT", "VIX", "MOOD", "VOLRATIO"], context=["US10Y", "HYSPREAD"]),
     dict(id="japan", title="Yen, Japan & the carry trade",
          intro="Traders borrow cheap yen to buy higher-yielding assets. When the yen jumps, they must buy yen back, selling stocks everywhere.",
@@ -1037,3 +1037,246 @@ def drivers(cid, items, main=None):
     else:
         head = "Quiet — no unusual move " + hz + "."
     return {"headline": head, "horizon": hz, "bullets": out[:6]}
+
+
+# ══ How the indicators connect ("?" on a card) ═════════════════════════════════════════════════
+# (driver, affected, usual direction, why) — "same" = they usually move together, "inverse" = opposite.
+RELATIONS = [
+    ("US10Y", "MORT30", "same", "Mortgage rates are priced off the 10-year Treasury yield, so they follow it with a delay of days to weeks."),
+    ("US2Y", "US10Y", "same", "Both react to what investors expect from the Fed. The 2-year moves first and most when those expectations change."),
+    ("US1Y", "US2Y", "same", "Same story over a shorter horizon: both price the Fed's path."),
+    ("FEDFUNDS", "US2Y", "same", "The 2-year yield is mostly the market's guess of the Fed's rate, so it moves with the Fed's actual and expected decisions."),
+    ("USCPI", "FEDFUNDS", "same", "Higher inflation makes the Fed hold rates high or raise them; lower inflation lets it cut."),
+    ("USCPI", "US10Y", "same", "Higher inflation makes investors demand higher long-term yields to protect their purchasing power."),
+    ("US10Y", "REAL10", "same", "The real yield is the 10-year yield minus expected inflation, so it moves mostly with the 10-year yield."),
+    ("US10Y", "CURVE", "same", "The curve is the 10-year yield minus the 2-year yield, so the 10-year raises it."),
+    ("US2Y", "CURVE", "inverse", "The curve is the 10-year yield minus the 2-year yield, so a higher 2-year yield lowers it."),
+    ("US10Y", "DXY", "same", "Higher US yields attract foreign money into dollars, which lifts the dollar."),
+    ("REAL10", "GOLD", "inverse", "Gold pays no interest. When yields after inflation rise, holding gold costs investors more in lost interest, so gold usually falls; when they fall, gold usually rises."),
+    ("DXY", "GOLD", "inverse", "Gold is priced in dollars: a stronger dollar makes it dearer for buyers elsewhere, which usually pushes the gold price down."),
+    ("DXY", "SILVER", "inverse", "Silver is priced in dollars: a stronger dollar makes it dearer for buyers elsewhere and usually pushes the price down."),
+    ("DXY", "COPPER", "inverse", "Copper is priced in dollars: a stronger dollar makes it dearer for buyers elsewhere and usually pushes the price down."),
+    ("DXY", "WTI", "inverse", "Oil is priced in dollars: a stronger dollar makes it dearer for buyers elsewhere and usually pushes the price down."),
+    ("VIX", "GOLD", "same", "In panics investors buy gold as a safe haven, so a jump in fear often lifts gold — unless rising yields or a stronger dollar outweigh it."),
+    ("GOLD", "SILVER", "same", "Silver follows gold in fear and inflation scares, but swings more."),
+    ("GOLD", "CUAU", "inverse", "Gold is the bottom of the copper ÷ gold ratio: when gold rises faster than copper, the ratio falls."),
+    ("COPPER", "CUAU", "same", "Copper is the top of the copper ÷ gold ratio: when copper rises faster than gold, the ratio rises."),
+    ("GOLD", "GSR", "same", "Gold is the top of the gold ÷ silver ratio: when gold rises faster than silver, the ratio rises."),
+    ("SILVER", "GSR", "inverse", "Silver is the bottom of the gold ÷ silver ratio: when silver rises faster than gold, the ratio falls."),
+    ("COPPER", "SPX", "same", "Copper tracks manufacturing and construction, so it tends to rise and fall with the economy and with stocks."),
+    ("WTI", "USCPI", "same", "Oil feeds into fuel and transport costs, so higher oil lifts inflation a few weeks later."),
+    ("BRENT", "WTI", "same", "World and US oil prices move together; a gap points to a local supply problem."),
+    ("WTI", "SPX", "inverse", "Higher oil raises costs for companies and households but lifts energy stocks. In a sharp rise the effect on the whole market is usually negative."),
+    ("US10Y", "SPX", "inverse", "Higher yields make bonds a better alternative and cut the value of future profits, so rising yields are the most common cause of broad stock sell-offs."),
+    ("US10Y", "IXIC", "inverse", "Growth and tech companies earn most of their profit far in the future, so they are hit hardest by higher yields."),
+    ("VIX", "SPX", "inverse", "The VIX measures fear of falling stocks, so it rises when the S&P 500 falls and falls when it rises."),
+    ("SPX", "VIX", "inverse", "Falling stocks make investors buy protection, which raises the VIX; rising stocks lower it."),
+    ("HYSPREAD", "SPX", "inverse", "When lenders demand more from risky companies, it signals stress that usually comes with falling stocks."),
+    ("HYSPREAD", "RUT", "inverse", "Small companies borrow more, so credit stress hits them hardest."),
+    ("CCC", "HYSPREAD", "same", "The weakest borrowers' spread is the earliest part of the junk-bond spread to move."),
+    ("ICSA", "SAHM", "same", "More new jobless claims lead to a higher unemployment rate, which is what the Sahm rule measures."),
+    ("SLOOS_BUS", "SAHM", "same", "When banks tighten business lending, companies hire and invest less, so unemployment rises months later."),
+    ("UMCSENT", "SPX", "same", "Households' mood drives spending (about 70% of the US economy), and stocks tend to follow confidence."),
+    ("NFCI", "SPX", "inverse", "Tighter financial conditions mean harder, costlier credit, which weighs on stocks and growth."),
+    ("STLFSI", "VIX", "same", "Both measure market stress; the stress index adds bond and credit stress."),
+    ("USDJPY", "NIKKEI200", "same", "A weaker yen lifts Japanese exporters' profits and the Nikkei; a sudden yen jump hits it."),
+    ("US10Y", "GAP", "same", "The US 10-year yield is the top of the US–Japan gap: a higher US yield widens it."),
+    ("JP10Y", "GAP", "inverse", "The Japanese 10-year yield is the bottom of the gap: a higher one narrows it."),
+    ("GAP", "USDJPY", "same", "A wider gap pays more for holding dollars than yen, which pushes USD/JPY up."),
+    ("BOJRATE", "USDJPY", "inverse", "When the Bank of Japan raises rates, holding yen pays more, which tends to strengthen the yen (USD/JPY falls)."),
+    ("JPCPI", "BOJRATE", "same", "Sustained inflation lets the Bank of Japan keep raising rates."),
+    ("USDJPY", "SPX", "inverse", "A sudden yen jump (USD/JPY falling) can force carry-trade investors to sell stocks to repay yen loans, as in August 2024."),
+    ("VIX", "MOOD", "inverse", "Our fear & greed score includes the VIX: more fear lowers the score."),
+    ("SPX", "MOOD", "same", "Stock momentum is one of the score's four ingredients."),
+    ("HYSPREAD", "MOOD", "inverse", "Junk-bond demand is one of the score's four ingredients: wider spreads lower the score."),
+    ("SPX", "SPX200", "same", "The S&P 500's distance from its 200-day average moves with the index."),
+    ("SPX", "CAPE", "same", "The Shiller P/E is the S&P 500's price over its 10-year average earnings: rising prices lift it."),
+    ("SPX", "BUFFETT", "same", "Between quarterly releases the Buffett indicator is moved forward with the S&P 500."),
+    ("CAPE", "ERP", "inverse", "The stock reward over bonds is 100 ÷ the Shiller P/E minus the real yield: a more expensive market lowers it."),
+    ("REAL10", "ERP", "inverse", "The stock reward over bonds is the earnings yield minus the real yield: a higher real yield lowers it."),
+]
+_MODE_WORDS = {"same": "usually move together", "inverse": "usually move in opposite directions"}
+
+
+def explain(key, items):
+    """What explains this indicator and what does it move? Each link says how the two usually behave
+    and whether they are behaving that way right now. items: {key: summary}."""
+    me = items.get(key)
+    if not me:
+        return None
+    names = ("today", "this week", "this month")
+    zk, ck = ("z1", "zw", "zm"), ("d1", "w1", "m1")
+
+    def link(driver, affected, mode, why):
+        d, a = items.get(driver), items.get(affected)
+        if not d or not a:
+            return None
+        score = [max(abs(d.get(z) or 0), abs(a.get(z) or 0)) for z in zk]
+        hi = max(range(3), key=lambda i: score[i]) if any(score) else 0
+        zd, za = (d.get(zk[hi]) or 0), (a.get(zk[hi]) or 0)
+        hz = names[hi]
+        cd, ca = fchg(d["chgKind"], d.get(ck[hi])), fchg(a["chgKind"], a.get(ck[hi]))
+        if abs(zd) < 1 and abs(za) < 1:
+            status, note = "quiet", f"Neither moved much {hz}."
+        elif abs(zd) >= 1 and abs(za) < 1:
+            status, note = "noreact", f"{d['name']} moved ({cd} {hz}) but {a['name']} has not reacted (yet)."
+        elif abs(zd) < 1:
+            status, note = "other", f"{a['name']} moved ({ca} {hz}) without a matching move in {d['name']}: look for another cause."
+        else:
+            expected = (1 if zd > 0 else -1) * (1 if mode == "same" else -1)
+            if (1 if za > 0 else -1) == expected:
+                status, note = "asusual", f"{d['name']} {cd}, {a['name']} {ca} {hz}: the usual link is working."
+            else:
+                status, note = "against", f"{d['name']} {cd}, {a['name']} {ca} {hz}: moving against the usual link — something else is driving it."
+        return {"driver": driver, "affected": affected, "mode": mode, "modeText": _MODE_WORDS[mode], "why": why,
+                "status": status, "note": note, "horizon": hz}
+
+    drivers = [x for x in (link(d, a, m, w) for d, a, m, w in RELATIONS if a == key) if x]
+    effects = [x for x in (link(d, a, m, w) for d, a, m, w in RELATIONS if d == key) if x]
+    order = {"against": 0, "other": 1, "noreact": 2, "asusual": 3, "quiet": 4}
+    drivers.sort(key=lambda x: order[x["status"]])
+    effects.sort(key=lambda x: order[x["status"]])
+    return {"key": key, "drivers": drivers, "effects": effects}
+
+
+# ══ News ═══════════════════════════════════════════════════════════════════════════════════════
+# Free RSS feeds, no keys. Each headline is matched to the indicators it is about.
+NEWS_FEEDS = [
+    ("CNBC", "https://www.cnbc.com/id/100003114/device/rss/rss.html"),
+    ("CNBC Economy", "https://www.cnbc.com/id/20910258/device/rss/rss.html"),
+    ("CNBC Finance", "https://www.cnbc.com/id/10000664/device/rss/rss.html"),
+    ("CNBC Investing", "https://www.cnbc.com/id/15839069/device/rss/rss.html"),
+    ("CNBC Energy", "https://www.cnbc.com/id/19836768/device/rss/rss.html"),
+    ("CNBC Asia", "https://www.cnbc.com/id/19832390/device/rss/rss.html"),
+    ("MarketWatch", "http://feeds.marketwatch.com/marketwatch/topstories/"),
+    ("MarketWatch Pulse", "http://feeds.marketwatch.com/marketwatch/marketpulse/"),
+    ("Yahoo Finance", "https://finance.yahoo.com/news/rssindex"),
+    ("Federal Reserve", "https://www.federalreserve.gov/feeds/press_all.xml"),
+]
+NEWS_TOPIC_QUERIES = ["Treasury yields", "Federal Reserve interest rates", "gold price", "silver price", "copper price",
+                      "oil prices OPEC", "US dollar index", "Japanese yen Bank of Japan", "Wall Street stocks S&P 500",
+                      "jobless claims unemployment", "inflation CPI", "junk bond credit spreads", "mortgage rates",
+                      "Nikkei Japan stocks", "VIX volatility", "natural gas prices", "consumer sentiment",
+                      "bank lending standards", "Nasdaq tech stocks", "Russell 2000 small caps"]
+
+
+def news_feeds():
+    out = list(NEWS_FEEDS)
+    for q in NEWS_TOPIC_QUERIES:
+        out.append(("Google News", "https://news.google.com/rss/search?q=" + q.replace(" ", "+") + "+when:2d&hl=en-US&gl=US&ceid=US:en"))
+    return out
+
+
+NEWS_TOPICS = {
+    "US10Y": ["10-year", "10 year", "treasury yield", "treasury yields", "treasuries", "bond yield", "bond yields", "bond market"],
+    "US2Y": ["2-year yield", "two-year yield", "2-year treasury", "two-year treasury"],
+    "US1Y": ["1-year yield", "one-year yield"],
+    "FEDFUNDS": ["federal reserve", "the fed", "fomc", "rate cut", "rate cuts", "rate hike", "rate hikes", "powell", "interest rate", "interest rates", "fed funds"],
+    "MORT30": ["mortgage rate", "mortgage rates", "mortgage"],
+    "CURVE": ["yield curve", "inverted"],
+    "DXY": ["dollar index", "us dollar", "the dollar", "strong dollar", "weak dollar", "greenback", "dollar rally", "dollar slump", "dollar falls", "dollar rises"],
+    "REAL10": ["real yield", "real yields", "tips yield"],
+    "USCPI": ["inflation", "consumer price", "cpi", "pce"],
+    "GOLD": ["gold", "bullion"],
+    "SILVER": ["silver price", "silver prices", "silver futures", "silver hits", "silver rises", "silver falls"],
+    "COPPER": ["copper"],
+    "WTI": ["oil price", "oil prices", "crude oil", "crude", "wti", "opec", "oil futures", "oil rises", "oil falls", "oil jumps",
+            "oil slides", "oil drops", "oil climbs", "oil settles", "oil gains", "oil tumbles", "us oil"],
+    "BRENT": ["brent"],
+    "NATGAS": ["natural gas", "nat gas", "lng"],
+    "SPX": ["s&p 500", "stock market", "wall street", "stocks"],
+    "IXIC": ["nasdaq", "tech stocks", "big tech", "tech sell"],
+    "DJI": ["dow jones", "the dow"],
+    "RUT": ["russell 2000", "small caps", "small-cap", "small cap"],
+    "VIX": ["vix", "volatility index", "fear gauge"],
+    "HYSPREAD": ["junk bond", "junk bonds", "high-yield", "high yield bond", "credit spread", "credit spreads", "credit stress"],
+    "CCC": ["distressed debt", "ccc-rated", "defaults rise", "default rate", "private credit"],
+    "ICSA": ["jobless claims", "unemployment claims", "initial claims", "layoffs"],
+    "SAHM": ["unemployment rate", "jobs report", "nonfarm payrolls", "payrolls", "recession"],
+    "UMCSENT": ["consumer sentiment", "consumer confidence"],
+    "NFCI": ["financial conditions"], "STLFSI": ["financial stress"],
+    "SLOOS_CARD": ["lending standards", "senior loan officer", "credit card delinquencies", "credit card debt"],
+    "SLOOS_BUS": ["lending standards", "senior loan officer", "bank lending"],
+    "USDJPY": ["yen", "usd/jpy", "carry trade"],
+    "JP10Y": ["jgb", "japanese government bond", "japan bond yield", "japanese bond"],
+    "BOJRATE": ["bank of japan", "boj", "ueda"],
+    "JPCPI": ["japan inflation", "japan's inflation", "japanese inflation"],
+    "NIKKEI200": ["nikkei", "tokyo stocks", "japanese stocks"],
+    "MOOD": ["fear and greed", "fear & greed"],
+    "CAPE": ["valuation", "valuations", "overvalued", "stock bubble", "ai bubble", "shiller"],
+    "BUFFETT": ["buffett indicator", "warren buffett"],
+}
+_NEWS_NEG = {"GOLD": re.compile(r"gold(?:en)?\s+(?:medal|cup|coast|state|rush|globe)|olympic|goldman|golden", re.I)}
+_NEWS_RX = {k: re.compile(r"(?<![a-z0-9])(?:" + "|".join(re.escape(p) for p in v) + r")(?![a-z0-9])", re.I) for k, v in NEWS_TOPICS.items()}
+
+
+def tag_news(title, summary=""):
+    """Indicator keys a headline is about (a match in the title counts, one only in the summary counts less)."""
+    hits = []
+    for k, rx in _NEWS_RX.items():
+        if k in _NEWS_NEG and _NEWS_NEG[k].search(title):
+            continue
+        if rx.search(title):
+            hits.append((k, 2))
+        elif summary and rx.search(summary):
+            hits.append((k, 1))
+    return hits
+
+
+def _clean_text(s):
+    import html as _h
+    s = re.sub(r"<[^>]+>", " ", s or "")
+    s = _h.unescape(s).replace("\xa0", " ")
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def first_sentence(text, title="", limit=240):
+    t = _clean_text(text)
+    if not t or t.lower().startswith(title.lower()[:40]) and len(t) < len(title) + 40:
+        return ""
+    m = re.match(r"(.{30,}?[.!?])(\s|$)", t)
+    s = m.group(1) if m else t
+    return s if len(s) <= limit else s[:limit].rsplit(" ", 1)[0] + "…"
+
+
+def parse_feed(xml_bytes, default_source=""):
+    """RSS 2.0 (and simple Atom) → [{title, link, summary, ts, source}]."""
+    import xml.etree.ElementTree as ET
+    from email.utils import parsedate_to_datetime
+    root = ET.fromstring(xml_bytes)
+    ns = {"a": "http://www.w3.org/2005/Atom"}
+    items = root.findall(".//item") or root.findall(".//a:entry", ns)
+    out = []
+    for it in items:
+        def g(tag, atom=None):
+            e = it.find(tag)
+            if e is None and atom:
+                e = it.find(atom, ns)
+            return (e.text or "").strip() if e is not None and e.text else ""
+        title = _clean_text(g("title", "a:title"))
+        link = g("link")
+        if not link:
+            le = it.find("a:link", ns)
+            link = le.get("href", "") if le is not None else ""
+        if not title or not link:
+            continue
+        raw = g("pubDate") or g("published", "a:published") or g("updated", "a:updated")
+        ts = None
+        try:
+            ts = int(parsedate_to_datetime(raw).timestamp())
+        except Exception:
+            try:
+                ts = int(datetime.fromisoformat(raw.replace("Z", "+00:00")).timestamp())
+            except Exception:
+                ts = None
+        src = it.find("source")
+        source = (src.text or "").strip() if src is not None and src.text else default_source
+        if default_source == "Google News":
+            m = re.search(r"\s[-–]\s([^-–]+)$", title)          # "Headline - Publisher"
+            if m and not source:
+                source = m.group(1).strip()
+            if m:
+                title = title[:m.start()].strip()
+        summary = first_sentence(g("description", "a:summary") or g("{http://purl.org/rss/1.0/modules/content/}encoded"), title)
+        out.append({"title": title, "link": link, "summary": summary, "ts": ts, "source": source or default_source})
+    return out

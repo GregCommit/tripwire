@@ -54,6 +54,22 @@ h2+.muted{margin-bottom:10px}
 .drvh{font-weight:600;font-size:14px}.drvt{font-size:14px;color:var(--txt);margin-top:4px}
 .drv ul{padding-left:18px;margin:6px 0}.drv li{font-size:14px;line-height:1.5;color:var(--txt);margin:5px 0}
 .ctxhead{margin:14px 0 6px}
+.qbtn{width:20px;height:20px;border:1px solid var(--line2);border-radius:3px;background:var(--card2);color:var(--mute);font-size:11px;font-weight:600;line-height:1;cursor:pointer;padding:0;margin-left:8px;display:inline-grid;place-items:center}
+.qbtn:hover{color:var(--txt);border-color:#8a8a96}
+.nmr{display:flex;align-items:center;flex:none}
+.exhead{display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+.relgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:12px;margin-top:10px}
+.relunit{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:12px;min-width:0}
+.relhead{display:flex;gap:8px;align-items:center;margin-bottom:6px;flex-wrap:wrap}
+.reltag{font-size:11px;font-weight:600;letter-spacing:.04em;padding:1px 6px;border-radius:3px;border:1px solid var(--dim);color:var(--mute)}
+.reltag.warn{color:var(--watch);border-color:var(--watch)}
+.reltext{font-size:13px;line-height:1.5;color:var(--txt)}
+.relnote{font-size:12.5px;line-height:1.45;color:var(--mute);margin:6px 0 10px}
+.ind.mini{cursor:default;background:var(--card2)}
+.news .nitem{padding:12px 0;border-top:1px solid var(--line)}.news .nitem:first-child{border-top:none;padding-top:0}
+.ntitle{color:var(--txt);font-size:14.5px;font-weight:500;text-decoration:none;line-height:1.4}.ntitle:hover{text-decoration:underline}
+.nsum{font-size:13px;color:var(--mute);line-height:1.5;margin-top:3px}
+.nmeta{font-size:11.5px;color:var(--dim);margin-top:4px}
 .sumline{font-size:14px;line-height:1.5;color:var(--txt);margin-top:8px}
 .xbtn{position:absolute;top:8px;right:8px;width:30px;height:30px;border-radius:50%;background:var(--card2);border:1px solid var(--line2);color:var(--mute);font-size:14px;line-height:1;cursor:pointer;display:grid;place-items:center;z-index:2;padding:0}
 .xbtn:hover{color:var(--txt);border-color:#8a8a96}
@@ -106,7 +122,7 @@ details.quiet{margin-top:18px}details.quiet>summary{cursor:pointer;color:var(--m
 <p>Macro Watch keeps an eye on the big picture so you don't have to: US stocks, interest rates, commodities, investor mood, the yen and Japan's inflation. It answers one question first — <b>does anything need a look today?</b> — and emails you when something crosses a level you chose or moves far more than usual.</p>
 <p>It does not tell you to buy or sell anything. It is context for your own decisions.</p>
 <h3>What — the screens</h3>
-<ul><li><b>Today</b>: the answer first, then <b>groups of indicators that belong together</b> — US bonds, rates &amp; the dollar; gold, silver &amp; Dr. Copper (shown next to real yields and the dollar, because interest rates drive them); stocks &amp; investor mood; yen &amp; Japan; credit, jobs &amp; defaults ahead; oil; valuation. The most special group is at the top, and inside a group the most special indicator comes first. "Special" means a move far larger than usual over the last day, week or month, or a place at the edge of its own history — weighted by how much that indicator matters for stock investing. Every card says in plain words <b>what it says</b>. Each group has a box <b>"What is moving this group?"</b> that explains the unusual moves with the usual links between these markets (for example: gold falls when real yields and the dollar rise). That box is worked out from the numbers, not from news headlines. Tap a card for a bigger chart; close it with the ✕ at its top right.</li>
+<ul><li><b>Today</b>: the answer first, then <b>groups of indicators that belong together</b> — US bonds, rates &amp; the dollar; gold, silver &amp; Dr. Copper; stocks &amp; investor mood; yen &amp; Japan; credit, jobs &amp; defaults ahead; oil; valuation. The most special group is at the top, and inside a group the most special indicator comes first. "Special" means a move far larger than usual over the last day, week or month, or a place at the edge of its own history — weighted by how much that indicator matters for stock investing. Every card says in plain words <b>what it says</b>. Each group has a box <b>"What is moving this group?"</b> that explains the unusual moves with the usual links between these markets (for example: gold falls when real yields and the dollar rise). That box is worked out from the numbers, not from news headlines. Tap a card for a bigger chart; close it with the ✕ at its top right.</li>
 <li><b>Extremes</b>: indicators that only matter when they are far out on one side of their own history — the yen carry trade (USD/JPY, the US–Japan yield gap, Japan's yields), the Buffett indicator, Shiller P/E, credit spreads, the yield curve, the VIX and more. Each sits on a 0–100 scale (its percentile against all the history we have). The outer 5% on either side is an <b>extreme</b> (red), the outer 10% is <b>stretched</b> (amber); everything else is "normal range" and tucked away. Open "Japan &amp; yen in detail" at the bottom for Japan's inflation with the Bank of Japan's forecasts and the interest-gap chart.</li>
 <li><b>Alerts</b>: your levels (e.g. "USD/JPY above 160"), the email setup, the on/off switch for extreme alerts, and the history of every alert.</li></ul>
 <h3>About extremes — please read</h3>
@@ -115,8 +131,12 @@ details.quiet{margin-top:18px}details.quiet>summary{cursor:pointer;color:var(--m
 <ul><li>Prices (stocks, VIX, commodities, dollar, yen): every 15 minutes, around the clock. Index values are the latest trade; futures trade almost 24 hours.</li>
 <li>US interest rates and spreads (FRED): every 2 hours. These are official end-of-day figures, so they run one business day behind.</li>
 <li>Monthly figures (inflation, Japan's 10-year yield and overnight rate): checked twice a day; you get an email when a new month's inflation figure appears.</li>
+<li>News: headlines from free RSS feeds, every 15 minutes.</li>
 <li>Extremes tab: long histories (decades) fetched every 3 hours from FRED, Yahoo Finance and multpl.com (Shiller P/E).</li>
 <li>Bank of Japan forecasts: checked twice a day; the BoJ publishes new ones in January, April, July and October, and you get an email when it does.</li></ul>
+<h3>The ? on every card</h3>
+<p>Tap the small <b>?</b> on a card to see how it is connected. The page switches to just that card, the indicators that <b>explain</b> it and the ones it <b>moves</b>, each with one sentence on how they usually behave and a tag that says whether they are behaving that way right now (<b>as usual</b>, or <b>against the usual link</b>, which means something else is driving it). Below that are the <b>news headlines</b> that fit. Tap a ? on any related card to follow the chain; ← Back or Esc returns.</p>
+<p>News comes from free RSS feeds (CNBC, MarketWatch, Yahoo Finance, the Federal Reserve and Google News searches). Each headline is matched to indicators by keywords, so now and then a headline fits loosely. The app shows headlines and does not write its own explanation of them.</p>
 <h3>What the colours mean</h3>
 <ul><li><b style="color:var(--alert)">Red</b>: danger or a negative move — an extreme, credit stress, falling stocks, a rising fear gauge.</li>
 <li><b style="color:var(--watch)">Yellow</b>: a second, milder signal — "pay attention" (stretched, or unusually large move).</li>
@@ -266,8 +286,8 @@ function cardHTML(s, cid){
   const id = cid + '|' + s.key, open = OPEN === id, mo = s.freq === 'monthly';
   const color = s.tone === 'alert' ? '#FF4D4F' : s.tone === 'watch' ? '#F5C518' : '#8a8a96';
   return `<div class="ind${s.horizon ? ' hot' : ''}${open ? ' open' : ''}" data-cid="${id}" id="card-${uid(cid, s.key)}">
-    ${open ? xBtn('openCard(null)') : ''}
-    <div class="nm"><span>${esc(s.name)}</span><span class="small">${esc(fdate(s.date, mo))}</span></div>
+    ${open ? xBtn(cid === 'ex' ? 'closeExplain()' : 'openCard(null)') : ''}
+    <div class="nm"><span>${esc(s.name)}</span><span class="nmr"><span class="small">${esc(fdate(s.date, mo))}</span>${qBtn(s.key)}</span></div>
     <div class="val">${esc(fmtVal(s, s.value))}</div>
     <span class="chip ${toneWord[s.tone]}">${esc(s.reading)}</span>${badge(s)}
     ${saysHTML(s)}
@@ -295,6 +315,7 @@ function detailHTML(s, cid){
 }
 function findSummary(key){ for (const g of OV.groups) for (const s of g.items) if (s.key === key) return s; return null; }
 function findAny(key){
+  if (EXPL && EXPL.items[key]) return EXPL.items[key];
   for (const c of OV.clusters || []) for (const s of c.main.concat(c.context)) if (s.key === key) return s;
   return findSummary(key);
 }
@@ -335,6 +356,7 @@ function driversHTML(c){
 }
 function renderToday(){
   if (!OV) return;
+  if (EXPL){ renderExplain(); return; }
   const S = OV.summary, bad = OV.sources.filter(x => x.stale || x.error);
   let h = `<div class="card"><div class="answer" style="color:${S.calm ? 'var(--up)' : 'var(--txt)'}">${esc(S.headline)}</div>`;
   for (const l of S.lines) h += `<p class="sumline"><b>${esc(l.title)}</b> · ${esc(l.horizon)} — ${esc(l.text)} <button class="link" onclick="goCluster('${l.cluster}')">Show ›</button></p>`;
@@ -343,7 +365,6 @@ function renderToday(){
   for (const c of OV.clusters || []){
     h += `<h2 id="cl-${c.id}">${esc(c.title)}</h2><div class="muted">${esc(c.intro)}${c.id === 'japan' ? ' <button class="link" onclick="openJapan()">Inflation forecasts ›</button>' : ''}</div>${driversHTML(c)}
       <div class="grid">${c.main.map(s => cardHTML(s, c.id)).join('')}</div>`;
-    if (c.context.length) h += `<div class="small ctxhead">Shown alongside, because they explain the moves above:</div><div class="grid">${c.context.map(s => cardHTML(s, c.id)).join('')}</div>`;
   }
   $('today').innerHTML = h;
   document.querySelectorAll('#today .ind[data-cid]').forEach(c => c.onclick = () => { if (OPEN !== c.dataset.cid) openCard(c.dataset.cid); });
@@ -398,6 +419,61 @@ async function renderJapan(){
     $('gapNote').textContent = `${fdate(g[0], true)}: US 10-year yields ${num(g[1], 2)} percentage points more than Japan's` + (y ? ` (a year earlier: ${num(y[1], 2)}) — the gap has ${g[1] < y[1] ? 'narrowed, which supports the yen' : 'widened, which weighs on the yen'}.` : '.'); }
 }
 
+// ── "How is this connected?" ──────────────────────────────────────────────
+let EXPL = null, EXSTACK = [], EXPL_SCROLL = 0;
+function qBtn(key){ return `<button class="qbtn" type="button" title="How is this connected?" aria-label="How is this connected?" onclick="event.stopPropagation();explain('${key}')">?</button>`; }
+function chipOf(s){ return s.hub ? `<span class="chip ${ZONE[s.zone][1]}">${ZONE[s.zone][0]}</span>` : `<span class="chip ${toneWord[s.tone]}">${esc(s.reading)}</span>`; }
+function sparkColor(s){ return s.hub ? (s.zone.startsWith('extreme') ? '#FF4D4F' : s.zone !== 'quiet' ? '#F5C518' : '#8a8a96') : (s.tone === 'alert' ? '#FF4D4F' : s.tone === 'watch' ? '#F5C518' : '#8a8a96'); }
+function miniHTML(s){
+  const mo = s.freq === 'monthly' || s.freq === 'quarterly';
+  return `<div class="ind mini"><div class="nm"><span>${esc(s.name)}</span><span class="nmr"><span class="small">${esc(fdate(s.date, mo))}</span>${qBtn(s.key)}</span></div>
+    <div class="val">${esc(fmtVal(s, s.value))}</div>${chipOf(s)}${badge(s)}
+    <div class="chg">${chgRow(s)}</div>${sparkSVG(s.spark, sparkColor(s))}</div>`;
+}
+const REL_LABEL = {asusual: ['AS USUAL', ''], against: ['AGAINST THE USUAL LINK', 'warn'], other: ['OTHER CAUSE', 'warn'], noreact: ['NOT REACTING YET', 'warn'], quiet: ['QUIET', '']};
+function relUnit(l, other){
+  const [label, cls] = REL_LABEL[l.status];
+  return `<div class="relunit"><div class="relhead"><span class="reltag ${cls}">${label}</span><span class="small">${esc(l.modeText)}</span></div>
+    <div class="reltext">${esc(l.why)}</div><div class="relnote">${esc(l.note)}</div>${miniHTML(other)}</div>`;
+}
+function newsHTML(E){
+  const st = E.newsStatus;
+  const status = !st ? 'News has not been fetched yet — the app does this a few minutes after starting.' :
+    `Headlines from ${st.ok} of ${st.total} free news feeds, updated ${ago(st.ts)}.`;
+  const body = E.news.length ? E.news.map(n => `<div class="nitem"><a class="ntitle" href="${esc(n.link)}" target="_blank" rel="noopener noreferrer">${esc(n.title)}</a>
+      ${n.summary ? `<div class="nsum">${esc(n.summary)}</div>` : ''}
+      <div class="nmeta">${esc(n.source)} · ${esc(ago(n.ts))}${n.tags.length ? ' · about: ' + n.tags.map(esc).join(', ') : ''}</div></div>`).join('')
+    : `<div class="muted">No matching headlines in the last few days.</div>`;
+  return `<h2>News that fits</h2><div class="small" style="margin:2px 0 6px">${esc(status)}</div><div class="card news">${body}</div>`;
+}
+function renderExplain(){
+  const E = EXPL, me = E.items[E.key]; if (!me) return;
+  OPEN = 'ex|' + E.key;
+  const drv = E.drivers.filter(l => E.items[l.driver]), eff = E.effects.filter(l => E.items[l.affected]);
+  let h = `<div class="exhead"><button class="btn" onclick="closeExplain()">← Back</button><span class="small">How is this connected? Only what matters for <b>${esc(me.name)}</b> is shown.</span></div>
+    <div class="grid">${cardHTML(me, 'ex')}</div>`;
+  h += `<h2>What explains it</h2>` + (drv.length ? `<div class="relgrid">${drv.map(l => relUnit(l, E.items[l.driver])).join('')}</div>` : `<div class="muted">No direct driver is defined for this indicator.</div>`);
+  h += `<h2>What it moves</h2>` + (eff.length ? `<div class="relgrid">${eff.map(l => relUnit(l, E.items[l.affected])).join('')}</div>` : `<div class="muted">It does not directly move another indicator in this app.</div>`);
+  h += newsHTML(E);
+  $('today').innerHTML = h;
+  drawOpen();
+}
+async function explain(key){
+  try {
+    const E = await api('/api/explain/' + key);
+    if (EXPL) EXSTACK.push(EXPL.key); else { EXPL_SCROLL = window.scrollY; EXSTACK = []; }
+    EXPL = E; OPEN = null;
+    if (TAB !== 'today') showTab('today');
+    renderToday(); window.scrollTo(0, 0); track('Explain ' + key);
+  } catch (e) { if (e.message !== 'signed out') alert('Could not load the explanation: ' + e.message); }
+}
+async function closeExplain(){
+  OPEN = null;
+  if (EXSTACK.length){ const prev = EXSTACK.pop(); try { EXPL = await api('/api/explain/' + prev); renderToday(); window.scrollTo(0, 0); return; } catch (e) {} }
+  EXPL = null; renderToday(); window.scrollTo(0, EXPL_SCROLL);
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && EXPL) closeExplain(); });
+
 // ── Extremes ──────────────────────────────────────────────────────────────
 let EX = null, EXOPEN = null, EXCAT = 'all', EXRANGE = {}, QUIET_OPEN = false, JAPAN_OPEN = false;
 const EXRANGES = [['5Y', 1830], ['10Y', 3660], ['25Y', 9150], ['Max', 99999]];
@@ -414,6 +490,7 @@ function pbar(h, mini){ const p = Math.min(100, Math.max(0, h.pct)); return `<di
 function localBadge(h){ return h.local ? `<span class="small" style="margin-left:6px">· ${h.local === 'high' ? 'highest' : 'lowest'} in 5 years</span>` : ''; }
 function findHub(key){
   const a = EX?.items.find(x => x.key === key); if (a) return a;
+  if (EXPL && EXPL.items[key] && EXPL.items[key].hub) return EXPL.items[key];
   for (const c of OV?.clusters || []) for (const s of c.main.concat(c.context)) if (s.hub && s.key === key) return s;
   return null;
 }
@@ -422,8 +499,8 @@ function exCardHTML(h, cid){
   const [label, cls] = ZONE[h.zone], strong = h.zone.startsWith('extreme'), hot = h.zone !== 'quiet';
   const color = strong ? '#FF4D4F' : hot ? '#F5C518' : '#8a8a96';
   return `<div class="ind${hot ? ' ext' + (strong ? '' : ' stretched') : ''}${open ? ' open' : ''}" ${today ? `data-cid="${id}"` : `data-ex="${h.key}"`} id="ex-${uid(cid, h.key)}">
-    ${open ? xBtn(today ? 'openCard(null)' : 'openEx(null)') : ''}
-    <div class="nm"><span>${esc(h.name)}</span><span class="small">${esc(fdate(h.date, hubMo(h)))}</span></div>
+    ${open ? xBtn(today ? (cid === 'ex' ? 'closeExplain()' : 'openCard(null)') : 'openEx(null)') : ''}
+    <div class="nm"><span>${esc(h.name)}</span><span class="nmr"><span class="small">${esc(fdate(h.date, hubMo(h)))}</span>${qBtn(h.key)}</span></div>
     <div class="val">${esc(fmtVal(h, h.value))}</div>
     <span class="chip ${cls}">${label}</span><span class="small" style="margin-left:6px">${ordinal(h.pct)} percentile</span>${localBadge(h)}${badge(h)}
     ${pbar(h)}<div class="rngl"><span>lowest</span><span>history since ${h.start.slice(0, 4)}</span><span>highest</span></div>
@@ -581,6 +658,7 @@ async function load(){
     d.rules = OV?.rules || ALERTS?.rules; OV = d; ROLE = d.role;
     if (!OV.rules){ ALERTS = await api('/api/alerts'); OV.rules = ALERTS.rules; }
     $('upd').textContent = newest ? 'Updated ' + ago(newest) : 'Fetching data…';
+    if (TAB === 'today' && EXPL){ try { EXPL = await api('/api/explain/' + EXPL.key); } catch (e) {} }
     if (TAB === 'today') renderToday();
     if (TAB === 'extremes') loadExtremes();
     if (!d.groups.some(g => g.items.length)) $('today').innerHTML = '<div class="card"><div class="answer">Fetching the first data…</div><p class="muted">This takes about a minute after the app starts.</p></div>';

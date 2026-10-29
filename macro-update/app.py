@@ -90,6 +90,9 @@ def init_db():
             CREATE TABLE IF NOT EXISTS rules (id INTEGER PRIMARY KEY, key TEXT, op TEXT, level REAL,
                 enabled INTEGER DEFAULT 1);
             CREATE TABLE IF NOT EXISTS alert_state (rule TEXT PRIMARY KEY, state TEXT);
+            CREATE TABLE IF NOT EXISTS news (id INTEGER PRIMARY KEY, ts INTEGER, source TEXT, title TEXT,
+                summary TEXT, link TEXT UNIQUE, topics TEXT);
+            CREATE INDEX IF NOT EXISTS news_ts ON news(ts);
             CREATE TABLE IF NOT EXISTS alerts (id INTEGER PRIMARY KEY, ts INTEGER, key TEXT, kind TEXT,
                 title TEXT, detail TEXT, emailed INTEGER DEFAULT 0);
         """)
@@ -288,6 +291,78 @@ def background_loop():
         time.sleep(60)
 
 
+BROWSER_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36"
+NEWS_EVERY = 15 * 60
+NEWS_KEEP_DAYS = 4
+
+
+def refresh_news():
+    """Headlines from free RSS feeds, each matched to the indicators it is about. A feed that fails is
+    skipped and reported; the rest still count."""
+    feeds, ok, errors, added = S.news_feeds(), 0, {}, 0
+    now = int(time.time())
+    for name, url in feeds:
+        label = name.split(" ")[0] if name.startswith(("CNBC", "MarketWatch")) else name
+        try:
+            items = S.parse_feed(S.http_get(url, timeout=15, ua=BROWSER_UA), label)
+            ok += 1
+        except Exception as e:
+            errors[f"{name} ({url[:60]})"] = f"{type(e).__name__}: {e}"[:120]
+            continue
+        with get_db() as conn:
+            for it in items:
+                topics = S.tag_news(it["title"], it["summary"])
+                if not topics:
+                    continue
+                if conn.execute("SELECT 1 FROM news WHERE lower(title)=?", (it["title"].lower(),)).fetchone():
+                    continue
+                cur = conn.execute("INSERT OR IGNORE INTO news (ts, source, title, summary, link, topics) VALUES (?,?,?,?,?,?)",
+                                   (it["ts"] or now, it["source"], it["title"], it["summary"], it["link"], json.dumps(topics)))
+                added += cur.rowcount
+        time.sleep(0.3)
+    with get_db() as conn:
+        conn.execute("DELETE FROM news WHERE ts < ?", (now - NEWS_KEEP_DAYS * 86400,))
+    set_setting("news_status", json.dumps({"ok": ok, "total": len(feeds), "ts": now, "added": added, "errors": errors}))
+    log.info("News: %d of %d feeds reachable, %d new headlines", ok, len(feeds), added)
+
+
+def news_loop():
+    time.sleep(20)
+    while True:
+        try:
+            refresh_news()
+        except Exception as e:
+            log.exception("News refresh failed: %s", e)
+        time.sleep(NEWS_EVERY)
+
+
+def news_for(primary, drivers, effects, limit=10):
+    """The headlines that fit this indicator best: about itself first, then about what explains it
+    and what it moves. Newer headlines win ties."""
+    rel = {}
+    for k, w in [(k, 3) for k in effects] + [(k, 3.5) for k in drivers] + [(primary, 5)]:
+        rel[k] = max(rel.get(k, 0), w)
+    cutoff = int(time.time()) - NEWS_KEEP_DAYS * 86400
+    with get_db() as conn:
+        rows = [dict(r) for r in conn.execute("SELECT * FROM news WHERE ts > ? ORDER BY ts DESC LIMIT 800", (cutoff,))]
+    out = []
+    for r in rows:
+        try:
+            topics = json.loads(r["topics"])
+        except ValueError:
+            continue
+        hit = [(k, w) for k, w in topics if k in rel]
+        if not hit:
+            continue
+        score = max(rel[k] * w for k, w in hit) + max(0.0, 1 - (time.time() - r["ts"]) / 3600 / 96)
+        tags = [S.BY_KEY[k]["name"] if k in S.BY_KEY else S.HUB_BY_KEY[k]["name"] for k, _ in sorted(hit, key=lambda x: -rel[x[0]])
+                if k in S.BY_KEY or k in S.HUB_BY_KEY][:3]
+        out.append({"score": score, "title": r["title"], "summary": r["summary"], "link": r["link"], "source": r["source"],
+                    "ts": r["ts"], "tags": tags})
+    out.sort(key=lambda x: -x["score"])
+    return out[:limit]
+
+
 _started = False
 
 
@@ -296,6 +371,7 @@ def start_background():
     if not _started and os.environ.get("MACRO_NO_BACKGROUND") != "1":
         _started = True
         threading.Thread(target=background_loop, daemon=True, name="refresh").start()
+        threading.Thread(target=news_loop, daemon=True, name="news").start()
 
 
 # ── Summaries and alerts ────────────────────────────────────────────────────
@@ -606,7 +682,7 @@ def build_clusters(sm, hub):
         if not main:
             continue
         out.append({"id": c["id"], "title": c["title"], "intro": c["intro"], "rank": max(x["rank"] for x in main),
-                    "drivers": S.drivers(c["id"], {x["key"]: x for x in main + ctx}, set(c["main"])), "main": main, "context": ctx})
+                    "drivers": S.drivers(c["id"], {x["key"]: x for x in main + ctx}, set(c["main"])), "main": main, "context": []})
     out.sort(key=lambda c: -c["rank"])
     return out
 
@@ -653,6 +729,23 @@ VERSION = _code_version()
 @login_required
 def api_version():
     return jsonify({"version": VERSION})
+
+
+def all_items():
+    return {**summaries(), **{h["key"]: h for h in hub_summaries()}}
+
+
+@app.route("/api/explain/<key>")
+@login_required
+def api_explain(key):
+    items = all_items()
+    ex = S.explain(key, items)
+    if ex is None:
+        return jsonify({"error": "unknown"}), 404
+    drivers, effects = [x["driver"] for x in ex["drivers"]], [x["affected"] for x in ex["effects"]]
+    return jsonify({**ex, "items": {k: items[k] for k in dict.fromkeys([key] + drivers + effects) if k in items},
+                    "news": news_for(key, drivers, effects),
+                    "newsStatus": json.loads(get_setting("news_status", "null") or "null")})
 
 
 @app.route("/api/series/<key>")
