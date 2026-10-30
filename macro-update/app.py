@@ -101,6 +101,11 @@ def init_db():
             CREATE TABLE IF NOT EXISTS alerts (id INTEGER PRIMARY KEY, ts INTEGER, key TEXT, kind TEXT,
                 title TEXT, detail TEXT, emailed INTEGER DEFAULT 0);
         """)
+        for col in ("sym TEXT", "src TEXT", "note TEXT"):
+            try:
+                conn.execute("ALTER TABLE stocks ADD COLUMN " + col)
+            except sqlite3.OperationalError:
+                pass
         if conn.execute("SELECT value FROM settings WHERE key='rules_seeded'").fetchone() is None:
             conn.executemany("INSERT INTO rules (key, op, level) VALUES (?,?,?)", DEFAULT_RULES)
             conn.execute("INSERT INTO settings VALUES ('rules_seeded','1')")
@@ -861,6 +866,7 @@ def heat_loop():
 # ── Stocks: your holdings and watch list ──────────────────────────────────────
 STOCKS_EVERY = 300
 _stock_lock = threading.Lock()
+STOCK_PTS = {}        # ticker -> daily closes of the last year, kept for the 'what moves with it' calculation
 
 
 def _stock_names():
@@ -870,13 +876,47 @@ def _stock_names():
 def refresh_stocks():
     """Prices, unusual-move flags, volume, earnings dates and headlines for every stock you hold or watch."""
     with get_db() as conn:
-        tickers = [r["ticker"] for r in conn.execute("SELECT ticker FROM stocks")]
+        recs = {r["ticker"]: dict(r) for r in conn.execute("SELECT * FROM stocks")}
+    tickers = list(recs)
     if not tickers:
         set_setting("stocks_data", "{}")
         return
     with _stock_lock:
         import yfinance as yf
-        got = S.fetch_yahoo_vol(tickers, "1y")
+        symof = {t: (recs[t].get("sym") or t) for t in tickers}
+        got = {}
+        yah = [t for t in tickers if (recs[t].get("src") or "yahoo") == "yahoo"]
+        if yah:
+            raw = S.fetch_yahoo_vol(list(dict.fromkeys(symof[t] for t in yah)), "1y")
+            got.update({t: raw[symof[t]] for t in yah if symof[t] in raw})
+        for t in tickers:
+            if recs[t].get("src") == "stooq":
+                try:
+                    g = S.fetch_stooq(symof[t])
+                    if g:
+                        got[t] = g
+                except Exception as e:
+                    log.warning("Stooq %s: %s", t, e)
+        tried = json.loads(get_setting("stock_resolve", "{}") or "{}")
+        for t in tickers:                        # not found where it was looked for: search for it somewhere else (at most once an hour)
+            if t in got or time.time() - tried.get(t, 0) < 3600:
+                continue
+            tried[t] = time.time()
+            try:
+                hit = S.resolve_symbol(t)
+            except Exception as e:
+                log.warning("Resolve %s: %s", t, e)
+                hit = None
+            if hit:
+                g = S.fetch_stooq(hit["sym"]) if hit["src"] == "stooq" else (S.fetch_yahoo_vol([hit["sym"]], "1y") or {}).get(hit["sym"])
+                if g:
+                    got[t] = g
+                    symof[t] = hit["sym"]
+                    with get_db() as conn:
+                        conn.execute("UPDATE stocks SET sym=?, src=?, note=? WHERE ticker=?", (hit["sym"], hit["src"], hit["name"], t))
+                    recs[t].update(sym=hit["sym"], src=hit["src"], note=hit["name"])
+        set_setting("stock_resolve", json.dumps(tried))
+        STOCK_PTS.update({t: g["pts"] for t, g in got.items()})
         names, earn = _stock_names(), json.loads(get_setting("stock_earn", "{}") or "{}")
         news_all = json.loads(get_setting("stock_news", "{}") or "{}")
         now, today = int(time.time()), datetime.now().date()
@@ -890,18 +930,18 @@ def refresh_stocks():
                 names[t] = heat.get(t) or ""
                 if not names[t]:
                     try:
-                        names[t] = yf.Ticker(t).info.get("shortName") or t
+                        names[t] = recs[t].get("note") or yf.Ticker(symof[t]).info.get("shortName") or t
                     except Exception:
                         names[t] = t
             if now - earn.get(t, {}).get("ts", 0) > 6 * 3600:
                 try:
-                    ed = _earnings_date(yf.Ticker(t))
+                    ed = _earnings_date(yf.Ticker(symof[t])) if recs[t].get("src") != "stooq" else None
                 except Exception:
                     ed = None
                 earn[t] = {"ts": now, "d": ed.isoformat() if ed else None}
             if now - news_all.get(t, {}).get("ts", 0) > 600:
                 try:
-                    items = S.parse_feed(S.http_get(f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={t}&region=US&lang=en-US", timeout=15, ua=BROWSER_UA), "Yahoo Finance")
+                    items = S.parse_feed(S.http_get(f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={symof[t]}&region=US&lang=en-US", timeout=15, ua=BROWSER_UA), "Yahoo Finance") if recs[t].get("src") != "stooq" else []
                     news_all[t] = {"ts": now, "items": [{"title": i["title"], "link": i["link"], "source": i["source"], "ts": i["ts"] or now} for i in items if not S.is_noise(i["title"])][:8]}
                 except Exception as e:
                     log.warning("Stock news %s: %s", t, e)
@@ -925,7 +965,7 @@ def refresh_stocks():
             move = s.get(field) if s.get(field) is not None else s.get("d1")
             out[t] = {"t": t, "name": names.get(t) or t, "price": s["value"], "date": s["date"], "d1": s["d1"], "w1": s.get("w1"), "m1": s["m1"], "y1": s.get("y1"),
                       "hi": s["hi"], "lo": s["lo"], "spark": s["spark"], "flags": [f for f, _ in flags], "score": round(sum(w for _, w in flags), 2),
-                      "move": move, "earn": ed, "volx": round(vr, 1) if vr else None, "news": items[:3], "freshNews": len(fresh)}
+                      "move": move, "earn": ed, "sym": symof[t], "src": recs[t].get("src") or "yahoo", "note": recs[t].get("note"), "volx": round(vr, 1) if vr else None, "news": items[:3], "freshNews": len(fresh)}
         set_setting("stock_names", json.dumps(names))
         set_setting("stock_earn", json.dumps(earn))
         set_setting("stock_news", json.dumps(news_all))
@@ -1721,7 +1761,8 @@ def api_stocks():
         mine = [dict(r) for r in conn.execute("SELECT * FROM stocks ORDER BY added")]
     hold, watch = [], []
     for m in mine:
-        r = dict(rows.get(m["ticker"]) or {"t": m["ticker"], "name": _stock_names().get(m["ticker"], m["ticker"]), "price": None, "flags": [], "score": 0, "news": [], "spark": []})
+        r = dict(rows.get(m["ticker"]) or {"t": m["ticker"], "name": _stock_names().get(m["ticker"], m["ticker"]), "price": None, "flags": [], "score": 0, "news": [], "spark": [],
+                                         "notFound": bool(json.loads(get_setting("stock_resolve", "{}") or "{}").get(m["ticker"]))})
         r.update(kind=m["kind"], shares=m["shares"], cost=m["cost"])
         if m["kind"] == "hold" and r.get("price") is not None and m["shares"]:
             r["value"] = r["price"] * m["shares"]
@@ -1748,6 +1789,116 @@ def api_ais():
     set_setting("ais_key", key)
     set_setting("ais_status", "null")
     return jsonify({"success": True, "hasKey": bool(key)})
+
+
+_stock_series_cache = {}
+
+
+def stock_series(t, rec):
+    """Up to 5 years of daily closes, cached for 30 minutes."""
+    c = _stock_series_cache.get(t)
+    if c and time.time() - c[0] < 1800:
+        return c[1]
+    sym = rec.get("sym") or t
+    try:
+        if rec.get("src") == "stooq":
+            g = S.fetch_stooq(sym, days=1500)
+            pts = g["pts"] if g else []
+        else:
+            pts = (S.fetch_yahoo([sym], "5y") or {}).get(sym, [])
+    except Exception as e:
+        log.warning("Stock series %s: %s", t, e)
+        pts = []
+    if pts:
+        _stock_series_cache[t] = (time.time(), pts)
+    return pts or STOCK_PTS.get(t, [])
+
+
+def _returns(pts, pct=True):
+    out = {}
+    for i in range(1, len(pts)):
+        a, b = pts[i - 1][1], pts[i][1]
+        if pct and a:
+            out[pts[i][0]] = b / a - 1
+        elif not pct:
+            out[pts[i][0]] = b - a
+    return out
+
+
+def stock_related(t, pts, mine):
+    """What usually moves with this stock (daily returns over the last year) and whether it does so today."""
+    own = _returns(pts[-260:])
+    if len(own) < 60:
+        return []
+    cands = []
+    for k, ind in S.BY_KEY.items():
+        if ind.get("freq") == "daily" and ind["source"] in ("yahoo", "fred") and k not in (t,):
+            cands.append((k, ind["name"], load_series(k)[-300:], ind["chg"] == "pct", ind))
+    for o in mine:
+        if o != t and o in STOCK_PTS:
+            cands.append((o, o, STOCK_PTS[o][-300:], True, None))
+    res = []
+    for k, name, ser, pct, ind in cands:
+        if len(ser) < 70:
+            continue
+        rr = _returns(ser, pct)
+        days = [x for x in own if x in rr]
+        if len(days) < 60:
+            continue
+        a, b = [own[x] for x in days], [rr[x] for x in days]
+        ma, mb = sum(a) / len(a), sum(b) / len(b)
+        va, vb = sum((x - ma) ** 2 for x in a), sum((y - mb) ** 2 for y in b)
+        if not va or not vb:
+            continue
+        r = sum((x - ma) * (y - mb) for x, y in zip(a, b)) / (va * vb) ** 0.5
+        if abs(r) < 0.3:
+            continue
+        last = ser[-1][1] / ser[-2][1] - 1 if pct and ser[-2][1] else ser[-1][1] - ser[-2][1]
+        d1 = last * 100 if pct else last
+        own_d = pts[-1][1] / pts[-2][1] - 1
+        quiet = abs(d1) < (0.2 if pct else 0.02)
+        same_dir = (d1 > 0) == (own_d > 0)
+        status = "quiet" if quiet else "asusual" if same_dir == (r > 0) else "against"
+        res.append({"key": k, "name": name, "r": round(r, 2), "mode": "same" if r > 0 else "inverse", "d1": round(d1, 2), "status": status,
+                    "chgKind": "pct" if pct else "pt", "unit": (ind or {}).get("unit", ""), "dec": (ind or {}).get("dec", 2), "stock": ind is None})
+    pos = sorted([x for x in res if x["r"] > 0], key=lambda x: -x["r"])[:5]
+    neg = sorted([x for x in res if x["r"] < 0], key=lambda x: x["r"])[:3]
+    return pos + neg
+
+
+@app.route("/api/stock/<t>")
+@login_required
+def api_stock(t):
+    if is_guest():
+        return jsonify({"private": True})
+    t = t.upper()
+    with get_db() as conn:
+        rec = conn.execute("SELECT * FROM stocks WHERE ticker=?", (t,)).fetchone()
+        mine = [r["ticker"] for r in conn.execute("SELECT ticker FROM stocks")]
+    if not rec:
+        return jsonify({"error": "unknown"}), 404
+    rec = dict(rec)
+    row = (json.loads(get_setting("stocks_data", "{}") or "{}").get("rows") or {}).get(t)
+    pts = stock_series(t, rec)
+    related = stock_related(t, pts, mine) if len(pts) > 80 else []
+    now = time.time()
+    news = []
+    for n in (json.loads(get_setting("stock_news", "{}") or "{}").get(t, {}).get("items") or []):
+        age = (now - n["ts"]) / 3600
+        impact = min(12.0, S.geo_impact(n["title"], "") + 2)
+        news.append({"title": n["title"], "link": n["link"], "source": n["source"], "ts": n["ts"], "summary": "", "tags": [t], "keys": [t], "about": t,
+                     "urgency": S.geo_urgency(age, impact), "score": 8 + S.geo_rank(impact, age, 0)})
+    keys = [x["key"] for x in related if not x["stock"]][:6]
+    if keys:
+        names = {x["key"]: x for x in related}
+        for n in news_for(keys[0], keys[1:], [], limit=12):
+            age = (now - n["ts"]) / 3600
+            impact = min(12.0, S.geo_impact(n["title"], n["summary"]) + 1)
+            rel = names.get(n["keys"][0]) if n["keys"] else None
+            news.append({**n, "about": rel["name"] if rel else "", "status": rel["status"] if rel else "", "urgency": S.geo_urgency(age, impact),
+                         "score": 3 + S.geo_rank(impact, age, 0), "link": n["link"]})
+    news.sort(key=lambda x: -x["score"])
+    return jsonify({"t": t, "row": row, "points": pts[-1300:], "related": related, "news": news[:14], "sym": rec.get("sym") or t, "src": rec.get("src") or "yahoo", "note": rec.get("note")})
 
 
 @app.route("/api/headlines")

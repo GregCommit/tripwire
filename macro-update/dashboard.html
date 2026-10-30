@@ -100,6 +100,7 @@ h2.sub{font-size:14px;color:var(--mute);font-weight:500;margin:18px 0 6px}
 .skh{display:flex;justify-content:space-between;align-items:flex-start}.skt{font-size:17px}.skb .link{margin-left:10px;font-size:12.5px}.skf{display:flex;flex-wrap:wrap;gap:4px 6px;margin:8px 0}.skf span{font-size:11.5px;border:1px solid var(--line2);border-radius:3px;padding:1px 7px;color:var(--mute)}.stk.loss .skf span{border-color:rgba(255,77,79,.6);color:#ffb4b5}.stk.gain .skf span{border-color:rgba(34,197,94,.6);color:#a7f0c0}
 .skp{display:flex;flex-wrap:wrap;gap:2px 14px;font-size:13px;margin:6px 0;color:var(--mute)}.skp .up{color:var(--up)}.skp .down{color:var(--down)}.skp b{color:var(--txt)}.skedit{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}.skedit input{width:110px}
 .sknews{display:block;font-size:13px;line-height:1.35;color:var(--txt);margin-top:8px;padding-top:8px;border-top:1px solid var(--line);text-decoration:none}.sknews span{display:block;font-size:11.5px;color:var(--dim);margin-top:2px}
+.strels{display:grid;grid-template-columns:1fr 1fr;gap:16px}.strel{border:1px solid var(--line);border-radius:6px;background:var(--card);padding:10px 12px;margin-bottom:8px}.strel .nm{margin-top:4px}@media (max-width:800px){.strels{grid-template-columns:1fr}}
 .movers{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;margin:14px 2px 6px;font-size:13.5px}.mv{font-variant-numeric:tabular-nums}
 @media (max-width:700px){.gh{grid-template-columns:1fr;gap:6px}.ghl{flex-direction:row;align-items:center}}
 .geohead{margin-top:12px}.geoblurb{font-size:15px;line-height:1.6}
@@ -961,7 +962,50 @@ async function loadGeo(){
 }
 function setGeo(c){ GEO_SEL = c; GEO = null; renderGeo(); loadGeo(); }
 // ── Stocks ─────────────────────────────────────────────────────────────────
-let STK = null, STK_EDIT = null;
+let STK = null, STK_EDIT = null, STK_OPEN = null, STK_D = null, STK_R = '1Y';
+async function openStock(t){
+  STK_OPEN = t; STK_D = null; $('stForm').style.display = 'none'; renderStocks(); window.scrollTo(0, 0);
+  try { STK_D = await api('/api/stock/' + encodeURIComponent(t)); if (STK_OPEN === t) renderStocks(); }
+  catch (e){ $('stocks').innerHTML = '<div class="card muted">Could not load ' + esc(t) + ': ' + esc(e.message) + '</div>'; }
+}
+function closeStock(){ STK_OPEN = null; STK_D = null; $('stForm').style.display = 'block'; renderStocks(); }
+function stkRange(r){ STK_R = r; drawStockChart(); document.querySelectorAll('#stocks .ranges button').forEach(b => b.classList.toggle('on', b.textContent === r)); }
+function drawStockChart(){
+  const el = $('stkChart'); if (!el || !STK_D || !STK_D.points.length) return;
+  const pts = STK_D.points, days = RANGES.find(x => x[0] === STK_R)[1], end = pdate(pts[pts.length - 1][0]).getTime(), from = Math.max(pdate(pts[0][0]).getTime(), end - days * 864e5);
+  lineChart(el, {from, to: end, h: 280, area: true, dot: true, gid: 'stk', series: [{pts: pts.filter(p => pdate(p[0]).getTime() >= from), color: LINE, fmt: v => money(v)}]});
+}
+function stkNewsRow(n){
+  const cls = n.urgency === 'BREAKING' ? 'brk' : n.urgency === 'TODAY' ? 'tod' : 'old';
+  const st = n.status === 'asusual' ? '<span class="gchip">confirms the usual link</span>' : n.status === 'against' ? '<span class="gchip hot">against the usual link</span>' : '';
+  return `<div class="gh ${cls}"><div class="ghl"><span class="urg ${cls}">${n.urgency}</span><span class="gcat">${n.about === STK_OPEN ? 'about ' + esc(n.about) : n.about ? 'via ' + esc(n.about) : ''}</span></div>
+    <div class="ghb"><a class="ntitle" href="${esc(n.link)}" target="_blank" rel="noopener noreferrer">${esc(n.title)}</a>${n.summary ? `<div class="nsum">${esc(n.summary)}</div>` : ''}<div class="nmeta">${esc(n.source)} · ${esc(ago(n.ts))} ${st}</div></div></div>`;
+}
+function stkRel(x){
+  const lab = x.status === 'asusual' ? ['AS USUAL', ''] : x.status === 'against' ? ['AGAINST THE USUAL LINK', 'warn'] : ['QUIET', ''];
+  const strength = Math.abs(x.r) >= 0.7 ? 'strong' : Math.abs(x.r) >= 0.5 ? 'clear' : 'loose';
+  const mv = x.chgKind === 'pct' ? `${sgn(x.d1)}${Math.abs(x.d1).toFixed(2)}%` : `${sgn(x.d1)}${Math.abs(x.d1).toFixed(2)} pt`;
+  return `<div class="strel"><div class="relhead"><span class="reltag ${lab[1]}">${lab[0]}</span><span class="small">${strength} link (${x.r > 0 ? '+' : '−'}${Math.abs(x.r).toFixed(2)})</span></div>
+    <div class="nm"><b>${esc(x.name)}</b>${x.stock ? ' <span class="small">your stock</span>' : ''}</div><div class="skv ${x.d1 >= 0 ? 'up' : 'down'}" style="font-size:18px">${mv} <span class="small">today</span></div></div>`;
+}
+function renderStockDetail(){
+  const root = $('stocks'), D = STK_D, r = (STK && [...STK.hold, ...STK.watch].find(x => x.t === STK_OPEN)) || (D && D.row) || {t: STK_OPEN};
+  const back = `<p><button class="btn" onclick="closeStock()">← Back to the stocks</button></p>`;
+  if (!D){ root.innerHTML = back + `<div class="card muted">Loading ${esc(STK_OPEN)}…</div>`; return; }
+  const cls = r.d1 > 0 ? 'up' : r.d1 < 0 ? 'down' : '';
+  const head = `<div class="card" style="margin-bottom:14px"><div class="skh"><div><b style="font-size:22px">${esc(r.t)}</b> <span class="small">${esc(r.name || '')}${D.sym !== r.t ? ' · found as ' + esc(D.sym) + ' (' + esc(D.src === 'stooq' ? 'Stooq' : 'Yahoo Finance') + ')' : ''}</span></div></div>
+    ${r.price !== undefined && r.price !== null ? `<div class="skv" style="font-size:30px">${money(r.price)} <span class="${cls}" style="font-size:20px">${r.d1 > 0 ? '▲' : r.d1 < 0 ? '▼' : ''} ${sgn(r.d1)}${Math.abs(r.d1).toFixed(2)}%</span> <span class="small">${esc(fdate(r.date))}</span></div>` : ''}
+    ${r.flags && r.flags.length ? `<div class="skf">${r.flags.map(f => `<span>${esc(f)}</span>`).join('')}</div>` : ''}
+    ${r.kind === 'hold' && r.shares && r.value !== undefined ? `<div class="skp"><span>${r.shares.toLocaleString('en-US')} shares</span><span>value <b>${money(r.value, 0)}</b></span><span class="${r.dayAmt >= 0 ? 'up' : 'down'}">today ${sgn(r.dayAmt)}${money(r.dayAmt, 0)}</span>${r.pl !== undefined ? `<span class="${r.pl >= 0 ? 'up' : 'down'}">since buying ${sgn(r.pl)}${money(r.pl, 0)} (${sgn(r.plPct)}${Math.abs(r.plPct).toFixed(1)}%)</span>` : ''}</div>` : ''}</div>`;
+  const newsFirst = D.news.some(n => n.urgency !== 'EARLIER' && (n.about === STK_OPEN || n.status));
+  const news = `<h2>News ${D.news.length ? `<span class="small" style="font-weight:400">${D.news.length} · about ${esc(STK_OPEN)} and about what moves it, most relevant first</span>` : ''}</h2>${D.news.length ? `<div class="gheads">${D.news.map(stkNewsRow).join('')}</div>` : '<div class="card muted">No headlines about it or about what moves it right now.</div>'}`;
+  const chart = `<h2>Price</h2><div class="ranges">${RANGES.filter(x => ['1M', '6M', '1Y', '5Y'].includes(x[0])).map(([k]) => `<button class="${k === STK_R ? 'on' : ''}" onclick="stkRange('${k}')">${k}</button>`).join('')}</div><div id="stkChart" class="chart"></div>`;
+  const same = D.related.filter(x => x.r > 0), opp = D.related.filter(x => x.r < 0);
+  const rel = `<h2>What moves with it</h2>${D.related.length ? `<div class="strels"><div><div class="tlabel" style="margin-bottom:6px">Moves the same way</div>${same.map(stkRel).join('') || '<div class="small">Nothing clear.</div>'}</div><div><div class="tlabel" style="margin-bottom:6px">Moves the opposite way</div>${opp.map(stkRel).join('') || '<div class="small">Nothing clear.</div>'}</div></div><p class="small" style="margin-top:8px">Calculated from the daily moves of the last year: the indicators and stocks above and below move with (or against) it on most days. “Against the usual link” means they moved the other way today than they normally do.</p>` : '<div class="card muted">Not enough history yet to see what moves with it.</div>'}`;
+  root.innerHTML = back + head + (newsFirst ? news + chart + rel : chart + rel + news);
+  drawStockChart();
+}
+
 async function loadStocks(){
   try { STK = await api('/api/stocks'); if (TAB === 'stocks') renderStocks(); }
   catch (e){ if (e.message !== 'signed out') $('stocks').innerHTML = '<div class="card muted">Could not load the stocks: ' + esc(e.message) + '</div>'; }
@@ -994,17 +1038,18 @@ function stockTile(r){
   const up = (r.move || 0) > 0, flagged = r.score >= 2, border = flagged ? (r.move === null || r.move === undefined || Math.abs(r.move) < 0.05 ? ' wa' : up ? ' gain' : ' loss') : '';
   const cls = r.d1 > 0 ? 'up' : r.d1 < 0 ? 'down' : '';
   const hold = r.kind === 'hold' && r.shares && r.value !== undefined ? `<div class="skp"><span>${r.shares.toLocaleString('en-US')} shares</span><span>value <b>${money(r.value, 0)}</b></span><span class="${r.dayAmt >= 0 ? 'up' : 'down'}">today ${sgn(r.dayAmt)}${money(r.dayAmt, 0)}</span>${r.pl !== undefined ? `<span class="${r.pl >= 0 ? 'up' : 'down'}">since buying ${sgn(r.pl)}${money(r.pl, 0)} (${sgn(r.plPct)}${Math.abs(r.plPct).toFixed(1)}%)</span>` : ''}</div>` : '';
-  const edit = STK_EDIT === r.t ? `<div class="skedit"><select id="eK"><option value="hold" ${r.kind === 'hold' ? 'selected' : ''}>My stocks</option><option value="watch" ${r.kind === 'watch' ? 'selected' : ''}>Watching</option></select>
+  const edit = STK_EDIT === r.t ? `<div class="skedit" onclick="event.stopPropagation()"><select id="eK"><option value="hold" ${r.kind === 'hold' ? 'selected' : ''}>My stocks</option><option value="watch" ${r.kind === 'watch' ? 'selected' : ''}>Watching</option></select>
     <input id="eS" placeholder="Shares" value="${r.shares ?? ''}" inputmode="decimal"><input id="eC" placeholder="Buy price $" value="${r.cost ?? ''}" inputmode="decimal"><button class="btn" onclick="saveStock('${r.t}')">Save</button></div>` : '';
   const news = (r.news || []).slice(0, 2).map(n => `<a class="sknews" href="${esc(n.link)}" target="_blank" rel="noopener noreferrer">${esc(n.title)}<span>${esc(n.source)} · ${esc(ago(n.ts))}</span></a>`).join('');
-  return `<div class="stk${border}"><div class="skh"><div><b class="skt">${esc(r.t)}</b> <span class="small">${esc(r.name || '')}</span></div><div class="skb"><button class="link" onclick="editStock('${r.t}')">Edit</button><button class="link" onclick="removeStock('${r.t}')" title="Remove">✕</button></div></div>
-    ${r.price === null || r.price === undefined ? '<div class="muted" style="margin:10px 0">Loading the price…</div>' : `<div class="skv">${money(r.price)} <span class="${cls}">${r.d1 > 0 ? '▲' : r.d1 < 0 ? '▼' : ''} ${sgn(r.d1)}${Math.abs(r.d1).toFixed(2)}%</span> <span class="small">${esc(fdate(r.date))}</span></div>
+  return `<div class="stk${border}" onclick="openStock('${r.t}')" style="cursor:pointer"><div class="skh"><div><b class="skt">${esc(r.t)}</b> <span class="small">${esc(r.name || '')}${r.sym && r.sym !== r.t ? ' · found as ' + esc(r.sym) : ''}</span></div><div class="skb"><button class="link" onclick="event.stopPropagation();editStock('${r.t}')">Edit</button><button class="link" onclick="event.stopPropagation();removeStock('${r.t}')" title="Remove">✕</button></div></div>
+    ${r.price === null || r.price === undefined ? `<div class="muted" style="margin:10px 0">${r.notFound ? 'Not found yet. The app also tries other exchanges and Stooq once an hour. You can type the name, the ISIN or the exact Yahoo ticker (e.g. VHYL.L) instead.' : 'Loading the price…'}</div>` : `<div class="skv">${money(r.price)} <span class="${cls}">${r.d1 > 0 ? '▲' : r.d1 < 0 ? '▼' : ''} ${sgn(r.d1)}${Math.abs(r.d1).toFixed(2)}%</span> <span class="small">${esc(fdate(r.date))}</span></div>
     <div class="chg">${[['Week', r.w1], ['Month', r.m1], ['1 yr', r.y1]].map(([n, v]) => v === null || v === undefined ? '' : `<span>${n} <b class="${v >= 0 ? 'up' : 'down'}">${sgn(v)}${Math.abs(v).toFixed(1)}%</b></span>`).join('')}</div>`}
     ${r.flags && r.flags.length ? `<div class="skf">${r.flags.map(f => `<span>${esc(f)}</span>`).join('')}</div>` : ''}${hold}${edit}
     ${sparkSVG(r.spark, r.d1 < 0 ? '#FF4D4F' : r.d1 > 0 ? '#22C55E' : '#8a8a96', {fmt: v => money(v), rng: '1 yr'})}${news}</div>`;
 }
 function renderStocks(){
   const root = $('stocks'); if (!root) return;
+  if (STK_OPEN){ renderStockDetail(); return; }
   if (!STK){ root.innerHTML = '<div class="card muted">Loading…</div>'; return; }
   if (STK.private){ root.innerHTML = '<div class="card muted">The stock list is private to the owner.</div>'; return; }
   const t = STK.total;
@@ -1409,7 +1454,7 @@ function showTab(t){
   if (t === 'heatmap'){ renderHeat(); loadHeat(); }
   if (t === 'geo'){ renderGeo(); loadGeo(); }
   if (t === 'alerts') loadAlerts();
-  if (t === 'stocks') loadStocks();
+  if (t === 'stocks'){ STK_OPEN = null; $('stForm').style.display = 'block'; loadStocks(); }
   if (t === 'headlines') loadHeadlines();
   window.scrollTo(0, 0);
   track('Opened tab: ' + t);
@@ -1445,7 +1490,7 @@ async function load(){
     if (TAB === 'extremes') loadExtremes();
     if (TAB === 'overview') loadOverview();
     if (TAB === 'heatmap') loadHeat();
-    if (TAB === 'stocks') loadStocks();
+    if (TAB === 'stocks' && !STK_OPEN) loadStocks();
     if (TAB === 'headlines') loadHeadlines();
     if (TAB === 'geo') loadGeo();
     if (!d.groups.some(g => g.items.length)) $('today').innerHTML = '<div class="card"><div class="answer">Fetching the first data…</div><p class="muted">This takes about a minute after the app starts.</p></div>';

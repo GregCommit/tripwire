@@ -2732,3 +2732,63 @@ RELATIONS.extend([
     ("VOLRATIO", "VIXTS", "same", "Both rise in a stress phase: fear now exceeds fear later."),
     ("VOLRATIO", "BREADTH", "inverse", "Falling stocks hit the big, crowded names first; the equal-weight index holds up better or worse depending on how broad the fear is."),
 ])
+
+
+# Finding a stock Yahoo does not know under the typed name: Yahoo's own search (names, ISINs), other exchanges, and Stooq
+def fetch_stooq(sym, days=420):
+    """Daily closes and volumes from Stooq (free, many European listings). Returns {"pts": [...], "vol": [...]} or None."""
+    raw = http_get(f"https://stooq.com/q/d/l/?s={sym.lower()}&i=d", timeout=20, ua=_BROWSER).decode("utf-8", "replace")
+    rows = list(csv.reader(io.StringIO(raw)))
+    if not rows or rows[0][:1] != ["Date"]:
+        return None
+    pts, vol = [], []
+    for r in rows[1:][-days:]:
+        try:
+            pts.append([r[0], float(r[4])])
+            vol.append(float(r[5]) if len(r) > 5 and r[5] else 0.0)
+        except (ValueError, IndexError):
+            continue
+    return {"pts": pts, "vol": vol} if len(pts) >= 20 else None
+
+
+def yahoo_search(q):
+    from urllib.parse import quote
+    data = json.loads(http_get("https://query2.finance.yahoo.com/v1/finance/search?quotesCount=8&newsCount=0&q=" + quote(q), timeout=15, ua=_BROWSER))
+    return [{"sym": x["symbol"], "name": x.get("longname") or x.get("shortname") or x["symbol"], "exch": x.get("exchDisp", "")}
+            for x in data.get("quotes", []) if x.get("symbol") and x.get("quoteType") in ("EQUITY", "ETF", "INDEX", "MUTUALFUND", "FUTURE", "CURRENCY", "CRYPTOCURRENCY")]
+
+
+EXCHANGE_SUFFIXES = [".DE", ".L", ".AS", ".PA", ".MI", ".SW", ".ST", ".MC", ".VI", ".F", ".CO", ".OL", ".HE", ".BR", ".LS"]
+STOOQ_SUFFIXES = [".us", ".de", ".uk", ".pl", ".hu", ".jp", ""]
+
+
+def resolve_symbol(q):
+    """Where does this stock live? Returns {"sym", "src": "yahoo"|"stooq", "name"} or None. Tries, in order: Yahoo's search for the text,
+    the same ticker on other European exchanges at Yahoo, then Stooq."""
+    q = q.strip()
+    cands, names = [], {}
+    try:
+        for x in yahoo_search(q):
+            cands.append(x["sym"]); names[x["sym"]] = f"{x['name']} ({x['exch']})" if x["exch"] else x["name"]
+    except Exception as e:
+        log.info("Yahoo search %s: %s", q, e)
+    if re.fullmatch(r"[A-Za-z0-9\-]{1,10}", q):
+        cands += [q.upper() + s for s in EXCHANGE_SUFFIXES]
+    cands = list(dict.fromkeys(cands))[:24]
+    if cands:
+        try:
+            got = fetch_yahoo(cands, period="1mo")
+            for c in cands:
+                if c in got and len(got[c]) >= 3:
+                    return {"sym": c, "src": "yahoo", "name": names.get(c, c)}
+        except Exception as e:
+            log.info("Yahoo variants %s: %s", q, e)
+    if re.fullmatch(r"[A-Za-z0-9.\-]{1,14}", q):
+        base = q.lower().split(".")[0] if "." in q and q.lower().rsplit(".", 1)[1] in ("us", "de", "uk", "pl", "hu", "jp") else q.lower()
+        for s in ([""] if "." in q else STOOQ_SUFFIXES):
+            try:
+                if fetch_stooq(base + s if not "." in q else q):
+                    return {"sym": (base + s if "." not in q else q).upper(), "src": "stooq", "name": q.upper() + " (Stooq)"}
+            except Exception:
+                continue
+    return None
