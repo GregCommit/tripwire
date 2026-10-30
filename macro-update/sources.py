@@ -2146,6 +2146,9 @@ INDICATORS += [dict(key=k, name=n, group=None, source="yahoo", sym=sym, unit="",
 BY_KEY.update({i["key"]: i for i in INDICATORS})
 
 
+MEGA_CAP = 1e12      # $1 trillion
+
+
 def heat_stats(rows):
     """Breadth and weak spots from every stock of an index: [{t, s, i, c, p}] -> numbers for the 'Tomorrow' panel."""
     rows = [r for r in rows if r.get("p") is not None]
@@ -2162,7 +2165,11 @@ def heat_stats(rows):
     sectors = {}
     for r in rows:
         sectors.setdefault(r["s"], []).append(r)
-    return {"n": n, "down": round(100 * sum(1 for r in rows if r["p"] < 0) / n, 1),
+    big = sorted((r for r in rows if r["c"] >= MEGA_CAP), key=lambda r: -r["c"])
+    big = [r for r in big if not (r["t"] == "GOOG" and any(x["t"] == "GOOGL" for x in big))]      # Alphabet counts once
+    mega = [{"t": r["t"], "n": r["n"], "pct": round(r["p"], 2), "cap": round(r["c"] / 1e9)} for r in big]
+    return {"mega": mega, "megaShare": round(100 * sum(r["c"] for r in big) / cap, 1), "megaAvg": round(avg(big, True), 2) if big else None,
+            "n": n, "down": round(100 * sum(1 for r in rows if r["p"] < 0) / n, 1),
             "down2": round(100 * sum(1 for r in rows if r["p"] <= -2) / n, 1), "down2n": sum(1 for r in rows if r["p"] <= -2),
             "up2n": sum(1 for r in rows if r["p"] >= 2), "cap": round(avg(rows, True), 2), "eq": round(avg(rows), 2),
             "worst": sorted(inds, key=lambda x: x["pct"])[:5], "best": sorted(inds, key=lambda x: -x["pct"])[:3],
@@ -2191,6 +2198,11 @@ def build_tomorrow(chg, vix, vixts, sect_up, heat, earn, vix3=None, fng=None):
             "0 = extreme fear, 100 = extreme greed" + (" (CNN's index)." if not fng.get("estimate") else " (our own estimate; CNN's was not reachable).") + " Red at 25 or below.")
     if sect_up is not None:
         add("Sectors up", sect_up, f"{sect_up:.0f} of 11", sect_up <= 3, "How many of the 11 sectors rose today. Red at 3 or fewer: a broad sell-off.")
+    if heat and heat.get("mega"):
+        m = heat["mega"]; worst = min(m, key=lambda x: x["pct"])
+        add("Mega caps ($1 trillion+) average", heat["megaAvg"], f"{heat['megaAvg']:+.1f}%", heat["megaAvg"] <= -2,
+            f"The {len(m)} companies worth over $1 trillion are {heat['megaShare']:.0f}% of the S&P 500: when they fall, the index falls. Red at −2% or worse.")
+        add("Biggest mega-cap fall", worst["pct"], f"{worst['t']} {worst['pct']:+.1f}%", worst["pct"] <= -5, "The weakest company over $1 trillion today. Red at −5% or worse.")
     if heat:
         add("S&P 500 stocks falling", heat["down"], f"{heat['down']:.0f}%", heat["down"] >= 70, "Share of the 500 stocks below yesterday's close. Red at 70% or more.")
         add("Down more than 2%", heat["down2"], f"{heat['down2n']} stocks", heat["down2"] >= 12, "Stocks that lost over 2% today. Red when it is 12% of the index or more.")
@@ -2284,26 +2296,52 @@ def _simplify(coords, step):
     return coords[::step] if len(coords) > 4 * step else coords
 
 
+def _front_kind(name, props):
+    """What a DeepStateMap layer is: 'occ' (held by Russia), 'occ0' (held since before 2022), 'gray' (contested) or None (liberated / other)."""
+    n = name.lower()
+    if any(w in n for w in ("liberat", "звільн", "звiльн", "unoccupied", "ukrain")):
+        return None
+    if any(w in n for w in ("gray", "grey", "сір", "contested")):
+        return "gray"
+    if any(w in n for w in ("before", "до 2022", "до 24", "crimea", "2014")):
+        return "occ0"
+    if any(w in n for w in ("occupied", "окуп", "russia")):
+        return "occ"
+    fill = str(props.get("fill") or props.get("fillColor") or "").lower()
+    if fill.startswith("#") and len(fill) >= 7:
+        try:
+            r, g, b = int(fill[1:3], 16), int(fill[3:5], 16), int(fill[5:7], 16)
+            if r > 1.4 * g and r > 1.4 * b:
+                return "occ"
+        except ValueError:
+            pass
+    return None
+
+
 def parse_frontline(raw):
-    """DeepStateMap 'last' snapshot (or any GeoJSON) -> list of {t: 'poly'|'line', c: [[lat, lon], ...], n: name}. Tolerant of the shape."""
+    """DeepStateMap 'last' snapshot -> [{t: 'poly'|'line', k: kind, c: [[lat, lon], ...], n: name}] without the liberated areas.
+    Falls back to every polygon when no layer can be recognised."""
     data = json.loads(raw)
     fc = data.get("map") if isinstance(data, dict) and isinstance(data.get("map"), dict) else data
     feats = fc.get("features", []) if isinstance(fc, dict) else []
-    out = []
     def ring(r):
         pts = [[p[1], p[0]] for p in r if len(p) >= 2]
         return [[round(a, 3), round(b, 3)] for a, b in _simplify(pts, 2 if len(pts) > 600 else 1)]
+    kept, every = [], []
     for f in feats:
         g, props = f.get("geometry") or {}, f.get("properties") or {}
         name = str(props.get("name") or "")
         t, c = g.get("type"), g.get("coordinates")
-        if t == "Polygon" and c:
-            out.append({"t": "poly", "c": ring(c[0]), "n": name})
-        elif t == "MultiPolygon" and c:
-            out.extend({"t": "poly", "c": ring(p[0]), "n": name} for p in c if p)
-        elif t == "LineString" and c:
-            out.append({"t": "line", "c": ring(c), "n": name})
-    return out
+        kind = _front_kind(name, props)
+        polys = [c[0]] if t == "Polygon" and c else [p[0] for p in c if p] if t == "MultiPolygon" and c else []
+        for r in polys:
+            row = {"t": "poly", "k": kind or "occ", "c": ring(r), "n": name[:60]}
+            every.append(row)
+            if kind:
+                kept.append(row)
+        if t == "LineString" and c and kind:
+            kept.append({"t": "line", "k": kind, "c": ring(c), "n": name[:60]})
+    return kept or every
 
 
 def parse_gdelt_points(raw, limit=250):

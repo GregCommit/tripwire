@@ -36,6 +36,7 @@ h2+.muted{margin-bottom:10px}
 .rng{position:relative;height:4px;background:var(--line2);border-radius:1px;margin:12px 0 3px}
 .rng i{position:absolute;top:-4px;width:3px;height:12px;border-radius:1px;background:var(--txt)}
 .rngl{display:flex;justify-content:space-between;font-size:11px;color:var(--dim);font-variant-numeric:tabular-nums}
+.formula{font-size:11.5px;line-height:1.35;color:var(--dim);margin:2px 0 4px}
 .sparkw{position:relative;margin-top:8px}.spark{display:block;width:100%;height:52px}.sl{position:absolute;font-size:10px;color:var(--dim);background:rgba(8,8,10,.75);padding:0 3px;font-variant-numeric:tabular-nums}.sl.h{right:0;top:0}.sl.l{right:0;bottom:3px}.sl.r{left:4px;bottom:3px}
 .detail{margin-top:14px;border-top:1px solid var(--line);padding-top:14px;cursor:auto}
 .ranges{display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap}
@@ -111,7 +112,7 @@ h2.sub{font-size:14px;color:var(--mute);font-weight:500;margin:18px 0 6px}
 .lg i{display:inline-block;width:18px;height:2px}.lg i.dash{border-top:2px dashed var(--watch);height:0}
 .gwrap{position:relative;border:1px solid var(--line);border-radius:6px;background:var(--card);overflow:hidden}
 .glines{position:absolute;left:0;top:0;pointer-events:none}
-.gl{transition:opacity .2s}.gl.dim{opacity:.1}
+.gl{transition:opacity .2s}.gl.dim{opacity:.1}.glines .gl:not(.mline):not(.wl){opacity:.16}.glines .gl:not(.mline):not(.wl).hit{opacity:.9}.glines .mline:not(.warn):not(.reinf){opacity:.45}.glines .mline.hit{opacity:1}
 .gnode{position:absolute;border:1px solid var(--line2);border-radius:6px;background:#0d0d10;padding:10px 12px;cursor:pointer;overflow:hidden;transition:opacity .2s,border-color .2s}
 .gnode:hover{border-color:#8a8a96}.gnode.ex{border-color:var(--alert)}.gnode.wa{border-color:var(--watch)}
 .gn{font-size:12.5px;color:var(--mute);line-height:1.25;max-height:32px;overflow:hidden}.gnode.big .gn{color:var(--txt);font-size:13.5px}
@@ -127,6 +128,7 @@ h2.sub{font-size:14px;color:var(--mute);font-weight:500;margin:18px 0 6px}
 .tmr{border:1px solid var(--line);border-radius:6px;background:var(--card);padding:14px 16px;margin:0 0 18px}
 .tmr-h{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}.tmr-t{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
 .tmr-l{font-size:20px;font-weight:700}.tmr-l.high{color:var(--alert)}.tmr-l.elevated{color:var(--watch)}.tmr-l.low{color:var(--up)}
+.tmr-m{margin-top:12px}.mc{display:flex;flex-wrap:wrap;gap:6px 10px;margin-top:6px}.mc span{font-size:17px;font-weight:700;font-variant-numeric:tabular-nums;border:1px solid var(--line2);border-radius:4px;padding:4px 10px}.mc i{font-style:normal;font-size:12px;font-weight:500;color:var(--mute);margin-right:4px}.mc .up{color:var(--up)}.mc .down{color:var(--down);border-color:rgba(255,77,79,.5)}
 .tmr-s{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-top:12px}
 .sg{border:1px solid var(--line2);border-radius:4px;padding:7px 10px}.sg.hit{border-color:var(--alert);background:rgba(255,59,59,.07)}
 .sg .r{font-size:11px;line-height:1.35;color:var(--dim);margin-top:3px}.sg .n{font-size:11.5px;color:var(--mute)}.sg .v{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:2px}.sg.hit .v{color:var(--alert)}
@@ -441,6 +443,15 @@ function saysHTML(s, full){
   return `<div class="says"><b>What it says.</b> ${esc(full ? t : shortText(t, 125))}</div>` + (ctx ? `<div class="says ctxline"><b>In context.</b> ${esc(ctx)}${full ? '' : ` <button class="link" onclick="event.stopPropagation();explain('${s.key}', this)">All links ›</button>`}</div>` : '');
 }
 function shortText(t, n){ if (!t || t.length <= n) return t || ''; const cut = t.slice(0, n), i = cut.lastIndexOf('. '); return i > 60 ? cut.slice(0, i + 1) : cut.trim() + '…'; }
+const FORMULA = {
+  AIB_AIU: '= AI builders ÷ AI users, both as averages, set to 100 at the start of the data. Falling = money leaves the builders.',
+  AIB: '= average of the AI builders (chip, cloud, software giants), 100 at the start.',
+  AIU: '= average of banks & financials and industrials, 100 at the start.',
+  DEFN: '= average of health care, staples, utilities, real estate, 100 at the start. Rising = investors hide.',
+  BREADTH: '= equal-weight S&P 500 ÷ normal S&P 500, 100 at the start. Falling = the index rests on a few giants.',
+  VIXTS: '= VIX today ÷ VIX in 3 months. Above 1.00 = fear now exceeds fear later (acute stress).',
+  SECT_UP: '= how many of the 11 sectors rose today.',
+  VOLRATIO: '= VIX ÷ its own 50-day average, minus 1.'};
 function cardHTML(s, cid){
   if (s.hub) return exCardHTML(s, cid);
   const id = cid + '|' + s.key, open = OPEN === id, mo = s.freq === 'monthly';
@@ -448,7 +459,7 @@ function cardHTML(s, cid){
   return `<div class="ind${s.horizon ? ' hot' : ''}${open ? ' open' : ''}" data-cid="${id}" id="card-${uid(cid, s.key)}">
     ${open ? xBtn(cid === 'ex' ? 'closeExplain()' : 'openCard(null)') : ''}
     <div class="nm"><span>${esc(s.name)}</span><span class="nmr"><span class="small">${esc(fdate(s.date, mo))}</span>${qBtn(s)}</span></div>
-    <div class="val">${esc(fmtVal(s, s.value))}</div>
+    <div class="val">${esc(fmtVal(s, s.value))}</div>${FORMULA[s.key] ? `<div class="formula">${esc(FORMULA[s.key])}</div>` : ''}
     <span class="chip ${toneWord[s.tone]}">${esc(s.reading)}</span>${badge(s)}
     ${saysHTML(s, cid === 'ex')}
     <div class="chg">${chgRow(s)}</div>
@@ -564,8 +575,9 @@ function tomorrowHTML(t){
   if (!t || !t.signs.length) return '';
   const w = t.heat && t.heat.worst && t.heat.worst.length ? `<div class="tmr-w"><span>Weakest parts of the S&amp;P 500 today</span>${t.heat.worst.slice(0, 4).map(x => `<span><b>${esc(x.name)}</b> <span class="${x.pct >= 0 ? 'up' : 'down'}">${x.pct > 0 ? '+' : ''}${x.pct.toFixed(1)}%</span></span>`).join('')}</div>`
     + `<div class="tmr-w"><span>Giants vs the average stock</span><span><b class="${t.heat.cap >= 0 ? 'up' : 'down'}">${t.heat.cap > 0 ? '+' : ''}${t.heat.cap.toFixed(1)}%</b> by size</span><span><b class="${t.heat.eq >= 0 ? 'up' : 'down'}">${t.heat.eq > 0 ? '+' : ''}${t.heat.eq.toFixed(1)}%</b> equal weight</span></div>` : '';
+  const mg = t.heat && t.heat.mega && t.heat.mega.length ? `<div class="tmr-m"><span class="tmr-t">Mega caps over $1 trillion · ${t.heat.megaShare.toFixed(0)}% of the S&amp;P 500</span><div class="mc">${t.heat.mega.map(x => `<span class="${x.pct >= 0 ? 'up' : 'down'}"><i>${esc(x.t)}</i> ${x.pct > 0 ? '+' : ''}${x.pct.toFixed(1)}%</span>`).join('')}</div></div>` : '';
   return `<div class="tmr"><div class="tmr-h"><span class="tmr-t">Pressure into tomorrow</span><span class="tmr-l ${t.level}">${t.level}</span><span class="small">${t.hits} of ${t.total} warning signs</span></div>
-    <div class="tmr-s">${t.signs.map(s => `<div class="sg ${s.hit ? 'hit' : ''}"><div class="n">${esc(s.name)}</div><div class="v">${esc(s.value)}</div><div class="r">${esc(s.rule || '')}</div></div>`).join('')}</div>${w}</div>`;
+    ${mg}<div class="tmr-s">${t.signs.map(s => `<div class="sg ${s.hit ? 'hit' : ''}"><div class="n">${esc(s.name)}</div><div class="v">${esc(s.value)}</div><div class="r">${esc(s.rule || '')}</div></div>`).join('')}</div>${w}</div>`;
 }
 function renderToday(){
   if (!OV) return;
@@ -813,13 +825,13 @@ document.addEventListener('keydown', e => { if (e.key !== 'Escape') return; if (
 
 // ── Overview: the whole map ───────────────────────────────────────────────
 let GRAPH = null, GSIG = '';
-const GF = {clusters: new Set(), news: true, linked: false, newsOnly: false, n: innerWidth < 700 ? 10 : 14};
+const GF = {clusters: new Set(), news: true, linked: false, newsOnly: false, n: 10};
 function setGF(k, v){ if (k === 'cluster'){ if (v === '*') GF.clusters.clear(); else if (GF.clusters.has(v)) GF.clusters.delete(v); else GF.clusters.add(v); } else GF[k] = v; loadOverview(true); }
 function filterBar(){
   const cl = (OV && OV.clusters) || [], chk = (k, label) => `<label class="tg"><input type="checkbox" ${GF[k] ? 'checked' : ''} onchange="setGF('${k}', this.checked)"> ${label}</label>`;
   return `<div class="gfilters"><div class="chips"><button class="${GF.clusters.size ? '' : 'on'}" onclick="setGF('cluster','*')">All</button>${cl.map(c => `<button class="${GF.clusters.has(c.id) ? 'on' : ''}" onclick="setGF('cluster','${c.id}')">${esc(c.title)}</button>`).join('')}</div>
     <div class="gopts">${chk('news', 'Headlines')}${chk('linked', 'Only linked')}${chk('newsOnly', 'Only with a headline')}
-    <span class="seg">Show ${[8, 14, 20].map(n => `<button class="${GF.n === n ? 'on' : ''}" onclick="setGF('n', ${n})">${n}</button>`).join('')}</span></div></div>`;
+    <span class="seg">Show ${[6, 10, 14].map(n => `<button class="${GF.n === n ? 'on' : ''}" onclick="setGF('n', ${n})">${n}</button>`).join('')}</span></div></div>`;
 }
 function hashStr(s){ let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return Math.abs(h); }
 async function loadOverview(force){
@@ -836,6 +848,8 @@ function layoutGraph(g, W, H){
   const idx = Object.fromEntries(items.map((it, i) => [it.id, i])), links = [];
   g.edges.forEach(e => { if (idx[e.a] !== undefined && idx[e.b] !== undefined) links.push([idx[e.a], idx[e.b], mobile ? 200 : 290, 0.012]); });
   g.news.forEach(n => n.keys.forEach(k => { if (idx[k] !== undefined) links.push([idx['h:' + n.h], idx[k], mobile ? 160 : 200, 0.02]); }));
+  const cl = Object.fromEntries(g.nodes.map(n => [n.key, n.cluster]));
+  g.nodes.forEach((a, i) => g.nodes.forEach((b, j) => { if (j > i && a.cluster && a.cluster === b.cluster && idx[a.key] !== undefined && idx[b.key] !== undefined) links.push([idx[a.key], idx[b.key], 230, 0.006]); }));
   const cx = W / 2, cy = H / 2;
   items.forEach(it => { const a = (hashStr(it.id) % 360) * Math.PI / 180, r = it.type === 'n' ? 0.34 : 0.45; it.x = cx + Math.cos(a) * W * r; it.y = cy + Math.sin(a) * H * r; });
   items.filter(i => i.type === 'n').sort((a, b) => b.rank - a.rank).slice(0, 3).forEach((it, i) => { it.x = cx + (i - 1) * 200; it.y = cy + (i % 2 ? 70 : -70); });
@@ -851,14 +865,14 @@ function layoutGraph(g, W, H){
   for (let step = 0; step < N; step++){
     const cool = 1 - step / N;
     for (let i = 0; i < items.length; i++) for (let j = i + 1; j < items.length; j++){
-      const a = items[i], b = items[j], dx = b.x - a.x, dy = b.y - a.y, d2 = dx * dx + dy * dy + 1, d = Math.sqrt(d2), f = 11000 / d2 * (0.25 + 0.75 * cool);
+      const a = items[i], b = items[j], dx = b.x - a.x, dy = b.y - a.y, d2 = dx * dx + dy * dy + 1, d = Math.sqrt(d2), f = 19000 / d2 * (0.25 + 0.75 * cool);
       a.x -= dx / d * f; a.y -= dy / d * f; b.x += dx / d * f; b.y += dy / d * f;
     }
     for (const [i, j, L, k] of links){ const a = items[i], b = items[j], dx = b.x - a.x, dy = b.y - a.y, d = Math.sqrt(dx * dx + dy * dy) || 1, f = (d - L) * k * (0.3 + 0.7 * cool); a.x += dx / d * f; a.y += dy / d * f; b.x -= dx / d * f; b.y -= dy / d * f; }
     for (const it of items){ it.x += (cx - it.x) * 0.0025; it.y += (cy - it.y) * 0.0025; }
-    collide(30, 26); items.forEach(clamp);
+    collide(44, 36); items.forEach(clamp);
   }
-  for (let pass = 0; pass < 400; pass++){ if (!collide(26, 22)) break; items.forEach(clamp); }
+  for (let pass = 0; pass < 400; pass++){ if (!collide(38, 30)) break; items.forEach(clamp); }
   return items;
 }
 function borderPoint(it, tx, ty){ const dx = tx - it.x, dy = ty - it.y, t = Math.min((it.w / 2 + 3) / Math.abs(dx || 1e-6), (it.h / 2 + 3) / Math.abs(dy || 1e-6)); return [it.x + dx * t, it.y + dy * t]; }
@@ -878,7 +892,7 @@ function renderOverview(){ if (GRAPH) renderGraph($('overview'), GRAPH, {filters
 function renderGraph(root, g, opts){
   opts = opts || {}; if (!g || !root) return;
   const W = Math.max(320, root.clientWidth || innerWidth - 32), mobile = W < 700;
-  const H = mobile ? 132 * Math.ceil((g.nodes.length + g.news.length) / 2) + 60 : Math.min(840, Math.max(440, Math.ceil((g.nodes.length + g.news.length) / 4) * 200));
+  const H = mobile ? 132 * Math.ceil((g.nodes.length + g.news.length) / 2) + 60 : Math.min(1100, Math.max(560, Math.ceil((g.nodes.length + g.news.length) / 3) * 215));
   GRAPH_TOP = [...g.nodes].sort((a, b) => b.rank - a.rank)[Math.min(2, g.nodes.length - 1)]?.rank ?? 0;
   const items = layoutGraph(g, W, H), by = Object.fromEntries(items.map(it => [it.id, it]));
   let svg = `<defs><marker id="ga" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#8a8a96"/></marker>
@@ -889,8 +903,8 @@ function renderGraph(root, g, opts){
     const A = by[e.a], B = by[e.b]; if (!A || !B) continue;
     const p = borderPoint(A, B.x, B.y), q = borderPoint(B, A.x, A.y), warn = e.status === 'noreact' || e.status === 'against';
     const stroke = e.reinforce ? '#ffffff' : warn ? '#F5C518' : '#5b5b66', mk = e.reinforce ? 'gar' : warn ? 'gaw' : 'ga';
-    svg += `<path class="gl mline" data-a="${e.a}" data-b="${e.b}" d="${curve(p, q)}" pathLength="1" fill="none" stroke="${stroke}" stroke-width="${e.reinforce ? 2.2 : 1.3}" ${warn ? 'stroke-dasharray="0.02 0.014"' : ''} marker-end="url(#${mk})"/>`;
-    if (warn) svg += `<text class="gl" data-a="${e.a}" data-b="${e.b}" x="${((p[0] + q[0]) / 2).toFixed(1)}" y="${((p[1] + q[1]) / 2 - 11).toFixed(1)}" fill="#ECECF1" font-size="11.5" font-weight="600" text-anchor="middle" stroke="#08080a" stroke-width="5" paint-order="stroke">${e.status === 'noreact' ? 'not following' : 'against the usual link'}</text>`;
+    svg += `<path class="gl mline${warn ? ' warn' : ''}${e.reinforce ? ' reinf' : ''}" data-a="${e.a}" data-b="${e.b}" d="${curve(p, q)}" pathLength="1" fill="none" stroke="${stroke}" stroke-width="${e.reinforce ? 2.2 : 1.3}" ${warn ? 'stroke-dasharray="0.02 0.014"' : ''} marker-end="url(#${mk})"/>`;
+    if (warn) svg += `<text class="gl wl" data-a="${e.a}" data-b="${e.b}" x="${((p[0] + q[0]) / 2).toFixed(1)}" y="${((p[1] + q[1]) / 2 - 11).toFixed(1)}" fill="#ECECF1" font-size="11.5" font-weight="600" text-anchor="middle" stroke="#08080a" stroke-width="5" paint-order="stroke">${e.status === 'noreact' ? 'not following' : 'against the usual link'}</text>`;
   }
   for (const n of g.news) for (const k of n.keys){
     const A = by['h:' + n.h], B = by[k]; if (!A || !B) continue;
@@ -914,10 +928,10 @@ function renderGraph(root, g, opts){
 }
 function focusNode(key, root){
   root = root || $('overview'); const near = new Set([key]);
-  root.querySelectorAll('.gl').forEach(l => { const hit = l.dataset.a === key || l.dataset.b === key; l.classList.toggle('dim', !hit); if (hit){ near.add(l.dataset.a); near.add(l.dataset.b); } });
+  root.querySelectorAll('.gl').forEach(l => { const hit = l.dataset.a === key || l.dataset.b === key; l.classList.toggle('dim', !hit); l.classList.toggle('hit', hit); if (hit){ near.add(l.dataset.a); near.add(l.dataset.b); } });
   root.querySelectorAll('.gnode, .gnews').forEach(n => n.classList.toggle('dim', !near.has(n.dataset.key)));
 }
-function blurNodes(root){ (root || $('overview')).querySelectorAll('.dim').forEach(e => e.classList.remove('dim')); }
+function blurNodes(root){ (root || $('overview')).querySelectorAll('.dim, .hit').forEach(e => e.classList.remove('dim', 'hit')); }
 
 // ── Geopolitics ───────────────────────────────────────────────────────────
 let GEO = null, GEO_SEL = 'ua';
@@ -963,7 +977,7 @@ function drawWarMap(box, m, cid){
     <label><input type="checkbox" data-l="sites" checked> Refineries &amp; terminals</label><label><input type="checkbox" data-l="choke" checked> Straits &amp; bridges</label></div>
     <div id="wmap" class="wmap"></div>
     ${m.ships && m.ships.length ? `<div class="ships">${m.ships.map(shipHTML).join('')}</div>` : ''}
-    <div class="wm-leg"><span><i style="background:#FF4D4F"></i>${cid === 'ua' ? 'Russian-held area / ' : ''}reported hit, last 7 days</span><span><i style="background:#fff"></i>oil site, no report</span><span><i style="background:#F5C518"></i>incident reported (bigger = more reports)</span><span><i style="background:#4673FF"></i>strait / bridge</span></div>
+    <div class="wm-leg"><span><i style="background:#FF4D4F"></i>${cid === 'ua' ? 'Russian-held area (darker = taken since 2022) / ' : ''}reported hit, last 7 days</span>${cid === 'ua' ? '<span><i style="background:#F5C518"></i>contested (gray) zone</span>' : ''}<span><i style="background:#fff"></i>oil site, no report</span><span><i style="background:#F5C518"></i>incident reported (bigger = more reports)</span><span><i style="background:#4673FF"></i>strait / bridge</span></div>
     ${hits.length ? `<div class="wm-hits"><b>Oil sites named in an attack report this week</b>${hits.map(s => `<div><span class="hn">${esc(s.name)}</span> <a href="${esc(s.hit.link)}" target="_blank" rel="noopener noreferrer">${esc(s.hit.title)}</a> <span class="small">${esc(s.hit.source)} · ${esc(ago(s.hit.ts))}</span></div>`).join('')}</div>` : `<div class="small" style="margin-top:8px">No refinery or terminal is named in an attack headline this week.</div>`}
     ${errs.length ? `<div class="small warn" style="margin-top:8px">Not reached right now: ${errs.map(([k, v]) => '<b>' + esc(k) + '</b> — ' + esc(v)).join('<br>')}</div>` : ''}
     <div class="small wm-links">Open the live maps: ${(cid === 'ua' ? [['DeepStateMap', 'https://deepstatemap.live/en/'], ['Liveuamap Ukraine', 'https://liveuamap.com/'], ['ISW map', 'https://understandingwar.org/map/'], ['Black Sea ships', 'https://www.marinetraffic.com/en/ais/home/centerx:33/centery:44/zoom:6']]
@@ -977,7 +991,7 @@ function drawWarMap(box, m, cid){
   osm.on('tileerror', () => { if (++tileErr === 4){ map.removeLayer(osm); L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {maxZoom: 10, attribution: 'Tiles © Esri'}).addTo(map); $('wmap').classList.add('nofilter'); } });
   const layers = {front: L.layerGroup(), points: L.layerGroup(), sites: L.layerGroup(), choke: L.layerGroup()};
   for (const f of m.front || []){
-    if (f.t === 'poly') L.polygon(f.c, {color: '#FF4D4F', weight: 1, fillColor: '#FF4D4F', fillOpacity: 0.22, interactive: false}).addTo(layers.front);
+    if (f.t === 'poly') L.polygon(f.c, f.k === 'gray' ? {color: '#F5C518', weight: 1, fillColor: '#F5C518', fillOpacity: 0.2, interactive: false} : {color: '#FF4D4F', weight: 1, fillColor: '#FF4D4F', fillOpacity: f.k === 'occ0' ? 0.12 : 0.28, interactive: false}).addTo(layers.front);
     else L.polyline(f.c, {color: '#FF4D4F', weight: 2, interactive: false}).addTo(layers.front);
   }
   for (const p of m.incidents || []) L.circleMarker([p.lat, p.lon], {radius: Math.min(16, 6 + 2.5 * p.count), color: '#F5C518', weight: 2, fillColor: '#F5C518', fillOpacity: 0.55})

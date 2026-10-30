@@ -1187,7 +1187,7 @@ def tomorrow_panel(sm):
         fng = {"score": sm["MOOD"]["value"], "rating": "", "estimate": True}
     out = S.build_tomorrow(chg, vix, ts[-1][1] if ts else None, up[-1][1] if up else None, heat, earn["rows"] if earn else None,
                            v3[-1][1] if v3 else None, fng)
-    out["heat"] = heat and {k: heat[k] for k in ("worst", "best", "cap", "eq", "n", "ts")}
+    out["heat"] = heat and {k: heat.get(k) for k in ("worst", "best", "cap", "eq", "n", "ts", "mega", "megaShare", "megaAvg")}
     return out
 
 
@@ -1336,7 +1336,7 @@ def build_graph(items, edges, n, clusters=None, news_on=True, linked=False, news
         news.append({"score": score, "h": link_hash(r["link"]), "title": r["title"], "summary": r["summary"], "link": r["link"],
                      "source": r["source"], "ts": r["ts"], "keys": [k for k, _ in sorted(hit, key=lambda x: -items[x[0]]["rank"])][:2]})
     news.sort(key=lambda x: -x["score"])
-    return {"nodes": nodes, "edges": es, "news": news[:6], "notes": notes[:6], "total": len(items), "shown": len(nodes)}
+    return {"nodes": nodes, "edges": es, "news": news[:4], "notes": notes[:6], "total": len(items), "shown": len(nodes)}
 
 
 
