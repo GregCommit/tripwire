@@ -556,7 +556,9 @@ def _ship_kind(t):
 
 def collect_ais(cid, seconds=40):
     """Listens to the AIS stream for a short time and merges what it hears into the stored picture of the area."""
-    import websocket
+    websocket, why = ensure_lib("websocket", "websocket-client")
+    if websocket is None:
+        raise RuntimeError("websocket-client could not be installed: " + why)
     key = get_setting("ais_key", "")
     ws = websocket.create_connection("wss://stream.aisstream.io/v0/stream", timeout=12)
     try:
@@ -752,6 +754,49 @@ def ai_prompt(h):
     return "\n".join(lines), [{"title": r["title"], "source": r["source"], "link": r["link"], "ts": r["ts"]} for r in [row] + related]
 
 
+_lib_lock = threading.Lock()
+_lib_error = {}
+
+
+def ensure_lib(module, pip_name):
+    """Imports a library, installing it with the Python that runs this app when it is missing. Returns (module or None, error text)."""
+    import importlib
+    import subprocess
+    try:
+        return importlib.import_module(module), ""
+    except ImportError:
+        pass
+    with _lib_lock:
+        try:
+            return importlib.import_module(module), ""
+        except ImportError:
+            pass
+        err, first = "", ""
+        for extra in ([], ["--break-system-packages"], ["--user"]):
+            try:
+                r = subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--disable-pip-version-check", *extra, pip_name], capture_output=True, text=True, timeout=240)
+                if r.returncode == 0:
+                    importlib.invalidate_caches()
+                    try:
+                        return importlib.import_module(module), ""
+                    except ImportError as e:
+                        err = str(e)
+                else:
+                    lines = (r.stderr or r.stdout).strip().splitlines()
+                    err = lines[-1] if lines else "pip failed"
+            except Exception as e:
+                err = f"{type(e).__name__}: {e}"
+            first = first or err
+        _lib_error[module] = first[:300]
+        log.warning("Could not install %s: %s", pip_name, first)
+        return None, first[:300]
+
+
+def install_libs():
+    for mod, pkg in (("anthropic", "anthropic"), ("websocket", "websocket-client")):
+        ensure_lib(mod, pkg)
+
+
 def ai_error(e):
     import anthropic
     if isinstance(e, anthropic.AuthenticationError):
@@ -773,10 +818,9 @@ def ai_summarize(h):
     key = ai_key()
     if not key:
         raise AiError("no_key", "AI summaries need an Anthropic API key. Add it on the Alerts tab.")
-    try:
-        import anthropic
-    except ImportError:
-        raise AiError("sdk", "The Anthropic library is not installed on the server yet. The updater installs it within a minute; try again shortly.")
+    anthropic, why = ensure_lib("anthropic", "anthropic")
+    if anthropic is None:
+        raise AiError("sdk", "The Anthropic library could not be installed on the server" + (f" ({why})" if why else "") + ". Run on the server: sudo /opt/macro/venv/bin/pip install anthropic")
     prompt, sources = ai_prompt(h)
     model = ai_model()
     ck = hashlib.md5((model + prompt).encode()).hexdigest()
@@ -1030,6 +1074,7 @@ def start_background():
         threading.Thread(target=geo_map_loop, daemon=True, name="geomap").start()
         threading.Thread(target=stocks_loop, daemon=True, name="stocks").start()
         threading.Thread(target=ais_loop, daemon=True, name="ais").start()
+        threading.Thread(target=install_libs, daemon=True, name="libs").start()
 
 
 # ── Summaries and alerts ────────────────────────────────────────────────────
@@ -1617,7 +1662,9 @@ def api_ai():
             set_setting("ai_model", d["model"])
         if d.get("test"):
             try:
-                import anthropic
+                anthropic, why = ensure_lib("anthropic", "anthropic")
+                if anthropic is None:
+                    return jsonify({"success": False, "message": "The Anthropic library could not be installed on the server" + (f" ({why})" if why else "") + "."})
                 anthropic.Anthropic(api_key=ai_key(), timeout=30.0, max_retries=0).messages.create(
                     model=ai_model(), max_tokens=200, messages=[{"role": "user", "content": "Reply with the single word OK."}], output_config={"effort": "low"})
                 return jsonify({"success": True, "message": "The key works."})
@@ -1630,6 +1677,7 @@ def api_ai():
         sdk = True
     except ImportError:
         sdk = False
+        threading.Thread(target=install_libs, daemon=True).start()
     return jsonify({"hasKey": bool(ai_key()), "model": ai_model(), "models": [{"id": i, "label": l} for i, l in AI_MODELS], "sdk": sdk})
 
 
