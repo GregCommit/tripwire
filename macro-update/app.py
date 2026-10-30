@@ -959,7 +959,8 @@ def refresh_heat():
 
 
 def refresh_heat_hist():
-    """A year of daily closes of every stock in the two indexes (for the heatmap's time strip and its time slider)."""
+    """As much history as Yahoo gives of every stock in the two indexes, for the heatmap's time strip and time slider:
+    daily closes for the last 10 years and weekly closes for everything before that."""
     tickers = []
     with get_db() as conn:
         for r in conn.execute("SELECT data FROM heat"):
@@ -967,23 +968,37 @@ def refresh_heat_hist():
     tickers = sorted(set(tickers))
     if not tickers:
         return
+    cut = (datetime.now() - timedelta(days=3652)).strftime("%Y-%m-%d")
     closes = {}
-    for i in range(0, len(tickers), 80):
+    for i in range(0, len(tickers), 60):
+        chunk = tickers[i:i + 60]
         try:
-            for sym, pts in S.fetch_yahoo(tickers[i:i + 80], period="1y").items():
-                closes[sym] = dict((a, b) for a, b in pts)
+            daily = S.fetch_yahoo(chunk, period="10y")
         except Exception as e:
-            log.warning("Heat history chunk %d failed: %s", i // 80, e)
-        time.sleep(1)
+            log.warning("Heat history (daily) chunk %d failed: %s", i // 60, e)
+            daily = {}
+        try:
+            weekly = S.fetch_yahoo(chunk, period="max", interval="1wk")
+        except Exception as e:
+            log.warning("Heat history (weekly) chunk %d failed: %s", i // 60, e)
+            weekly = {}
+        for sym in set(daily) | set(weekly):
+            ser = {a: b for a, b in weekly.get(sym, []) if a < cut}
+            ser.update({a: b for a, b in daily.get(sym, [])})
+            if ser:
+                closes[sym] = ser
+        time.sleep(1.5)
     if len(closes) < 50:
         raise RuntimeError("heat history: only %d stocks came back" % len(closes))
-    dates = sorted({dd for c in closes.values() for dd in c})
-    # keep only days that most stocks have (drops half-days of single listings)
-    dates = [dd for dd in dates if sum(1 for c in closes.values() if dd in c) >= 0.6 * len(closes)]
+    count = {}
+    for c in closes.values():
+        for dd in c:
+            count[dd] = count.get(dd, 0) + 1
+    dates = sorted(dd for dd, n in count.items() if n >= 30)
     data = {"dates": dates, "closes": {t: [round(c[dd], 3) if dd in c else None for dd in dates] for t, c in closes.items()}}
     with get_db() as conn:
         conn.execute("INSERT OR REPLACE INTO heat_hist VALUES ('all', ?, ?)", (int(time.time()), json.dumps(data)))
-    log.info("Heat history: %d stocks, %d days", len(closes), len(dates))
+    log.info("Heat history: %d stocks, %d dates, %s to %s", len(closes), len(dates), dates[0], dates[-1])
 
 
 def heat_hist_loop():
@@ -991,7 +1006,7 @@ def heat_hist_loop():
     while True:
         try:
             refresh_heat_hist()
-            time.sleep(6 * 3600)
+            time.sleep(12 * 3600)
         except Exception as e:
             log.warning("Heat history failed: %s", e)
             time.sleep(600)
@@ -1861,26 +1876,39 @@ def api_ai():
     return jsonify({"hasKey": bool(ai_key()), "model": ai_model(), "models": [{"id": i, "label": l} for i, l in AI_MODELS], "sdk": sdk})
 
 
+_strip_cache = {}
+
+
 @app.route("/api/heatstrip")
 @login_required
 def api_heatstrip():
-    """One value per trading day: how the index (weighted by company size) moved that day."""
+    """About 240 cells over the whole history; each is how the index (weighted by company size) moved over that stretch of days."""
     idx = request.args.get("index", "sp500")
     H, rows = load_heat_hist(), heat_idx_rows(idx)
     if not H or not rows:
         return jsonify({"days": [], "ready": False})
-    cap = {r["t"]: r["c"] for r in rows}
-    dates, days = H["dates"], []
-    for i in range(1, len(dates)):
+    key = (idx, _hh_cache["ts"])
+    if key in _strip_cache:
+        return jsonify(_strip_cache[key])
+    cap = {r["t"]: r["c"] for r in rows if r["t"] in H["closes"]}
+    dates, n = H["dates"], len(H["dates"])
+    step = max(1, -(-n // 240))
+    days, prev = [], 0
+    for e in range(n - 1, 0, -step):         # buckets counted from today backwards, so the newest cell is always complete
+        s = max(0, e - step)
         num = den = 0.0
         for t, c in cap.items():
-            ser = H["closes"].get(t)
-            if ser and ser[i] and ser[i - 1]:
-                num += c * (ser[i] / ser[i - 1] - 1) * 100
+            ser = H["closes"][t]
+            if ser[e] and ser[s]:
+                num += c * (ser[e] / ser[s] - 1) * 100
                 den += c
         if den:
-            days.append({"d": dates[i], "p": round(num / den, 2)})
-    return jsonify({"days": days[-250:], "dates": dates, "ready": True, "ts": _hh_cache["ts"]})
+            days.append({"s": dates[s], "d": dates[e], "p": round(num / den, 2)})
+    days.reverse()
+    out = {"days": days, "dates": dates, "step": step, "ready": True, "ts": _hh_cache["ts"]}
+    _strip_cache.clear()
+    _strip_cache[key] = out
+    return jsonify(out)
 
 
 @app.route("/api/heathist")
@@ -1888,7 +1916,7 @@ def api_heatstrip():
 def api_heathist():
     """Change of every stock over `k` trading days ending on `end` (a date)."""
     idx, end, start = request.args.get("index", "sp500"), request.args.get("end", ""), request.args.get("start", "")
-    k = max(1, min(260, int(request.args.get("k", 1) or 1)))
+    k = max(1, min(20000, int(request.args.get("k", 1) or 1)))
     H = load_heat_hist()
     if not H:
         return jsonify({"error": "not ready"}), 503

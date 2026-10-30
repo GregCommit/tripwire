@@ -1285,24 +1285,32 @@ async function loadHeat(){
   catch (e){ if (e.message !== 'signed out') $('heatmap').innerHTML = '<div class="card muted">Could not load the heatmap: ' + esc(e.message) + '</div>'; }
 }
 let HSEL = {s: null, e: null}, HSTRIP = null, HHIST = null, HSTRIP_IDX = null, HSLIDE_T = null;
-const HK = [[1, '1 day'], [5, '1 week'], [21, '1 month'], [63, '3 months'], [126, '6 months'], [250, '1 year']];
-const heatScale = k => k <= 1 ? 3 : k <= 5 ? 6 : k <= 21 ? 12 : k <= 63 ? 25 : k <= 126 ? 35 : 60;
+const HK = [[1, '1 day'], [7, '1 week'], [30, '1 month'], [91, '3 months'], [182, '6 months'], [365, '1 year'], [1826, '5 years'], [0, 'Max']];
+const heatScale = days => days <= 4 ? 3 : days <= 10 ? 6 : days <= 40 ? 12 : days <= 100 ? 25 : days <= 200 ? 35 : days <= 400 ? 60 : days <= 2000 ? 120 : 250;
+const spanDays = (a, b) => Math.round((pdate(b) - pdate(a)) / 864e5);
+function spanText(a, b){ const n = spanDays(a, b); return n < 14 ? n + ' day' + (n === 1 ? '' : 's') : n < 70 ? Math.round(n / 7) + ' weeks' : n < 700 ? Math.round(n / 30.4) + ' months' : (n / 365.25).toFixed(1) + ' years'; }
+let HIDX = new Map();
 function setHeatIdx(i){ HEAT_IDX = i; HEAT = null; HSTRIP = null; HHIST = null; HSEL = {s: null, e: null}; renderHeat(); loadHeat(); }
 async function loadHeatStrip(){
   if (HSTRIP_IDX === HEAT_IDX && HSTRIP && HSTRIP.ready && Date.now() - (HSTRIP.at || 0) < 300000) return;
-  try { HSTRIP = await api('/api/heatstrip?index=' + HEAT_IDX); HSTRIP.at = Date.now(); HSTRIP_IDX = HEAT_IDX; if (TAB === 'heatmap') renderHeatStrip(); } catch (e) {}
+  try { HSTRIP = await api('/api/heatstrip?index=' + HEAT_IDX); HSTRIP.at = Date.now(); HIDX = new Map((HSTRIP.dates || []).map((x, i) => [x, i])); HSTRIP_IDX = HEAT_IDX; if (TAB === 'heatmap') renderHeatStrip(); } catch (e) {}
 }
 async function loadHeatHist(){
   if (!HSEL.e){ HHIST = null; renderHeat(); return; }
   try { HHIST = await api(`/api/heathist?index=${HEAT_IDX}&start=${HSEL.s}&end=${HSEL.e}`); if (HHIST.error) HHIST = null; } catch (e) { HHIST = null; }
   if (TAB === 'heatmap') renderHeat();
 }
-function heatPeriod(k){
+function periodStart(days){
+  const D_ = HSTRIP.dates, L = D_.length - 1; if (days === 1) return L - 1; if (days === 0) return 0;
+  const lim = new Date(pdate(D_[L]).getTime() - days * 864e5).toISOString().slice(0, 10);
+  let i = 0; for (let j = L; j >= 0; j--){ if (D_[j] <= lim){ i = j; break; } } return i;
+}
+function heatPeriod(days){
   const D_ = HSTRIP && HSTRIP.dates; if (!D_) return; const L = D_.length - 1;
-  HSEL = {s: D_[Math.max(0, L - k)], e: D_[L]}; renderHeatStrip(); loadHeatHist();
+  HSEL = {s: D_[periodStart(days)], e: D_[L]}; renderHeatStrip(); loadHeatHist();
 }
 function heatLive(){ HSEL = {s: null, e: null}; HHIST = null; renderHeatStrip(); renderHeat(); }
-function heatDay(dt){ const D_ = HSTRIP.dates, i = D_.indexOf(dt); if (i < 1) return; HSEL = {s: D_[i - 1], e: dt}; renderHeatStrip(); loadHeatHist(); }
+function heatBucket(i){ const x = HSTRIP.days[i]; HSEL = {s: x.s, e: x.d}; renderHeatStrip(); loadHeatHist(); }
 function dualPos(){
   const D_ = HSTRIP.dates, L = D_.length - 1;
   return [HSEL.s ? Math.max(0, D_.indexOf(HSEL.s)) : L - 1, HSEL.e ? Math.max(1, D_.indexOf(HSEL.e)) : L];
@@ -1311,8 +1319,8 @@ function dualUpdateUI(si, ei){
   const D_ = HSTRIP.dates, L = D_.length - 1, pc = i => (i / L * 100).toFixed(2) + '%';
   const f = $('dualFill'); if (f){ f.style.left = pc(si); f.style.width = ((ei - si) / L * 100).toFixed(2) + '%'; }
   const a = $('dlabS'), b = $('dlabE'); if (a){ a.style.left = pc(si); a.textContent = fdate(D_[si]); } if (b){ b.style.left = pc(ei); b.textContent = HSEL.e || !$('hsLive') ? fdate(D_[ei]) : fdate(D_[ei]); }
-  const cap = $('hsCap'); if (cap) cap.innerHTML = `<b>${esc(fdate(D_[si]))}</b> → <b>${esc(fdate(D_[ei]))}</b> · ${ei - si} trading day${ei - si > 1 ? 's' : ''}`;
-  document.querySelectorAll('#hsbox .hsd[data-d]').forEach(c => { const i = D_.indexOf(c.dataset.d); c.classList.toggle('in', i > si && i <= ei); });
+  const cap = $('hsCap'); if (cap) cap.innerHTML = `<b>${esc(fdate(D_[si]))}</b> → <b>${esc(fdate(D_[ei]))}</b> · ${spanText(D_[si], D_[ei])}`;
+  document.querySelectorAll('#hsbox .hsd[data-d]').forEach(c => { c.classList.toggle('in', HIDX.get(c.dataset.d) > si && HIDX.get(c.dataset.s) < ei); });
 }
 function heatDual(which, v){
   const D_ = HSTRIP.dates; let [si, ei] = dualPos(); v = +v;
@@ -1327,16 +1335,19 @@ function heatStripHTML(){
   if (!S || !S.days.length) return `<div class="small" style="margin:8px 2px">${S && !S.ready ? 'The history for the time strip is being prepared; it appears a few minutes after the app has started.' : 'Loading the time strip…'}</div>`;
   const D_ = S.dates, L = D_.length - 1, days = S.days, [si, ei] = dualPos(), live = !HSEL.e;
   let lastM = '', marks = '';
-  days.forEach((x, i) => { const m = x.d.slice(0, 7); if (m !== lastM){ lastM = m; marks += `<span style="left:${(i / days.length * 100).toFixed(2)}%">${MONTHS[+x.d.slice(5, 7) - 1]}</span>`; } });
-  const cells = days.map(x => { const i = D_.indexOf(x.d); return `<i class="hsd${!live && i > si && i <= ei ? ' in' : ''}" data-d="${x.d}" style="background:${heatColor(x.p, 2)}" title="${esc(fdate(x.d))}: ${x.p > 0 ? '+' : ''}${x.p.toFixed(2)}%" onclick="heatDay('${x.d}')"></i>`; }).join('');
+  const yearly = spanDays(days[0].s, days[days.length - 1].d) > 800;
+  let lastI = -99;
+  days.forEach((x, i) => { const m = yearly ? x.d.slice(0, 4) : x.d.slice(0, 7); if (m !== lastM && (i - lastI) / days.length >= (yearly ? 0.05 : 0.02)){ lastM = m; lastI = i; marks += `<span style="left:${(i / days.length * 100).toFixed(2)}%">${yearly ? m : MONTHS[+x.d.slice(5, 7) - 1]}</span>`; } });
+  const sc = Math.max(2, heatScale(spanDays(days[0].s, days[0].d)));
+  const cells = days.map((x, j) => `<i class="hsd${!live && HIDX.get(x.d) > si && HIDX.get(x.s) < ei ? ' in' : ''}" data-d="${x.d}" data-s="${x.s}" style="background:${heatColor(x.p, sc)}" title="${esc(fdate(x.s))} → ${esc(fdate(x.d))}: ${x.p > 0 ? '+' : ''}${x.p.toFixed(2)}%" onclick="heatBucket(${j})"></i>`).join('');
   const pc = i => (i / L * 100).toFixed(2) + '%';
-  const ks = HK.map(([k, l]) => `<button class="${!live && ei - si === Math.min(k, L) && ei === L ? 'on' : ''}" onclick="heatPeriod(${k})">${l}</button>`).join('');
+  const ks = HK.map(([k, l]) => `<button class="${!live && ei === L && si === periodStart(k) ? 'on' : ''}" onclick="heatPeriod(${k})">${l}</button>`).join('');
   const liveCol = heatColor(HEAT ? HEAT.rows.reduce((a, r) => a + r.p * r.c, 0) / (HEAT.rows.reduce((a, r) => a + r.c, 0) || 1) : 0, 2);
   return `<div class="hstrip-wrap"><div class="hstrip"><div class="hscells">${cells}</div><i class="hsd live${live ? ' sel' : ''}" id="hsLive" title="Live" onclick="heatLive()" style="background:${liveCol}"></i></div><div class="hsmarks">${marks}</div>
     <div class="dual"><div class="dtrack"></div><div class="dfill" id="dualFill" style="left:${pc(si)};width:${((ei - si) / L * 100).toFixed(2)}%"></div>
       <span class="dlab" id="dlabS" style="left:${pc(si)}">${esc(fdate(D_[si]))}</span><span class="dlab" id="dlabE" style="left:${pc(ei)}">${esc(fdate(D_[ei]))}</span>
       <input class="dr" id="drS" type="range" min="0" max="${L}" value="${si}" oninput="heatDual('s', this.value)" aria-label="Start of the period"><input class="dr" id="drE" type="range" min="0" max="${L}" value="${ei}" oninput="heatDual('e', this.value)" aria-label="End of the period"></div>
-    <div class="hsctl"><div class="seg"><button class="${live ? 'on' : ''}" onclick="heatLive()">Live</button>${ks}</div><span class="small" id="hsCap">${live ? 'Live · drag the two handles, click a day, or pick a period' : `<b>${esc(fdate(D_[si]))}</b> → <b>${esc(fdate(D_[ei]))}</b> · ${ei - si} trading day${ei - si > 1 ? 's' : ''}`}</span></div></div>`;
+    <div class="hsctl"><div class="seg"><button class="${live ? 'on' : ''}" onclick="heatLive()">Live</button>${ks}</div><span class="small" id="hsCap">${live ? 'Live · drag the two handles, click a day, or pick a period' : `<b>${esc(fdate(D_[si]))}</b> → <b>${esc(fdate(D_[ei]))}</b> · ${spanText(D_[si], D_[ei])}`}</span></div></div>`;
 }
 function heatColor(p, sc = 3){
   const c = Math.max(-sc, Math.min(sc, p)) / sc, t = Math.abs(c), neutral = [38, 38, 43], target = c < 0 ? [205, 52, 55] : [27, 152, 84];
@@ -1362,7 +1373,7 @@ function renderHeat(){
   const tabs = `<div class="chips"><button class="${HEAT_IDX === 'sp500' ? 'on' : ''}" onclick="setHeatIdx('sp500')">S&amp;P 500</button><button class="${HEAT_IDX === 'nasdaq100' ? 'on' : ''}" onclick="setHeatIdx('nasdaq100')">Nasdaq-100</button></div>`;
   if (!HEAT){ root.innerHTML = tabs + '<div class="card muted">Loading…</div>'; return; }
   if (!HEAT.rows.length){ root.innerHTML = tabs + `<div class="card"><div class="answer">Heatmap data is not loaded yet</div><p class="muted" style="margin-top:6px">The app fetches it a few minutes after starting and then every 15 minutes.</p></div>`; return; }
-  const hist = HSEL.e && HHIST && HHIST.end ? HHIST : null, SC = hist ? heatScale(hist.k) : 3;
+  const hist = HSEL.e && HHIST && HHIST.end ? HHIST : null, SC = hist ? heatScale(spanDays(hist.start, hist.end)) : 3;
   const rows = hist ? HEAT.rows.filter(r => hist.changes[r.t] !== undefined).map(r => ({...r, p: hist.changes[r.t], sess: null, reg: undefined})) : HEAT.rows;
   const W = Math.max(320, root.clientWidth || innerWidth - 32), mobile = W < 700, H = mobile ? Math.round(W * 1.55) : Math.min(820, Math.max(440, Math.round(W * 0.58)));
   const bySec = {}; rows.forEach(r => (bySec[r.s || 'Other'] = bySec[r.s || 'Other'] || []).push(r));
@@ -1383,7 +1394,7 @@ function renderHeat(){
     <div class="hmsecs">${stat.sort((a, b) => b.pct - a.pct).map(x => `<span class="hmchip" style="background:${heatColor(x.pct * 1.6, SC)}">${esc(x.name)} ${x.pct > 0 ? '+' : ''}${x.pct.toFixed(1)}%</span>`).join('')}</div></div>`;
   const st = HEAT.ts ? `Updated ${ago(HEAT.ts)}. ` : '', notes = (HEAT.notes || []).join(' · ');
   if (!$('hmain') || root.dataset.idx !== HEAT_IDX){ root.innerHTML = tabs + '<div id="hsbox"></div><div id="hmain"></div>'; root.dataset.idx = HEAT_IDX; renderHeatStrip(); }
-  $('hmain').innerHTML = `${stripHTML}<div class="hmbar"><span class="small">${hist ? `Size = today's market value, colour = change from ${esc(fdate(hist.start))} to ${esc(fdate(hist.end))} (${hist.k} trading day${hist.k > 1 ? 's' : ''}). ` : 'Size = market value, colour = change today (the 60 biggest companies with the latest price, incl. pre-market and after hours). '}${esc(st)}${esc(notes)}</span>
+  $('hmain').innerHTML = `${stripHTML}<div class="hmbar"><span class="small">${hist ? `Size = today's market value, colour = change from ${esc(fdate(hist.start))} to ${esc(fdate(hist.end))} (${spanText(hist.start, hist.end)}). ` : 'Size = market value, colour = change today (the 60 biggest companies with the latest price, incl. pre-market and after hours). '}${esc(st)}${esc(notes)}</span>
     <span class="hmleg"><i style="background:${heatColor(-SC, SC)}"></i>−${SC}%<i style="background:${heatColor(0, SC)}"></i>0<i style="background:${heatColor(SC, SC)}"></i>+${SC}%</span></div>
     <div class="hmwrap" style="height:${H}px">${html}</div><div id="hmtip" class="hmtip"></div>
     ${(HEAT.errors || []).length ? `<details class="gwhy"><summary>Data source notes</summary><ul>${HEAT.errors.map(e => `<li>${esc(e)}</li>`).join('')}</ul></details>` : ''}`;

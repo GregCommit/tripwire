@@ -216,10 +216,10 @@ def _clean(pts):
     return [[d, seen[d]] for d in sorted(seen)]
 
 
-def fetch_yahoo(symbols, period="5y"):
+def fetch_yahoo(symbols, period="5y", interval="1d"):
     """{symbol: points} — daily closes (five years unless told otherwise); today's bar is the latest price."""
     import yfinance as yf
-    df = yf.download(symbols, period=period, interval="1d", auto_adjust=False, progress=False,
+    df = yf.download(symbols, period=period, interval=interval, auto_adjust=False, progress=False,
                      group_by="ticker", threads=False)
     out = {}
     for s in symbols:
@@ -2740,3 +2740,33 @@ def resolve_symbol(q):
             except Exception:
                 continue
     return None
+
+
+# ══ Bond market prices: the other side of the yields ═════════════════════════════════════════
+INDICATORS += [dict(key=k, name=n, group="bonds", source="yahoo", sym=sym, unit=u, dec=2, kind="range", chg="pct", freq="daily", money=True, explain=ex)
+               for k, n, sym, u, ex in [
+    ("BOND_TLT", "Long Treasury bonds, 20+ years (TLT)", "TLT", "$", "The price of long US government bonds (a fund of Treasuries with 20 or more years to run). Long bonds react hardest to interest rates: when yields rise their price falls."),
+    ("BOND_IEF", "10-year Treasury bonds (IEF)", "IEF", "$", "The price of US government bonds with 7 to 10 years to run, the bonds behind the 10-year yield. Price and yield move opposite: buying lifts the price and lowers the yield."),
+    ("BOND_SHY", "Short Treasury bonds, 1–3 years (SHY)", "SHY", "$", "The price of US government bonds with 1 to 3 years to run. It moves little, and follows the 1- and 2-year yields."),
+    ("BOND_ZN", "10-year Treasury note futures", "ZN=F", "", "Where traders price 10-year Treasury notes right now (Chicago futures). It reacts first, also outside stock market hours."),
+    ("BOND_LQD", "Corporate bonds, investment grade (LQD)", "LQD", "$", "The price of bonds of solid companies. They follow Treasury prices and lose when companies are seen as riskier."),
+    ("BOND_HYG", "Junk bonds, high yield (HYG)", "HYG", "$", "The price of bonds of risky companies. They fall when credit worries grow, even when Treasuries rise."),
+]]
+BY_KEY.update({i["key"]: i for i in INDICATORS})
+WEIGHT.update({"BOND_TLT": 3, "BOND_IEF": 3.5, "BOND_SHY": 2, "BOND_ZN": 3, "BOND_LQD": 2, "BOND_HYG": 2.5})
+GOOD.update({"BOND_TLT": 0, "BOND_IEF": 0, "BOND_SHY": 0, "BOND_ZN": 0, "BOND_LQD": 1, "BOND_HYG": 1})
+NEWS_TOPICS.update({"BOND_IEF": ["bond prices", "treasury prices", "treasuries rally", "bond rally", "bond market rally", "bond selloff", "bond sell-off"],
+                    "BOND_TLT": ["long bond", "long bonds", "30-year", "long-dated treasuries", "long-term treasuries"],
+                    "BOND_HYG": ["high-yield bond", "high yield bond", "junk bond etf"], "BOND_LQD": ["corporate bond", "corporate bonds", "investment-grade"]})
+_NEWS_RX.update({k: re.compile(r"(?<![a-z0-9])(?:" + "|".join(re.escape(p) for p in NEWS_TOPICS[k]) + r")(?![a-z0-9])", re.I) for k in ("BOND_IEF", "BOND_TLT", "BOND_HYG", "BOND_LQD")})
+RELATIONS.extend([
+    ("BOND_IEF", "US10Y", "inverse", "Bond price and yield are two sides of one trade: when investors buy 10-year bonds their price rises and the yield falls, when they sell, the price falls and the yield rises."),
+    ("BOND_ZN", "US10Y", "inverse", "The 10-year note futures trade almost around the clock, so they show first where the 10-year yield is heading: a falling futures price means a rising yield."),
+    ("BOND_SHY", "US2Y", "inverse", "Short bonds are priced off the 2-year yield: when their price falls, the 2-year yield rises."),
+    ("BOND_TLT", "REAL10", "inverse", "Long bonds are the most sensitive to the real (after-inflation) interest rate: when their price falls, real yields rise."),
+    ("US10Y", "BOND_TLT", "inverse", "The longer a bond runs, the harder its price reacts to yields: long Treasury bonds lose most when the 10-year yield rises."),
+    ("US10Y", "BOND_LQD", "inverse", "Prices of solid companies' bonds follow Treasury yields: higher yields, lower prices."),
+    ("US2Y", "BOND_SHY", "inverse", "Short Treasury bonds lose a little when the 2-year yield rises, and gain a little when it falls."),
+    ("US1Y", "BOND_SHY", "inverse", "Short Treasury bonds follow the 1-year yield, but they move only slightly."),
+    ("HYSPREAD", "BOND_HYG", "inverse", "When the extra interest on junk bonds widens, their prices fall: wider spread, lower price."),
+])
