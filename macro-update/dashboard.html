@@ -105,6 +105,8 @@ h2.sub{font-size:14px;color:var(--mute);font-weight:500;margin:18px 0 6px}
 .tile:active,.ind:active,.stk:active,.sg.click:active,.gh:active,.strel.click:active,.btn:active,.chips button:active,.seg button:active,.mgc:active,.gnode:active{transform:scale(.97)}
 #prog{position:fixed;left:0;top:0;height:2px;width:100%;z-index:200;pointer-events:none;opacity:0;transition:opacity .2s;background:linear-gradient(90deg,transparent,var(--accent),transparent);background-size:40% 100%;background-repeat:no-repeat}
 #prog.on{opacity:1;animation:prog 1s linear infinite}@keyframes prog{from{background-position:-40% 0}to{background-position:140% 0}}
+.hstrip-wrap{margin:10px 0 12px}.hstrip{display:flex;gap:1px;height:46px;border:1px solid var(--line);border-radius:4px;overflow:hidden;background:#000}.hsd{flex:1;min-width:2px;cursor:pointer;transition:filter .12s}.hsd:hover{filter:brightness(1.5)}.hsd.sel{outline:2px solid #fff;outline-offset:-2px}.hsd.live{flex:0 0 14px;margin-left:3px}
+.hsmarks{position:relative;height:16px;font-size:10.5px;color:var(--dim)}.hsmarks span{position:absolute;top:2px}.hsctl{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;margin-top:4px}.hslide{flex:1 1 320px;accent-color:var(--accent);padding:0;background:transparent;border:none}
 .movers{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;margin:14px 2px 6px;font-size:13.5px}.mv{font-variant-numeric:tabular-nums}
 @media (max-width:700px){.gh{grid-template-columns:1fr;gap:6px}.ghl{flex-direction:row;align-items:center}}
 .geohead{margin-top:12px}.geoblurb{font-size:15px;line-height:1.6}
@@ -1254,12 +1256,45 @@ function renderGeo(){
 // ── Heatmap (S&P 500 / Nasdaq-100) ────────────────────────────────────────
 let HEAT = null, HEAT_IDX = 'sp500';
 async function loadHeat(){
-  try { HEAT = await api('/api/heatmap?index=' + HEAT_IDX); (HEAT.rows || []).forEach(r => { if (r.pe !== undefined && r.pe !== null){ r.reg = r.p; r.p = r.pe; } }); if (TAB === 'heatmap') renderHeat(); }
+  loadHeatStrip(); try { HEAT = await api('/api/heatmap?index=' + HEAT_IDX); (HEAT.rows || []).forEach(r => { if (r.pe !== undefined && r.pe !== null){ r.reg = r.p; r.p = r.pe; } }); if (TAB === 'heatmap') renderHeat(); }
   catch (e){ if (e.message !== 'signed out') $('heatmap').innerHTML = '<div class="card muted">Could not load the heatmap: ' + esc(e.message) + '</div>'; }
 }
-function setHeatIdx(i){ HEAT_IDX = i; HEAT = null; renderHeat(); loadHeat(); }
-function heatColor(p){
-  const c = Math.max(-3, Math.min(3, p)) / 3, t = Math.abs(c), neutral = [38, 38, 43], target = c < 0 ? [205, 52, 55] : [27, 152, 84];
+let HSEL = {end: null, k: 1}, HSTRIP = null, HHIST = null, HSTRIP_IDX = null, HSLIDE_T = null;
+const HK = [[1, '1 day', 3], [5, '1 week', 6], [21, '1 month', 12], [63, '3 months', 25]];
+function setHeatIdx(i){ HEAT_IDX = i; HEAT = null; HSTRIP = null; HHIST = null; renderHeat(); loadHeat(); }
+async function loadHeatStrip(){
+  if (HSTRIP_IDX === HEAT_IDX && HSTRIP && HSTRIP.ready && Date.now() - (HSTRIP.at || 0) < 300000) return;
+  try { HSTRIP = await api('/api/heatstrip?index=' + HEAT_IDX); HSTRIP.at = Date.now(); HSTRIP_IDX = HEAT_IDX; if (TAB === 'heatmap') renderHeat(); } catch (e) {}
+}
+async function loadHeatHist(){
+  if (!HSEL.end){ HHIST = null; renderHeat(); return; }
+  try { HHIST = await api(`/api/heathist?index=${HEAT_IDX}&end=${HSEL.end}&k=${HSEL.k}`); if (HHIST.error) HHIST = null; } catch (e) { HHIST = null; }
+  if (TAB === 'heatmap') renderHeat();
+}
+function heatPick(dateStr){ HSEL.end = dateStr; renderHeat(); loadHeatHist(); }
+function heatLive(){ HSEL.end = null; HSEL.k = 1; HHIST = null; renderHeat(); }
+function heatPeriod(k){ if (!HSEL.end && HSTRIP && HSTRIP.days.length) HSEL.end = HSTRIP.days[HSTRIP.days.length - 1].d; HSEL.k = k; renderHeat(); loadHeatHist(); }
+function heatSlide(v){
+  const days = HSTRIP.days; v = +v;
+  HSEL.end = v >= days.length ? null : days[v].d;
+  if (!HSEL.end){ HHIST = null; HSEL.k = 1; renderHeat(); return; }
+  clearTimeout(HSLIDE_T); HSLIDE_T = setTimeout(loadHeatHist, 120);
+  const cap = $('hsCap'); if (cap) cap.textContent = fdate(HSEL.end);
+}
+function heatStripHTML(){
+  const S = HSTRIP;
+  if (!S || !S.days.length) return `<div class="small" style="margin:8px 2px">${S && !S.ready ? 'The history for the time strip is being prepared; it appears a few minutes after the app has started.' : 'Loading the time strip…'}</div>`;
+  const N = S.days.length, days = S.days, selI = HSEL.end ? days.findIndex(x => x.d === HSEL.end) : N;
+  let lastM = '', marks = '';
+  days.forEach((x, i) => { const m = x.d.slice(0, 7); if (m !== lastM){ lastM = m; marks += `<span style="left:${(i / N * 100).toFixed(2)}%">${MONTHS[+x.d.slice(5, 7) - 1]}</span>`; } });
+  const cells = days.map((x, i) => `<i class="hsd${i === selI ? ' sel' : ''}" style="background:${heatColor(x.p, 2)}" title="${esc(fdate(x.d))}: ${x.p > 0 ? '+' : ''}${x.p.toFixed(2)}%" onclick="heatPick('${x.d}')"></i>`).join('');
+  const ks = HK.map(([k, l]) => `<button class="${HSEL.end && HSEL.k === k ? 'on' : ''}" onclick="heatPeriod(${k})">${l}</button>`).join('');
+  return `<div class="hstrip-wrap"><div class="hstrip">${cells}<i class="hsd live${!HSEL.end ? ' sel' : ''}" title="Live" onclick="heatLive()" style="background:${heatColor(HEAT ? HEAT.rows.reduce((a, r) => a + r.p * r.c, 0) / (HEAT.rows.reduce((a, r) => a + r.c, 0) || 1) : 0, 2)}"></i></div><div class="hsmarks">${marks}</div>
+    <div class="hsctl"><input class="hslide" type="range" min="0" max="${N}" value="${selI < 0 ? N : selI}" oninput="heatSlide(this.value)" aria-label="Go back in time">
+    <div class="seg"><button class="${!HSEL.end ? 'on' : ''}" onclick="heatLive()">Live</button>${ks}</div><span class="small">Showing <b id="hsCap">${HSEL.end ? esc(fdate(HSEL.end)) : 'now'}</b>${HSEL.end ? '' : ' · drag back in time or click a day'}</span></div></div>`;
+}
+function heatColor(p, sc = 3){
+  const c = Math.max(-sc, Math.min(sc, p)) / sc, t = Math.abs(c), neutral = [38, 38, 43], target = c < 0 ? [205, 52, 55] : [27, 152, 84];
   return `rgb(${neutral.map((n, i) => Math.round(n + (target[i] - n) * t)).join(',')})`;
 }
 function squarify(items, x, y, w, h){
@@ -1282,8 +1317,10 @@ function renderHeat(){
   const tabs = `<div class="chips"><button class="${HEAT_IDX === 'sp500' ? 'on' : ''}" onclick="setHeatIdx('sp500')">S&amp;P 500</button><button class="${HEAT_IDX === 'nasdaq100' ? 'on' : ''}" onclick="setHeatIdx('nasdaq100')">Nasdaq-100</button></div>`;
   if (!HEAT){ root.innerHTML = tabs + '<div class="card muted">Loading…</div>'; return; }
   if (!HEAT.rows.length){ root.innerHTML = tabs + `<div class="card"><div class="answer">Heatmap data is not loaded yet</div><p class="muted" style="margin-top:6px">The app fetches it a few minutes after starting and then every 15 minutes.</p></div>`; return; }
+  const HK_ = HK.find(x => x[0] === HSEL.k) || HK[0], SC = HSEL.end ? HK_[2] : 3, hist = HSEL.end && HHIST && HHIST.end ? HHIST : null;
+  const rows = hist ? HEAT.rows.filter(r => hist.changes[r.t] !== undefined).map(r => ({...r, p: hist.changes[r.t], sess: null, reg: undefined})) : HEAT.rows;
   const W = Math.max(320, root.clientWidth || innerWidth - 32), mobile = W < 700, H = mobile ? Math.round(W * 1.55) : Math.min(820, Math.max(440, Math.round(W * 0.58)));
-  const bySec = {}; HEAT.rows.forEach(r => (bySec[r.s || 'Other'] = bySec[r.s || 'Other'] || []).push(r));
+  const bySec = {}; rows.forEach(r => (bySec[r.s || 'Other'] = bySec[r.s || 'Other'] || []).push(r));
   const secs = Object.entries(bySec).map(([name, rows]) => ({name, rows: rows.sort((a, b) => b.c - a.c), v: rows.reduce((s, r) => s + r.c, 0)})).sort((a, b) => b.v - a.v);
   let html = '';
   for (const sr of squarify(secs, 0, 0, W, H)){
@@ -1292,16 +1329,16 @@ function renderHeat(){
     for (const t of squarify(sec.rows.map(r => ({...r, v: r.c})), sr.x + 1, sr.y + head + 1, sr.w - 2, sr.h - head - 2)){
       const r = t.it, w = t.w, h = t.h, fs = Math.max(9, Math.min(26, Math.min(w / (r.t.length * 0.68 + 0.4), h * 0.36)));
       const label = w >= 26 && h >= 16 ? `<b style="font-size:${fs.toFixed(1)}px">${esc(r.t)}</b>` + (h >= 34 && w >= 40 ? `<span style="font-size:${Math.max(9, fs * 0.62).toFixed(1)}px">${r.p > 0 ? '+' : ''}${r.p.toFixed(2)}%</span>` : '') + (h >= 64 && w >= 120 ? `<i>${esc((r.n || '').slice(0, 26))}</i>` : '') : '';
-      html += `<a class="hm" href="https://finance.yahoo.com/quote/${encodeURIComponent(r.t)}" target="_blank" rel="noopener noreferrer" data-t="${esc(r.t)}" data-tk="${esc(r.t)}" data-tn="${esc(r.n)} · ${esc(r.s)} · ${fmtCap(r.c)}${r.sess && r.sess !== 'regular' ? ' · ' + r.sess : ''}${r.reg !== undefined ? ' · regular session ' + (r.reg > 0 ? '+' : '') + r.reg.toFixed(2) + '%' : ''}" data-tp="${r.p}" style="left:${t.x.toFixed(1)}px;top:${t.y.toFixed(1)}px;width:${Math.max(0, w - 1).toFixed(1)}px;height:${Math.max(0, h - 1).toFixed(1)}px;background:${heatColor(r.p)}">${label}</a>`;
+      html += `<a class="hm" href="https://finance.yahoo.com/quote/${encodeURIComponent(r.t)}" target="_blank" rel="noopener noreferrer" data-t="${esc(r.t)}" data-tk="${esc(r.t)}" data-tn="${esc(r.n)} · ${esc(r.s)} · ${fmtCap(r.c)}${r.sess && r.sess !== 'regular' ? ' · ' + r.sess : ''}${r.reg !== undefined ? ' · regular session ' + (r.reg > 0 ? '+' : '') + r.reg.toFixed(2) + '%' : ''}" data-tp="${r.p}" style="left:${t.x.toFixed(1)}px;top:${t.y.toFixed(1)}px;width:${Math.max(0, w - 1).toFixed(1)}px;height:${Math.max(0, h - 1).toFixed(1)}px;background:${heatColor(r.p, SC)}">${label}</a>`;
     }
   }
   const stat = secs.map(s => ({name: s.name, pct: s.rows.reduce((a, r) => a + r.p * r.c, 0) / s.v, up: s.rows.filter(r => r.p > 0).length, n: s.rows.length}));
-  const total = HEAT.rows.reduce((a, r) => a + r.c, 0), top10 = [...HEAT.rows].sort((a, b) => b.c - a.c).slice(0, 10).reduce((a, r) => a + r.c, 0), exact = !(HEAT.notes || []).some(n => n.includes('built-in'));
-  const stripHTML = `<div class="hmstats"><b>${stat.filter(x => x.pct > 0).length} of ${stat.length}</b> sectors up · <b>${HEAT.rows.filter(r => r.p > 0).length} of ${HEAT.rows.length}</b> stocks up${exact ? ` · the 10 biggest companies are <b>${(top10 / total * 100).toFixed(0)}%</b> of the index` : ''}
-    <div class="hmsecs">${stat.sort((a, b) => b.pct - a.pct).map(x => `<span class="hmchip" style="background:${heatColor(x.pct * 1.6)}">${esc(x.name)} ${x.pct > 0 ? '+' : ''}${x.pct.toFixed(1)}%</span>`).join('')}</div></div>`;
+  const total = rows.reduce((a, r) => a + r.c, 0), top10 = [...rows].sort((a, b) => b.c - a.c).slice(0, 10).reduce((a, r) => a + r.c, 0), exact = !(HEAT.notes || []).some(n => n.includes('built-in'));
+  const stripHTML = `<div class="hmstats"><b>${stat.filter(x => x.pct > 0).length} of ${stat.length}</b> sectors up · <b>${rows.filter(r => r.p > 0).length} of ${rows.length}</b> stocks up${exact ? ` · the 10 biggest companies are <b>${(top10 / total * 100).toFixed(0)}%</b> of the index` : ''}
+    <div class="hmsecs">${stat.sort((a, b) => b.pct - a.pct).map(x => `<span class="hmchip" style="background:${heatColor(x.pct * 1.6, SC)}">${esc(x.name)} ${x.pct > 0 ? '+' : ''}${x.pct.toFixed(1)}%</span>`).join('')}</div></div>`;
   const st = HEAT.ts ? `Updated ${ago(HEAT.ts)}. ` : '', notes = (HEAT.notes || []).join(' · ');
-  root.innerHTML = `${tabs}${stripHTML}<div class="hmbar"><span class="small">Size = market value, colour = change today (the 60 biggest companies with the latest price, incl. pre-market and after hours). ${esc(st)}${esc(notes)}</span>
-    <span class="hmleg"><i style="background:${heatColor(-3)}"></i>−3%<i style="background:${heatColor(0)}"></i>0<i style="background:${heatColor(3)}"></i>+3%</span></div>
+  root.innerHTML = `${tabs}${heatStripHTML()}${stripHTML}<div class="hmbar"><span class="small">${hist ? `Size = today's market value, colour = change over ${hist.k} trading day${hist.k > 1 ? 's' : ''} until ${esc(fdate(hist.end))}. ` : 'Size = market value, colour = change today (the 60 biggest companies with the latest price, incl. pre-market and after hours). '}${esc(st)}${esc(notes)}</span>
+    <span class="hmleg"><i style="background:${heatColor(-SC, SC)}"></i>−${SC}%<i style="background:${heatColor(0, SC)}"></i>0<i style="background:${heatColor(SC, SC)}"></i>+${SC}%</span></div>
     <div class="hmwrap" style="height:${H}px">${html}</div><div id="hmtip" class="hmtip"></div>
     ${(HEAT.errors || []).length ? `<details class="gwhy"><summary>Data source notes</summary><ul>${HEAT.errors.map(e => `<li>${esc(e)}</li>`).join('')}</ul></details>` : ''}`;
 }

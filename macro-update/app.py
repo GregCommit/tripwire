@@ -99,6 +99,7 @@ def init_db():
             CREATE INDEX IF NOT EXISTS news_ts ON news(ts);
             CREATE TABLE IF NOT EXISTS heat (idx TEXT PRIMARY KEY, ts INTEGER, data TEXT);
             CREATE TABLE IF NOT EXISTS stocks (ticker TEXT PRIMARY KEY, kind TEXT, shares REAL, cost REAL, added INTEGER);
+            CREATE TABLE IF NOT EXISTS heat_hist (k TEXT PRIMARY KEY, ts INTEGER, data TEXT);
             CREATE TABLE IF NOT EXISTS ai_cache (k TEXT PRIMARY KEY, ts INTEGER, model TEXT, text TEXT);
             CREATE TABLE IF NOT EXISTS alerts (id INTEGER PRIMARY KEY, ts INTEGER, key TEXT, kind TEXT,
                 title TEXT, detail TEXT, emailed INTEGER DEFAULT 0);
@@ -957,6 +958,64 @@ def refresh_heat():
                 log.warning("Heat stats failed: %s", e)
 
 
+def refresh_heat_hist():
+    """A year of daily closes of every stock in the two indexes (for the heatmap's time strip and its time slider)."""
+    tickers = []
+    with get_db() as conn:
+        for r in conn.execute("SELECT data FROM heat"):
+            tickers += [x["t"] for x in json.loads(r["data"])["rows"]]
+    tickers = sorted(set(tickers))
+    if not tickers:
+        return
+    closes = {}
+    for i in range(0, len(tickers), 80):
+        try:
+            for sym, pts in S.fetch_yahoo(tickers[i:i + 80], period="1y").items():
+                closes[sym] = dict((a, b) for a, b in pts)
+        except Exception as e:
+            log.warning("Heat history chunk %d failed: %s", i // 80, e)
+        time.sleep(1)
+    if len(closes) < 50:
+        raise RuntimeError("heat history: only %d stocks came back" % len(closes))
+    dates = sorted({dd for c in closes.values() for dd in c})
+    # keep only days that most stocks have (drops half-days of single listings)
+    dates = [dd for dd in dates if sum(1 for c in closes.values() if dd in c) >= 0.6 * len(closes)]
+    data = {"dates": dates, "closes": {t: [round(c[dd], 3) if dd in c else None for dd in dates] for t, c in closes.items()}}
+    with get_db() as conn:
+        conn.execute("INSERT OR REPLACE INTO heat_hist VALUES ('all', ?, ?)", (int(time.time()), json.dumps(data)))
+    log.info("Heat history: %d stocks, %d days", len(closes), len(dates))
+
+
+def heat_hist_loop():
+    time.sleep(100)
+    while True:
+        try:
+            refresh_heat_hist()
+            time.sleep(6 * 3600)
+        except Exception as e:
+            log.warning("Heat history failed: %s", e)
+            time.sleep(600)
+
+
+_hh_cache = {"ts": None, "val": None}
+
+
+def load_heat_hist():
+    with get_db() as conn:
+        row = conn.execute("SELECT ts, data FROM heat_hist WHERE k='all'").fetchone()
+    if not row:
+        return None
+    if _hh_cache["ts"] != row["ts"]:
+        _hh_cache.update(ts=row["ts"], val=json.loads(row["data"]))
+    return _hh_cache["val"]
+
+
+def heat_idx_rows(idx):
+    with get_db() as conn:
+        row = conn.execute("SELECT data FROM heat WHERE idx=?", (idx,)).fetchone()
+    return json.loads(row["data"])["rows"] if row else []
+
+
 def heat_loop():
     time.sleep(30)
     while True:
@@ -1189,6 +1248,7 @@ def start_background():
         threading.Thread(target=cnn_loop, daemon=True, name="cnn").start()
         threading.Thread(target=news_loop, daemon=True, name="news").start()
         threading.Thread(target=heat_loop, daemon=True, name="heat").start()
+        threading.Thread(target=heat_hist_loop, daemon=True, name="heathist").start()
         threading.Thread(target=geo_news_loop, daemon=True, name="geonews").start()
         threading.Thread(target=geo_map_loop, daemon=True, name="geomap").start()
         threading.Thread(target=stocks_loop, daemon=True, name="stocks").start()
@@ -1799,6 +1859,48 @@ def api_ai():
         sdk = False
         threading.Thread(target=install_libs, daemon=True).start()
     return jsonify({"hasKey": bool(ai_key()), "model": ai_model(), "models": [{"id": i, "label": l} for i, l in AI_MODELS], "sdk": sdk})
+
+
+@app.route("/api/heatstrip")
+@login_required
+def api_heatstrip():
+    """One value per trading day: how the index (weighted by company size) moved that day."""
+    idx = request.args.get("index", "sp500")
+    H, rows = load_heat_hist(), heat_idx_rows(idx)
+    if not H or not rows:
+        return jsonify({"days": [], "ready": False})
+    cap = {r["t"]: r["c"] for r in rows}
+    dates, days = H["dates"], []
+    for i in range(1, len(dates)):
+        num = den = 0.0
+        for t, c in cap.items():
+            ser = H["closes"].get(t)
+            if ser and ser[i] and ser[i - 1]:
+                num += c * (ser[i] / ser[i - 1] - 1) * 100
+                den += c
+        if den:
+            days.append({"d": dates[i], "p": round(num / den, 2)})
+    return jsonify({"days": days[-130:], "ready": True, "ts": _hh_cache["ts"]})
+
+
+@app.route("/api/heathist")
+@login_required
+def api_heathist():
+    """Change of every stock over `k` trading days ending on `end` (a date)."""
+    idx, end = request.args.get("index", "sp500"), request.args.get("end", "")
+    k = max(1, min(120, int(request.args.get("k", 1) or 1)))
+    H = load_heat_hist()
+    if not H:
+        return jsonify({"error": "not ready"}), 503
+    dates = H["dates"]
+    e = max([i for i, dd in enumerate(dates) if dd <= end] or [len(dates) - 1])
+    s = max(0, e - k)
+    ch = {}
+    for r in heat_idx_rows(idx):
+        ser = H["closes"].get(r["t"])
+        if ser and ser[e] and ser[s]:
+            ch[r["t"]] = round((ser[e] / ser[s] - 1) * 100, 2)
+    return jsonify({"end": dates[e], "start": dates[s], "k": e - s, "changes": ch})
 
 
 @app.route("/api/heatmap")
