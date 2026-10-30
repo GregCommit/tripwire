@@ -116,6 +116,13 @@ h2.sub{font-size:14px;color:var(--mute);font-weight:500;margin:18px 0 6px}
 .gtag{display:inline-block;font-size:9.5px;letter-spacing:.05em;padding:0 5px;border-radius:2px;border:1px solid;margin-left:6px;vertical-align:1px}
 .gtag.up{color:var(--txt);border-color:var(--dim)}.gtag.low{color:var(--watch);border-color:var(--watch)}
 .ctxhead{margin:14px 0 6px}
+.tmr{border:1px solid var(--line);border-radius:6px;background:var(--card);padding:14px 16px;margin:0 0 18px}
+.tmr-h{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}.tmr-t{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
+.tmr-l{font-size:20px;font-weight:700}.tmr-l.high{color:var(--alert)}.tmr-l.elevated{color:var(--watch)}.tmr-l.low{color:var(--up)}
+.tmr-s{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-top:12px}
+.sg{border:1px solid var(--line2);border-radius:4px;padding:7px 10px}.sg.hit{border-color:var(--alert);background:rgba(255,59,59,.07)}
+.sg .n{font-size:11.5px;color:var(--mute)}.sg .v{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:2px}.sg.hit .v{color:var(--alert)}
+.tmr-w{margin-top:12px;font-size:13px;color:var(--mute);display:flex;flex-wrap:wrap;gap:4px 16px}.tmr-w b{color:var(--txt);font-weight:600}
 .tiles-head{margin:2px 0 10px}.tlabel{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
 .tflag{font-size:12px;font-weight:500;color:var(--alert);margin-top:8px;letter-spacing:.02em}
 .relmissing .ind.mini{opacity:.7}
@@ -139,8 +146,8 @@ body.wide main{max-width:1320px}
 .mapcol{display:flex;flex-direction:column;gap:22px;position:relative;z-index:2;min-width:0}
 .maplabel{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
 .mapmain{position:relative;z-index:3;min-width:0}.mapmain .grid{display:block}
-.maplines{position:absolute;left:0;top:0;pointer-events:none;z-index:1;overflow:visible}
-.relnode{position:relative;min-width:0}.relnode .ind.mini{margin:8px 0}
+.maplines{position:absolute;left:0;top:0;pointer-events:none;z-index:0;overflow:visible}
+.relnode{position:relative;z-index:1;min-width:0}.relnode .reltext,.relnode .relnote,.relnode .relhead{background:#000;position:relative}.relnode .ind.mini{margin:8px 0}
 .emptycol{font-size:13px}
 @media (max-width:900px){.map{grid-template-columns:1fr;gap:36px}.mapcol.l{order:1}.mapmain{order:2}.mapcol.r{order:3}}
 #today.sin .ind,#today.sin .tile{animation:sinx .45s ease-out both}
@@ -228,6 +235,7 @@ details.quiet{margin-top:18px}details.quiet>summary{cursor:pointer;color:var(--m
 <li><b>Overview</b>: one map of everything that matters right now. The most important indicators are boxes, the links between them are lines, and the headlines about them hang on those boxes. It ranks on purpose and leaves the rest out. Things that usually move together and both are far out are joined by a white line; if one moves and its usual partner does not follow, the line is yellow and dashed. Tap a box to see how it is connected. The filters above the map narrow it to some groups, to linked boxes only, or to boxes that have a headline; point at a box to read why it is shown.</li>
 <li><b>Heatmap</b>: all companies of the S&amp;P 500 or the Nasdaq-100 as one map — the size of a tile is the company's market value, the colour is today's change (green up, red down), grouped by sector. Point at a tile for details, tap it to open the quote. Data: Nasdaq's public screener and Wikipedia's index lists; if they are unreachable the app falls back to Yahoo prices and a built-in list of the biggest companies, and says so under the map.</li>
 <li><b>Geopolitics</b>: the headlines come first, ranked by importance and urgency (BREAKING, TODAY, EARLIER): talks and phone calls, statements by Merz, von der Leyen and others, new orders, company results of Leonardo, Saab, Rheinmetall and the like. Click a headline row for an AI summary, its title to open the article. Below: the biggest price moves, then the conflict as a map with the conflict in the middle and the markets around it. <b>Russia–Ukraine</b>: European and US defense stocks (rearmament), European gas, wheat. <b>Middle East</b> (Iran, Houthis, Saudi Arabia): oil, diesel, jet fuel, petrol, oil tankers, container shipping, airlines, the Saudi and Israeli markets, gold. </li>
+<li><b>Pressure into tomorrow</b> (top of Today): a count of short-term warning signs, each with its number and red when it is past a fixed line: S&amp;P 500, Nasdaq and small-cap futures (−0.7% / −1% / −1%), VIX jump of 10% or above 25, fear now above fear in 3 months, 3 or fewer of 11 sectors up, 70% or more of the S&amp;P 500 stocks falling, 12% or more down over 2%, big names down 4% or more after hours. 3 or more warning signs (40% of those with data) = <b>high</b>, 2 = <b>elevated</b>. Below it the weakest industries of the S&amp;P 500 today, calculated from every single stock in the background every 15 minutes. It is a gauge of pressure, not a forecast.</li>
 <li><b>Market internals</b> (a group on Today): how many of the 11 sectors rise (a falling index with most sectors up is a narrow sell-off in a few giants), the AI builders against the companies that use AI (banks, industrials), banks as a sign for the economy, breadth (equal-weight against size-weight), the volatility curve (VIX against the 3-month VIX) and the VVIX. Under it, big companies' reactions to earnings are set against the move the options market had priced in, where the data allows.</li>
 <li><b>Extremes</b>: indicators that only matter when they are far out on one side of their own history — the yen carry trade (USD/JPY, the US–Japan yield gap, Japan's yields), the Buffett indicator, Shiller P/E, credit spreads, the yield curve, the VIX and more. Each sits on a 0–100 scale (its percentile against all the history we have). The outer 5% on either side is an <b>extreme</b> (red), the outer 10% is <b>stretched</b> (amber); everything else is "normal range" and tucked away. Open "Yen carry trade in detail" at the bottom for USD/JPY, the interest gap and Japan's inflation with the Bank of Japan's forecasts.</li>
 <li><b>Alerts</b>: your levels (e.g. "USD/JPY above 160"), the email setup, the on/off switch for extreme alerts, and the history of every alert.</li></ul>
@@ -496,13 +504,13 @@ function transitionLayout(root, attr, change, openKey, closeKey){
     if (Math.abs(dx) + Math.abs(dy) > 2) e.animate([{opacity: 0.3}, {opacity: 1}], {duration: 550, easing: 'ease-out'}); });      // moved neighbours fade in at their new place: nothing flies across the page
   const open = openKey ? document.querySelector(`${root} [${attr}="${openKey}"]`) : null, was = openKey ? prev.get(openKey) : null;
   if (open && was){ const b = open.getBoundingClientRect(), inset = `inset(${Math.max(0, was.top - b.top)}px ${Math.max(0, b.right - was.right)}px ${Math.max(0, b.bottom - was.bottom)}px ${Math.max(0, was.left - b.left)}px)`;
-    open.animate([{clipPath: inset}, {clipPath: 'inset(0px 0px 0px 0px)'}], {duration: D(1000), easing: 'cubic-bezier(.3,0,.2,1)'}); }
+    open.animate([{clipPath: inset}, {clipPath: 'inset(0px 0px 0px 0px)'}], {duration: D(700), easing: 'cubic-bezier(.3,0,.2,1)'}); }
   if (clone){ const el = document.querySelector(`${root} [${attr}="${closeKey}"]`);
     if (el){ const b = el.getBoundingClientRect(), s = Math.min(b.width / oldRect.width, b.height / oldRect.height), tr = `translate(${b.left - oldRect.left}px,${b.top - oldRect.top}px) scale(${s})`;
       clone.style.transformOrigin = '0 0';                                   // the big card shrinks back to its small place
-      clone.animate([{transform: 'none'}, {transform: tr}], {duration: D(1200), easing: 'cubic-bezier(.45,0,.15,1)', fill: 'forwards'}).finished
+      clone.animate([{transform: 'none'}, {transform: tr}], {duration: D(800), easing: 'cubic-bezier(.45,0,.15,1)', fill: 'forwards'}).finished
         .then(() => clone.animate([{opacity: 1}, {opacity: 0}], {duration: D(260), fill: 'forwards'}).finished).then(() => clone.remove()).catch(() => clone.remove());
-      el.animate([{opacity: 0}, {opacity: 0, offset: 0.85}, {opacity: 1}], {duration: D(1450), easing: 'linear'}); }
+      el.animate([{opacity: 0}, {opacity: 0, offset: 0.85}, {opacity: 1}], {duration: D(900), easing: 'linear'}); }
     else clone.remove(); }
 }
 function openCard(id){
@@ -518,7 +526,7 @@ function moverTile(m){
   const arrow = m.chg > 0 ? '▲' : m.chg < 0 ? '▼' : '', cls = m.extreme ? 'down' : chgClass({good: m.good}, m.chg);
   const big = `${arrow} ${fmtChg({chgKind: m.chgKind, unit: m.unit, dec: m.dec}, m.chg)}`;
   return `<div class="tile" onclick="goCluster('${m.cluster}')"><div class="tl">${esc(m.clusterTitle)}</div><div class="tn">${esc(m.name)}</div>
-    ${m.extreme ? '<div class="tflag">At an extreme of its history</div>' : `<div class="tv ${cls}">${big}<span class="tw">${esc(m.horizon)}</span></div>`}
+    ${m.extreme ? '<div class="tflag">At an extreme</div>' : `<div class="tv ${cls}">${big}<span class="tw">${esc(m.horizon)}</span></div>`}
     <div class="tnow">Now ${esc(fmtVal({unit: m.unit, dec: m.dec, signed: m.signed}, m.value))}</div>
     ${m.news ? `<a class="tnews" href="${esc(m.news.link)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">${esc(m.news.title)}<span>${esc(m.news.source)} · ${esc(ago(m.news.ts))}</span></a>` : ''}</div>`;
 }
@@ -528,11 +536,18 @@ function earnHTML(E){
     <span class="small">${r.expected ? 'options expected ±' + r.expected.toFixed(1) + '%' : 'no stored expectation'}</span>${r.ratio ? `<span class="ratio${r.ratio >= 1.5 ? ' hot' : ''}">${r.ratio.toFixed(1)}× — ${esc(r.words)}</span>` : ''}</div>`).join('')}</div>
     <div class="small" style="margin-top:6px">Updated ${ago(E.ts)}. The expected move is read from option prices before the report.</div>`;
 }
+function tomorrowHTML(t){
+  if (!t || !t.signs.length) return '';
+  const w = t.heat && t.heat.worst && t.heat.worst.length ? `<div class="tmr-w"><span>Weakest parts of the S&amp;P 500 today</span>${t.heat.worst.slice(0, 4).map(x => `<span><b>${esc(x.name)}</b> ${x.pct > 0 ? '+' : ''}${x.pct.toFixed(1)}%</span>`).join('')}</div>`
+    + `<div class="tmr-w"><span>Giants vs the average stock</span><span><b>${t.heat.cap > 0 ? '+' : ''}${t.heat.cap.toFixed(1)}%</b> by size</span><span><b>${t.heat.eq > 0 ? '+' : ''}${t.heat.eq.toFixed(1)}%</b> equal weight</span></div>` : '';
+  return `<div class="tmr"><div class="tmr-h"><span class="tmr-t">Pressure into tomorrow</span><span class="tmr-l ${t.level}">${t.level}</span><span class="small">${t.hits} of ${t.total} warning signs</span></div>
+    <div class="tmr-s">${t.signs.map(s => `<div class="sg ${s.hit ? 'hit' : ''}"><div class="n">${esc(s.name)}</div><div class="v">${esc(s.value)}</div></div>`).join('')}</div>${w}</div>`;
+}
 function renderToday(){
   if (!OV) return;
   if (EXPL){ renderExplain(); return; }
   const S = OV.summary, bad = OV.sources.filter(x => x.stale || x.error);
-  let h = '';
+  let h = tomorrowHTML(OV.tomorrow);
   h += S.movers.length ? `<div class="tiles">${S.movers.map(moverTile).join('')}</div>` : `<div class="calmrow">Quiet — nothing is moving unusually.</div>`;
   if (S.levels.length) h += `<div class="levels"><b>Your levels crossed</b>${S.levels.map(l => `<div>${esc(l.text)} ${l.cluster ? `<button class="link" onclick="goCluster('${l.cluster}')">Show ›</button>` : ''}</div>`).join('')}</div>`;
   if (bad.length) h += `<div class="small" style="margin:10px 0 4px">⚠ ${bad.map(b => esc(b.name) + (b.ok_ts ? ' last updated ' + ago(b.ok_ts) : ' not reached yet')).join(' · ')} — showing the last good numbers.</div>`;
@@ -596,7 +611,7 @@ async function renderJapan(){
 // ── "How is this connected?" ──────────────────────────────────────────────
 let EXPL = null, EXSTACK = [], EXPL_SCROLL = 0, EXPL_ORIGIN = null, EXPL_NEW = new Set();
 const PREFERS_REDUCED = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
-const MOTION_F = {quick: 0.6, calm: 1, slower: 1.7};
+const MOTION_F = {quick: 0.25, calm: 0.42, slower: 0.8};
 let MOTION = (() => { try { return localStorage.getItem('macroMotion') || 'calm'; } catch (e) { return 'calm'; } })();
 let REDUCED = PREFERS_REDUCED || MOTION === 'off';
 const D = x => Math.round(x * (MOTION_F[MOTION] || 1));            // durations of the slow, deliberate movements (leaving cards stay quick)
@@ -688,7 +703,7 @@ function drawLines(animate){
     }
   });
   svg.innerHTML = g;
-  if (animate && !REDUCED) svg.querySelectorAll('.mline').forEach((p, i) => p.animate([{strokeDashoffset: 1, opacity: 0}, {strokeDashoffset: 0, opacity: 1}], {duration: D(1400), delay: i * D(150), fill: 'backwards', easing: 'ease-out'}));
+  if (animate && !REDUCED) svg.querySelectorAll('.mline').forEach((p, i) => p.animate([{strokeDashoffset: 1, opacity: 0}, {strokeDashoffset: 0, opacity: 1}], {duration: D(900), delay: i * D(90), fill: 'backwards', easing: 'ease-out'}));
 }
 const SLIDERS = '#today .ind, #today .tile, #today .relnode, #today .ncard, #overview .gnode, #overview .gnews, #geo .ind, #geo .gnode, #geo .gnews, #extremes .ind';
 function slideOut(src, ms){
@@ -701,7 +716,7 @@ function slideOut(src, ms){
 function slideIn(skip){
   const vw = innerWidth, els = [...document.querySelectorAll(SLIDERS)].filter(e => e !== skip);
   els.forEach((e, i) => { const r = e.getBoundingClientRect(), dir = r.left + r.width / 2 < vw / 2 ? -1 : 1;
-    e.animate([{transform: `translateX(${dir * vw * 0.85}px) rotate(${dir * 3}deg)`, opacity: 0}, {transform: 'none', opacity: 1}], {duration: D(1100), delay: D(240) + Math.min(i * 14, 280), easing: 'cubic-bezier(.25,.7,.2,1)', fill: 'backwards'}); });
+    e.animate([{transform: `translateX(${dir * vw * 0.85}px) rotate(${dir * 3}deg)`, opacity: 0}, {transform: 'none', opacity: 1}], {duration: D(800), delay: D(120) + Math.min(i * 14, 280), easing: 'cubic-bezier(.25,.7,.2,1)', fill: 'backwards'}); });
   document.querySelectorAll('#today h2, #today .muted, #today .drv, #today .tiles-head, #today .levels, #today .calmrow, #overview .gcap, #overview .glines, #overview .gwhy').forEach(e => e.animate([{opacity: 0}, {opacity: 1}], {duration: 500, delay: 300, fill: 'backwards'}));
 }
 function enterScene(from){
@@ -712,12 +727,12 @@ function enterScene(from){
   const to = card.getBoundingClientRect(), sx = Math.max(0.2, from.width / to.width), sy = Math.max(0.2, from.height / to.height), dx0 = from.left - to.left, dy0 = from.top - to.top;
   card.style.transformOrigin = '0 0'; card.style.zIndex = 5;
   // the card drifts to its place first and grows a little later, so it is never moving and stopping in turns
-  const move = card.animate([{translate: `${dx0}px ${dy0}px`}, {translate: '0px 0px'}], {duration: D(2600), easing: 'cubic-bezier(.45,0,.15,1)', fill: 'backwards'});
-  card.animate([{scale: `${sx} ${sy}`}, {scale: '1 1'}], {duration: D(2200), delay: D(400), easing: 'cubic-bezier(.4,0,.2,1)', fill: 'both'});
+  const move = card.animate([{translate: `${dx0}px ${dy0}px`}, {translate: '0px 0px'}], {duration: D(1400), easing: 'cubic-bezier(.45,0,.15,1)', fill: 'backwards'});
+  card.animate([{scale: `${sx} ${sy}`}, {scale: '1 1'}], {duration: D(1200), delay: D(150), easing: 'cubic-bezier(.4,0,.2,1)', fill: 'both'});
   move.finished.then(() => { card.style.zIndex = ''; card.style.transformOrigin = '';
     if (svg) svg.style.opacity = 1; drawLines(true);
-    document.querySelectorAll('#today .exsum').forEach(e => { e.style.opacity = ''; e.animate([{opacity: 0, transform: 'translateY(-8px)'}, {opacity: 1, transform: 'none'}], {duration: D(800), fill: 'backwards'}); });
-    nodes.forEach((n, i) => { n.style.opacity = ''; const side = n.dataset.side; n.animate([{opacity: 0, transform: side ? `translateX(${side === 'l' ? -46 : 46}px) scale(.95)` : 'translateY(24px)'}, {opacity: 1, transform: 'none'}], {duration: D(950), delay: i * D(260), easing: 'ease-out', fill: 'backwards'}); });
+    document.querySelectorAll('#today .exsum').forEach(e => { e.style.opacity = ''; e.animate([{opacity: 0, transform: 'translateY(-8px)'}, {opacity: 1, transform: 'none'}], {duration: D(500), fill: 'backwards'}); });
+    nodes.forEach((n, i) => { n.style.opacity = ''; const side = n.dataset.side; n.animate([{opacity: 0, transform: side ? `translateX(${side === 'l' ? -46 : 46}px) scale(.95)` : 'translateY(24px)'}, {opacity: 1, transform: 'none'}], {duration: D(700), delay: i * D(110), easing: 'ease-out', fill: 'backwards'}); });
     drawOpen(); }).catch(() => {});
 }
 async function explain(key, el){
@@ -762,10 +777,10 @@ async function closeExplain(){
     const target = findOriginEl(origin), dest = target ? target.getBoundingClientRect() : null;
     slideIn(target);
     if (dest){
-      target.animate([{opacity: 0}, {opacity: 0, offset: 0.82}, {opacity: 1}], {duration: D(2000), easing: 'linear'});
+      target.animate([{opacity: 0}, {opacity: 0, offset: 0.82}, {opacity: 1}], {duration: D(1100), easing: 'linear'});
       const sx = dest.width / from.width, sy = dest.height / from.height;
-      clone.animate([{scale: '1 1'}, {scale: `${sx} ${sy}`}], {duration: D(1700), easing: 'cubic-bezier(.4,0,.2,1)', fill: 'forwards'});
-      clone.animate([{translate: '0px 0px'}, {translate: `${dest.left - from.left}px ${dest.top - from.top}px`}], {duration: D(1800), easing: 'cubic-bezier(.45,0,.15,1)', fill: 'forwards'}).finished
+      clone.animate([{scale: '1 1'}, {scale: `${sx} ${sy}`}], {duration: D(1000), easing: 'cubic-bezier(.4,0,.2,1)', fill: 'forwards'});
+      clone.animate([{translate: '0px 0px'}, {translate: `${dest.left - from.left}px ${dest.top - from.top}px`}], {duration: D(1100), easing: 'cubic-bezier(.45,0,.15,1)', fill: 'forwards'}).finished
         .then(() => clone.animate([{opacity: 1}, {opacity: 0}], {duration: D(300), fill: 'forwards'}).finished).then(() => clone.remove()).catch(() => clone.remove());
     } else clone.animate([{opacity: 1}, {opacity: 0}], {duration: 300}).finished.then(() => clone.remove()).catch(() => clone.remove());
   }
@@ -851,7 +866,7 @@ function renderGraph(root, g, opts){
     const p = borderPoint(A, B.x, B.y), q = borderPoint(B, A.x, A.y), warn = e.status === 'noreact' || e.status === 'against';
     const stroke = e.reinforce ? '#ffffff' : warn ? '#F5C518' : '#5b5b66', mk = e.reinforce ? 'gar' : warn ? 'gaw' : 'ga';
     svg += `<path class="gl mline" data-a="${e.a}" data-b="${e.b}" d="${curve(p, q)}" pathLength="1" fill="none" stroke="${stroke}" stroke-width="${e.reinforce ? 2.2 : 1.3}" ${warn ? 'stroke-dasharray="0.02 0.014"' : ''} marker-end="url(#${mk})"/>`;
-    if (warn) svg += `<text class="gl" data-a="${e.a}" data-b="${e.b}" x="${((p[0] + q[0]) / 2).toFixed(1)}" y="${((p[1] + q[1]) / 2 - 5).toFixed(1)}" fill="#F5C518" font-size="10.5" text-anchor="middle" stroke="#08080a" stroke-width="4" paint-order="stroke">${e.status === 'noreact' ? 'not following' : 'against the usual link'}</text>`;
+    if (warn) svg += `<text class="gl" data-a="${e.a}" data-b="${e.b}" x="${((p[0] + q[0]) / 2).toFixed(1)}" y="${((p[1] + q[1]) / 2 - 11).toFixed(1)}" fill="#ECECF1" font-size="11.5" font-weight="600" text-anchor="middle" stroke="#08080a" stroke-width="5" paint-order="stroke">${e.status === 'noreact' ? 'not following' : 'against the usual link'}</text>`;
   }
   for (const n of g.news) for (const k of n.keys){
     const A = by['h:' + n.h], B = by[k]; if (!A || !B) continue;

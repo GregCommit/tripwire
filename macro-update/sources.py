@@ -2133,3 +2133,61 @@ for _cid, _G in GEO.items():
         if _g.get("basket"):
             _NEWS_PARENTS.setdefault(_g["basket"][0], []).append(_G["topic"])
 NEWS_TOPICS.setdefault("G_LDO_MI", []); NEWS_TOPICS.setdefault("G_SAAB_B_ST", [])
+
+
+# ══ Tomorrow: short-term warning signs ═══════════════════════════════════════════════════════
+INDICATORS += [dict(key=k, name=n, group=None, source="yahoo", sym=sym, unit="", dec=1, kind="range", chg="pct", freq="daily", money=False, explain=ex)
+               for k, n, sym, ex in [
+    ("FUT_ES", "S&P 500 futures", "ES=F", "Where traders price the S&P 500 right now, also outside the stock market's hours."),
+    ("FUT_NQ", "Nasdaq 100 futures", "NQ=F", "Where traders price the Nasdaq 100 right now, also outside the stock market's hours."),
+    ("FUT_RTY", "Russell 2000 futures", "RTY=F", "Where traders price the small companies right now, also outside the stock market's hours.")]]
+BY_KEY.update({i["key"]: i for i in INDICATORS})
+
+
+def heat_stats(rows):
+    """Breadth and weak spots from every stock of an index: [{t, s, i, c, p}] -> numbers for the 'Tomorrow' panel."""
+    rows = [r for r in rows if r.get("p") is not None]
+    n = len(rows)
+    if n < 50:
+        return None
+    cap = sum(r["c"] for r in rows) or 1.0
+    def avg(rs, w=False):
+        return (sum(r["p"] * r["c"] for r in rs) / (sum(r["c"] for r in rs) or 1.0)) if w else sum(r["p"] for r in rs) / len(rs)
+    groups = {}
+    for r in rows:
+        groups.setdefault(r["i"] or r["s"], []).append(r)
+    inds = [{"name": k, "pct": round(avg(v, True), 2), "n": len(v)} for k, v in groups.items() if len(v) >= 4]
+    sectors = {}
+    for r in rows:
+        sectors.setdefault(r["s"], []).append(r)
+    return {"n": n, "down": round(100 * sum(1 for r in rows if r["p"] < 0) / n, 1),
+            "down2": round(100 * sum(1 for r in rows if r["p"] <= -2) / n, 1), "down2n": sum(1 for r in rows if r["p"] <= -2),
+            "up2n": sum(1 for r in rows if r["p"] >= 2), "cap": round(avg(rows, True), 2), "eq": round(avg(rows), 2),
+            "worst": sorted(inds, key=lambda x: x["pct"])[:5], "best": sorted(inds, key=lambda x: -x["pct"])[:3],
+            "sectors": sorted(({"name": k, "pct": round(avg(v, True), 2)} for k, v in sectors.items()), key=lambda x: x["pct"])}
+
+
+def build_tomorrow(chg, vix, vixts, sect_up, heat, earn):
+    """Turn the short-term numbers into warning signs. A sign 'hits' past a fixed, simple threshold. Gauge, not forecast."""
+    signs = []
+    def add(name, val, txt, hit):
+        signs.append({"name": name, "value": txt, "hit": bool(hit), "v": val})
+    for k, name, lim in [("FUT_ES", "S&P 500 futures", -0.7), ("FUT_NQ", "Nasdaq futures", -1.0), ("FUT_RTY", "Small-cap futures", -1.0)]:
+        v = chg.get(k)
+        if v is not None:
+            add(name, v, f"{v:+.1f}%", v <= lim)
+    if vix:
+        add("VIX", vix[1], f"{vix[0]:.1f} ({vix[1]:+.0f}%)", vix[1] >= 10 or vix[0] >= 25)
+    if vixts is not None:
+        add("Fear now vs in 3 months", vixts, f"{vixts:.2f}", vixts >= 1.0)
+    if sect_up is not None:
+        add("Sectors up", sect_up, f"{sect_up:.0f} of 11", sect_up <= 3)
+    if heat:
+        add("S&P 500 stocks falling", heat["down"], f"{heat['down']:.0f}%", heat["down"] >= 70)
+        add("Down more than 2%", heat["down2"], f"{heat['down2n']} stocks", heat["down2"] >= 12)
+    ah = [r for r in (earn or []) if r.get("when") == "after hours" and r["move"] <= -4]
+    if earn is not None:
+        add("Big names after hours", -len(ah), f"{len(ah)} down 4%+" if ah else "none", bool(ah))
+    hits, total = sum(1 for s in signs if s["hit"]), len(signs)
+    level = "high" if total and hits >= max(3, total * 0.4) else "elevated" if hits >= 2 else "low"
+    return {"level": level, "hits": hits, "total": total, "signs": signs}

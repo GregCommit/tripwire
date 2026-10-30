@@ -672,6 +672,14 @@ def refresh_heat():
         with get_db() as conn:
             conn.execute("INSERT OR REPLACE INTO heat (idx, ts, data) VALUES (?,?,?)", (idx, int(time.time()), json.dumps(built)))
         log.info("Heatmap %s: %d stocks (%s)", idx, len(built["rows"]), "; ".join(built["notes"]))
+        if idx == "sp500":
+            try:
+                st = S.heat_stats(built["rows"])
+                if st:
+                    st["ts"] = int(time.time())
+                    set_setting("heat_stats", json.dumps(st))
+            except Exception as e:
+                log.warning("Heat stats failed: %s", e)
 
 
 def heat_loop():
@@ -1048,6 +1056,24 @@ def build_clusters(sm, hub):
     return out
 
 
+def tomorrow_panel(sm):
+    chg = {}
+    for k in ("FUT_ES", "FUT_NQ", "FUT_RTY"):
+        pts = load_series(k)
+        if len(pts) >= 2 and pts[-2][1]:
+            chg[k] = (pts[-1][1] / pts[-2][1] - 1) * 100
+    vix = sm.get("VIX")
+    vix = (vix["value"], vix["d1"]) if vix and vix.get("d1") is not None else None
+    ts, up = load_series("VIXTS"), load_series("SECT_UP")
+    heat = json.loads(get_setting("heat_stats", "null") or "null")
+    earn = json.loads(get_setting("earn_rows", "null") or "null")
+    if not (chg or vix or heat):
+        return None
+    out = S.build_tomorrow(chg, vix, ts[-1][1] if ts else None, up[-1][1] if up else None, heat, earn["rows"] if earn else None)
+    out["heat"] = heat and {k: heat[k] for k in ("worst", "best", "cap", "eq", "n", "ts")}
+    return out
+
+
 @app.route("/api/overview")
 @login_required
 def api_overview():
@@ -1071,6 +1097,7 @@ def api_overview():
                     "sectors": sorted(({"k": k, "name": S.SECTOR_NAMES.get(k, k), "pct": v, "ai": k in S.AI_BUILDER_SECTORS}
                                        for k, v in json.loads(get_setting("sector_parts", "{}") or "{}").items()), key=lambda x: -x["pct"]),
                     "earnings": json.loads(get_setting("earn_rows", "null") or "null"),
+                    "tomorrow": tomorrow_panel(sm),
                     "summary": build_summary(clusters, crossed_levels(sm, get_rules()), recent),
                     "newsIdx": {k: [n["h"] for n in v] for k, v in recent.items()},
                     "moodParts": json.loads(get_setting("mood_parts", "{}") or "{}"),
