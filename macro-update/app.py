@@ -889,6 +889,17 @@ def refresh_heat():
             conn.execute("INSERT OR REPLACE INTO heat (idx, ts, data) VALUES (?,?,?)", (idx, int(time.time()), json.dumps(built)))
         log.info("Heatmap %s: %d stocks (%s)", idx, len(built["rows"]), "; ".join(built["notes"]))
         if idx == "sp500":
+            try:        # the biggest companies move before and after the regular session too: use the latest price, not the last close
+                big = [r for r in built["rows"] if r["c"] >= S.MEGA_CAP]
+                ext = S.extended_moves([r["t"] for r in big])
+                for r in big:
+                    if r["t"] in ext:
+                        r["pe"], r["sess"] = round(ext[r["t"]]["p"], 2), ext[r["t"]]["sess"]
+                        r["ext"] = None if ext[r["t"]]["ext"] is None else round(ext[r["t"]]["ext"], 2)
+                with get_db() as conn:
+                    conn.execute("INSERT OR REPLACE INTO heat (idx, ts, data) VALUES (?,?,?)", (idx, int(time.time()), json.dumps(built)))
+            except Exception as e:
+                log.warning("Extended-hours moves failed: %s", e)
             try:
                 st = S.heat_stats(built["rows"])
                 if st:
@@ -991,6 +1002,12 @@ def refresh_stocks():
                 except Exception as e:
                     log.warning("Stock news %s: %s", t, e)
                     news_all.setdefault(t, {"ts": now - 300, "items": []})
+        try:
+            usable = [symof[t] for t in tickers if t in got and (recs[t].get("src") or "yahoo") == "yahoo" and re.fullmatch(r"[A-Z]{1,5}(-[A-Z])?", symof[t])]
+            extm = S.extended_moves(list(dict.fromkeys(usable)))
+        except Exception as e:
+            log.warning("Extended moves for stocks: %s", e)
+            extm = {}
         out = {}
         for t in tickers:
             g = got.get(t)
@@ -1005,12 +1022,15 @@ def refresh_stocks():
             fresh = [i for i in items if now - i["ts"] < 24 * 3600]
             ed = earn.get(t, {}).get("d")
             earn_days = (datetime.strptime(ed, "%Y-%m-%d").date() - today).days if ed else None
+            xm = extm.get(symof[t])
             flags = S.stock_flags(s, vr, len(fresh), earn_days)
+            if xm and xm["sess"] != "regular" and xm["ext"] is not None and abs(xm["ext"]) >= 2:
+                flags.append((f"{xm['sess'].capitalize()} {xm['ext']:+.1f}%", 2.0))
             field = {"today": "d1", "this week": "w1", "this month": "m1"}.get(s.get("horizon"), "d1")
             move = s.get(field) if s.get(field) is not None else s.get("d1")
             out[t] = {"t": t, "name": names.get(t) or t, "price": s["value"], "date": s["date"], "d1": s["d1"], "w1": s.get("w1"), "m1": s["m1"], "y1": s.get("y1"),
                       "hi": s["hi"], "lo": s["lo"], "spark": s["spark"], "flags": [f for f, _ in flags], "score": round(sum(w for _, w in flags), 2),
-                      "move": move, "earn": ed, "sym": symof[t], "src": recs[t].get("src") or "yahoo", "note": recs[t].get("note"), "volx": round(vr, 1) if vr else None, "news": items[:3], "freshNews": len(fresh)}
+                      "move": move, "ext": ({"p": round(xm["p"], 2), "e": None if xm["ext"] is None else round(xm["ext"], 2), "sess": xm["sess"]} if xm else None), "earn": ed, "sym": symof[t], "src": recs[t].get("src") or "yahoo", "note": recs[t].get("note"), "volx": round(vr, 1) if vr else None, "news": items[:3], "freshNews": len(fresh)}
         ccys = json.loads(get_setting("stock_ccy", "{}") or "{}")
         for t in tickers:
             if t not in ccys and t in got:
@@ -1937,13 +1957,15 @@ def api_intraday():
         return jsonify(c[1])
     try:
         import yfinance as yf
-        df = yf.download(t, period="2d", interval="5m", progress=False, auto_adjust=False, threads=False)
+        df = yf.download(t, period="5d", interval="5m", prepost=True, progress=False, auto_adjust=False, threads=False)
         col = df["Close"]
         col = col[t] if hasattr(col, "columns") else col
-        pts = [(i, float(v)) for i, v in col.items() if v == v]
+        from zoneinfo import ZoneInfo
+        ny = ZoneInfo("America/New_York")
+        pts = [(i.tz_convert(ny) if i.tzinfo else i, float(v)) for i, v in col.items() if v == v]
         last_day = pts[-1][0].date()
         today = [[int(i.timestamp()), v] for i, v in pts if i.date() == last_day]
-        prev = [v for i, v in pts if i.date() != last_day]
+        prev = [v for i, v in pts if i.date() < last_day and 9 * 60 + 30 <= i.hour * 60 + i.minute < 16 * 60]
         out = {"t": t, "pts": today, "prev": prev[-1] if prev else None}
     except Exception as e:
         out = {"t": t, "pts": [], "prev": None, "error": f"{type(e).__name__}: {e}"[:120]}

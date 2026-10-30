@@ -2175,6 +2175,43 @@ INDICATORS += [dict(key=k, name=n, group=None, source="yahoo", sym=sym, unit="",
 BY_KEY.update({i["key"]: i for i in INDICATORS})
 
 
+def extended_moves(tickers):
+    """Latest price INCLUDING pre-market and after-hours against the previous regular close, for US-listed tickers.
+    {ticker: {"p": % since the last close before the latest bar's day, "ext": % since the last regular bar (None in the regular session),
+    "sess": "regular" | "pre-market" | "after hours", "px": price}}"""
+    import yfinance as yf
+    from datetime import time as dtime
+    from zoneinfo import ZoneInfo
+    ny = ZoneInfo("America/New_York")
+    if not tickers:
+        return {}
+    df = yf.download(tickers, period="5d", interval="5m", prepost=True, auto_adjust=False, progress=False, group_by="ticker", threads=False)
+    out = {}
+    for t in tickers:
+        try:
+            try:
+                s = df[t]["Close"]
+            except KeyError:
+                s = df["Close"][t] if hasattr(df["Close"], "columns") else df["Close"]
+            s = s.dropna().copy()
+            s.index = s.index.tz_convert(ny) if s.index.tz is not None else s.index.tz_localize("UTC").tz_convert(ny)
+            last_t, last = s.index[-1], float(s.iloc[-1])
+            reg = s[(s.index.time >= dtime(9, 30)) & (s.index.time < dtime(16, 0))]
+            before = reg[reg.index.date < last_t.date()]
+            if not len(before):
+                continue
+            ref = float(before.iloc[-1])
+            tm = last_t.time()
+            sess = "pre-market" if tm < dtime(9, 30) else "after hours" if tm >= dtime(16, 0) else "regular"
+            ext = None
+            if sess != "regular" and len(reg):
+                ext = (last / float(reg.iloc[-1]) - 1) * 100
+            out[t] = {"p": (last / ref - 1) * 100, "ext": ext, "sess": sess, "px": last}
+        except Exception as e:
+            log.warning("Extended move %s: %s", t, e)
+    return out
+
+
 MEGA_CAP = 1e12      # $1 trillion
 
 
@@ -2196,8 +2233,8 @@ def heat_stats(rows):
         sectors.setdefault(r["s"], []).append(r)
     big = sorted((r for r in rows if r["c"] >= MEGA_CAP), key=lambda r: -r["c"])
     big = [r for r in big if not (r["t"] == "GOOG" and any(x["t"] == "GOOGL" for x in big))]      # Alphabet counts once
-    mega = [{"t": r["t"], "n": r["n"], "pct": round(r["p"], 2), "cap": round(r["c"] / 1e9)} for r in big]
-    return {"mega": mega, "megaShare": round(100 * sum(r["c"] for r in big) / cap, 1), "megaAvg": round(avg(big, True), 2) if big else None,
+    mega = [{"t": r["t"], "n": r["n"], "pct": round(r.get("pe", r["p"]), 2), "cap": round(r["c"] / 1e9), "sess": r.get("sess")} for r in big]
+    return {"mega": mega, "megaShare": round(100 * sum(r["c"] for r in big) / cap, 1), "megaAvg": round(sum(m["pct"] * c for m, c in zip(mega, (r["c"] for r in big))) / (sum(r["c"] for r in big) or 1.0), 2) if big else None,
             "n": n, "down": round(100 * sum(1 for r in rows if r["p"] < 0) / n, 1),
             "down2": round(100 * sum(1 for r in rows if r["p"] <= -2) / n, 1), "down2n": sum(1 for r in rows if r["p"] <= -2),
             "up2n": sum(1 for r in rows if r["p"] >= 2), "cap": round(avg(rows, True), 2), "eq": round(avg(rows), 2),
