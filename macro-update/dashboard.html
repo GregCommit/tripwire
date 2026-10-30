@@ -1254,7 +1254,7 @@ function renderGeo(){
 // ── Heatmap (S&P 500 / Nasdaq-100) ────────────────────────────────────────
 let HEAT = null, HEAT_IDX = 'sp500';
 async function loadHeat(){
-  try { HEAT = await api('/api/heatmap?index=' + HEAT_IDX); if (TAB === 'heatmap') renderHeat(); }
+  try { HEAT = await api('/api/heatmap?index=' + HEAT_IDX); (HEAT.rows || []).forEach(r => { if (r.pe !== undefined && r.pe !== null){ r.reg = r.p; r.p = r.pe; } }); if (TAB === 'heatmap') renderHeat(); }
   catch (e){ if (e.message !== 'signed out') $('heatmap').innerHTML = '<div class="card muted">Could not load the heatmap: ' + esc(e.message) + '</div>'; }
 }
 function setHeatIdx(i){ HEAT_IDX = i; HEAT = null; renderHeat(); loadHeat(); }
@@ -1292,7 +1292,7 @@ function renderHeat(){
     for (const t of squarify(sec.rows.map(r => ({...r, v: r.c})), sr.x + 1, sr.y + head + 1, sr.w - 2, sr.h - head - 2)){
       const r = t.it, w = t.w, h = t.h, fs = Math.max(9, Math.min(26, Math.min(w / (r.t.length * 0.68 + 0.4), h * 0.36)));
       const label = w >= 26 && h >= 16 ? `<b style="font-size:${fs.toFixed(1)}px">${esc(r.t)}</b>` + (h >= 34 && w >= 40 ? `<span style="font-size:${Math.max(9, fs * 0.62).toFixed(1)}px">${r.p > 0 ? '+' : ''}${r.p.toFixed(2)}%</span>` : '') + (h >= 64 && w >= 120 ? `<i>${esc((r.n || '').slice(0, 26))}</i>` : '') : '';
-      html += `<a class="hm" href="https://finance.yahoo.com/quote/${encodeURIComponent(r.t)}" target="_blank" rel="noopener noreferrer" data-t="${esc(r.t)}" data-tk="${esc(r.t)}" data-tn="${esc(r.n)} · ${esc(r.s)} · ${fmtCap(r.c)}" data-tp="${r.p}" style="left:${t.x.toFixed(1)}px;top:${t.y.toFixed(1)}px;width:${Math.max(0, w - 1).toFixed(1)}px;height:${Math.max(0, h - 1).toFixed(1)}px;background:${heatColor(r.p)}">${label}</a>`;
+      html += `<a class="hm" href="https://finance.yahoo.com/quote/${encodeURIComponent(r.t)}" target="_blank" rel="noopener noreferrer" data-t="${esc(r.t)}" data-tk="${esc(r.t)}" data-tn="${esc(r.n)} · ${esc(r.s)} · ${fmtCap(r.c)}${r.sess && r.sess !== 'regular' ? ' · ' + r.sess : ''}${r.reg !== undefined ? ' · regular session ' + (r.reg > 0 ? '+' : '') + r.reg.toFixed(2) + '%' : ''}" data-tp="${r.p}" style="left:${t.x.toFixed(1)}px;top:${t.y.toFixed(1)}px;width:${Math.max(0, w - 1).toFixed(1)}px;height:${Math.max(0, h - 1).toFixed(1)}px;background:${heatColor(r.p)}">${label}</a>`;
     }
   }
   const stat = secs.map(s => ({name: s.name, pct: s.rows.reduce((a, r) => a + r.p * r.c, 0) / s.v, up: s.rows.filter(r => r.p > 0).length, n: s.rows.length}));
@@ -1300,7 +1300,7 @@ function renderHeat(){
   const stripHTML = `<div class="hmstats"><b>${stat.filter(x => x.pct > 0).length} of ${stat.length}</b> sectors up · <b>${HEAT.rows.filter(r => r.p > 0).length} of ${HEAT.rows.length}</b> stocks up${exact ? ` · the 10 biggest companies are <b>${(top10 / total * 100).toFixed(0)}%</b> of the index` : ''}
     <div class="hmsecs">${stat.sort((a, b) => b.pct - a.pct).map(x => `<span class="hmchip" style="background:${heatColor(x.pct * 1.6)}">${esc(x.name)} ${x.pct > 0 ? '+' : ''}${x.pct.toFixed(1)}%</span>`).join('')}</div></div>`;
   const st = HEAT.ts ? `Updated ${ago(HEAT.ts)}. ` : '', notes = (HEAT.notes || []).join(' · ');
-  root.innerHTML = `${tabs}${stripHTML}<div class="hmbar"><span class="small">Size = market value, colour = change today. ${esc(st)}${esc(notes)}</span>
+  root.innerHTML = `${tabs}${stripHTML}<div class="hmbar"><span class="small">Size = market value, colour = change today (the 60 biggest companies with the latest price, incl. pre-market and after hours). ${esc(st)}${esc(notes)}</span>
     <span class="hmleg"><i style="background:${heatColor(-3)}"></i>−3%<i style="background:${heatColor(0)}"></i>0<i style="background:${heatColor(3)}"></i>+3%</span></div>
     <div class="hmwrap" style="height:${H}px">${html}</div><div id="hmtip" class="hmtip"></div>
     ${(HEAT.errors || []).length ? `<details class="gwhy"><summary>Data source notes</summary><ul>${HEAT.errors.map(e => `<li>${esc(e)}</li>`).join('')}</ul></details>` : ''}`;

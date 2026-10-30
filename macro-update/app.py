@@ -889,7 +889,8 @@ def ai_summarize(h):
 
 
 # ── Heatmap ────────────────────────────────────────────────────────────────────────────────
-HEAT_EVERY = 90
+HEAT_EVERY = 60
+_ext_cache = {}        # ticker -> (when, extended-hours move), shared by the two indexes
 
 
 def refresh_heat():
@@ -931,18 +932,22 @@ def refresh_heat():
         with get_db() as conn:
             conn.execute("INSERT OR REPLACE INTO heat (idx, ts, data) VALUES (?,?,?)", (idx, int(time.time()), json.dumps(built)))
         log.info("Heatmap %s: %d stocks (%s)", idx, len(built["rows"]), "; ".join(built["notes"]))
+        try:        # the biggest companies move before and after the regular session too: use the latest price, not the last close
+            top = sorted(built["rows"], key=lambda r: -r["c"])[:60]
+            need = [r["t"] for r in top if r["t"] not in _ext_cache or time.time() - _ext_cache[r["t"]][0] > 45]
+            if need:
+                for t, v in S.extended_moves(need).items():
+                    _ext_cache[t] = (time.time(), v)
+            for r in top:
+                v = (_ext_cache.get(r["t"]) or (0, None))[1]
+                if v:
+                    r["pe"], r["sess"] = round(v["p"], 2), v["sess"]
+                    r["ext"] = None if v["ext"] is None else round(v["ext"], 2)
+            with get_db() as conn:
+                conn.execute("INSERT OR REPLACE INTO heat (idx, ts, data) VALUES (?,?,?)", (idx, int(time.time()), json.dumps(built)))
+        except Exception as e:
+            log.warning("Extended-hours moves failed: %s", e)
         if idx == "sp500":
-            try:        # the biggest companies move before and after the regular session too: use the latest price, not the last close
-                big = [r for r in built["rows"] if r["c"] >= S.MEGA_CAP]
-                ext = S.extended_moves([r["t"] for r in big])
-                for r in big:
-                    if r["t"] in ext:
-                        r["pe"], r["sess"] = round(ext[r["t"]]["p"], 2), ext[r["t"]]["sess"]
-                        r["ext"] = None if ext[r["t"]]["ext"] is None else round(ext[r["t"]]["ext"], 2)
-                with get_db() as conn:
-                    conn.execute("INSERT OR REPLACE INTO heat (idx, ts, data) VALUES (?,?,?)", (idx, int(time.time()), json.dumps(built)))
-            except Exception as e:
-                log.warning("Extended-hours moves failed: %s", e)
             try:
                 st = S.heat_stats(built["rows"])
                 if st:
