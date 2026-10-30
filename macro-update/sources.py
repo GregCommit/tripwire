@@ -1898,7 +1898,7 @@ SAYS.update({
     "VVIX": "How much traders pay to protect against a jump in the VIX itself. High while the VIX is calm warns that calm can end suddenly.",
 })
 WEIGHT.update({"SECT_UP": 3.5, "AIB": 4, "AIU": 3, "AIB_AIU": 3.5, "DEFN": 2.5, "XLF": 3.5, "KRE": 3, "BREADTH": 3.5, "VIXTS": 4, "VVIX": 3})
-GOOD.update({"SECT_UP": 1, "AIB": 1, "AIU": 1, "XLF": 1, "KRE": 1, "BREADTH": 1, "DEFN": 0, "VIXTS": -1, "VVIX": -1})
+GOOD.update({"AIB_AIU": 1, "SECT_UP": 1, "AIB": 1, "AIU": 1, "XLF": 1, "KRE": 1, "BREADTH": 1, "DEFN": 0, "VIXTS": -1, "VVIX": -1})
 CLUSTERS.append(dict(id="internals", title="Market internals: breadth, AI & banks",
                      intro="What is under the index: how broad a move is, the AI builders against their customers, banks, and how stressed the volatility curve is.",
                      main=["SECT_UP", "AIB", "AIU", "AIB_AIU", "DEFN", "XLF", "KRE", "BREADTH", "VIXTS", "VVIX"], context=["SPX", "VIX"]))
@@ -2169,27 +2169,34 @@ def heat_stats(rows):
             "sectors": sorted(({"name": k, "pct": round(avg(v, True), 2)} for k, v in sectors.items()), key=lambda x: x["pct"])}
 
 
-def build_tomorrow(chg, vix, vixts, sect_up, heat, earn):
+def build_tomorrow(chg, vix, vixts, sect_up, heat, earn, vix3=None, fng=None):
     """Turn the short-term numbers into warning signs. A sign 'hits' past a fixed, simple threshold. Gauge, not forecast."""
     signs = []
-    def add(name, val, txt, hit):
-        signs.append({"name": name, "value": txt, "hit": bool(hit), "v": val})
+    def add(name, val, txt, hit, rule):
+        signs.append({"name": name, "value": txt, "hit": bool(hit), "v": val, "rule": rule})
     for k, name, lim in [("FUT_ES", "S&P 500 futures", -0.7), ("FUT_NQ", "Nasdaq futures", -1.0), ("FUT_RTY", "Small-cap futures", -1.0)]:
         v = chg.get(k)
         if v is not None:
-            add(name, v, f"{v:+.1f}%", v <= lim)
+            add(name, v, f"{v:+.1f}%", v <= lim, f"Where traders price it now vs the last close. Red at {lim:g}% or worse.")
     if vix:
-        add("VIX", vix[1], f"{vix[0]:.1f} ({vix[1]:+.0f}%)", vix[1] >= 10 or vix[0] >= 25)
+        add("VIX", vix[1], f"{vix[0]:.1f} ({vix[1]:+.0f}%)", vix[1] >= 10 or vix[0] >= 25, "The fear gauge. Red when it jumps 10% in a day or sits above 25.")
     if vixts is not None:
-        add("Fear now vs in 3 months", vixts, f"{vixts:.2f}", vixts >= 1.0)
+        calc = f"VIX {vix[0]:.1f} ÷ 3-month VIX {vix3:.1f} = {vixts:.2f}. " if vix and vix3 else ""
+        add("Fear now ÷ fear in 3 months", vixts, f"{vixts:.2f}", vixts >= 1.0,
+            calc + "Normally below 1: traders expect more swings later than now. Above 1.00 they pay more for protection today than for the next 3 months, which marks acute stress.")
+    if fng and fng.get("score") is not None:
+        sc = fng["score"]
+        word = (fng.get("rating") or "").replace("_", " ") or ("fear" if sc < 45 else "greed" if sc > 55 else "neutral")
+        add("Fear & Greed" + (" (estimate)" if fng.get("estimate") else ""), sc, f"{sc:.0f} · {word}", sc <= 25,
+            "0 = extreme fear, 100 = extreme greed" + (" (CNN's index)." if not fng.get("estimate") else " (our own estimate; CNN's was not reachable).") + " Red at 25 or below.")
     if sect_up is not None:
-        add("Sectors up", sect_up, f"{sect_up:.0f} of 11", sect_up <= 3)
+        add("Sectors up", sect_up, f"{sect_up:.0f} of 11", sect_up <= 3, "How many of the 11 sectors rose today. Red at 3 or fewer: a broad sell-off.")
     if heat:
-        add("S&P 500 stocks falling", heat["down"], f"{heat['down']:.0f}%", heat["down"] >= 70)
-        add("Down more than 2%", heat["down2"], f"{heat['down2n']} stocks", heat["down2"] >= 12)
-    ah = [r for r in (earn or []) if r.get("when") == "after hours" and r["move"] <= -4]
+        add("S&P 500 stocks falling", heat["down"], f"{heat['down']:.0f}%", heat["down"] >= 70, "Share of the 500 stocks below yesterday's close. Red at 70% or more.")
+        add("Down more than 2%", heat["down2"], f"{heat['down2n']} stocks", heat["down2"] >= 12, "Stocks that lost over 2% today. Red when it is 12% of the index or more.")
     if earn is not None:
-        add("Big names after hours", -len(ah), f"{len(ah)} down 4%+" if ah else "none", bool(ah))
+        ah = [r for r in earn if r.get("when") == "after hours" and r["move"] <= -4]
+        add("Big names after hours", -len(ah), f"{len(ah)} down 4%+" if ah else "none", bool(ah), "Large companies falling 4% or more after the close.")
     hits, total = sum(1 for s in signs if s["hit"]), len(signs)
     level = "high" if total and hits >= max(3, total * 0.4) else "elevated" if hits >= 2 else "low"
     return {"level": level, "hits": hits, "total": total, "signs": signs}
@@ -2250,8 +2257,8 @@ GEO_SITES = {
 }
 GEO_VIEW = {"ua": [49.0, 35.0, 5], "me": [24.0, 47.0, 4]}
 GEO_INCIDENT_Q = {
-    "ua": '(Ukraine OR Russia) (drone OR missile OR strike OR shelling OR refinery) sourcelang:eng',
-    "me": '(Iran OR Houthi OR Yemen OR Israel OR "Red Sea" OR Hormuz OR tanker OR refinery) (attack OR strike OR missile OR drone) sourcelang:eng',
+    "ua": ['(Ukraine OR Russia) (drone OR missile OR strike OR shelling OR refinery) sourcelang:eng', 'Ukraine drone attack', 'Ukraine'],
+    "me": ['(Iran OR Houthi OR Yemen OR Israel OR "Red Sea" OR Hormuz OR tanker OR refinery) (attack OR strike OR missile OR drone) sourcelang:eng', 'Houthi attack', 'Iran strike'],
 }
 _ATTACK_RX = re.compile(r"\b(?:drone|drones|strike[sd]?|struck|attack(?:s|ed)?|hit|hits|fire|blaze|explosion|explosions|missile|missiles|shell(?:ed|ing)|blast|bomb(?:ed|ing)?|halt(?:s|ed)?\s+(?:operations|output|production))\b", re.I)
 
@@ -2301,7 +2308,10 @@ def parse_frontline(raw):
 
 def parse_gdelt_points(raw, limit=250):
     """GDELT GEO 2.0 GeoJSON -> [{lat, lon, n, html}]"""
-    data = json.loads(raw)
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        raise ValueError("not JSON: " + raw[:90].replace("\n", " "))
     out = []
     for f in data.get("features", []):
         g, p = f.get("geometry") or {}, f.get("properties") or {}
@@ -2349,3 +2359,54 @@ def ship_summary(series, label):
     a7, a30 = sum(ships[-7:]) / 7, sum(ships[-37:-7]) / max(1, len(ships[-37:-7]))
     return {"name": label, "last": ships[-1], "day": series[-1][0], "a7": round(a7, 1), "a30": round(a30, 1), "chg": round((a7 / a30 - 1) * 100, 1) if a30 else None,
             "tankers7": round(sum(r[2] for r in series[-7:]) / 7, 1), "spark": ships[-60:]}
+
+
+# Incidents read from the app's own headlines: a place named together with an attack word
+GEO_PLACES = {
+    "ua": [("Kyiv", 50.45, 30.52, ["kyiv", "kiev"]), ("Kharkiv", 49.99, 36.23, ["kharkiv", "kharkov"]), ("Odesa", 46.48, 30.73, ["odesa", "odessa"]),
+           ("Dnipro", 48.46, 35.05, ["dnipro"]), ("Zaporizhzhia", 47.84, 35.14, ["zaporizhzhia", "zaporizhia", "zaporozhye"]), ("Kherson", 46.64, 32.62, ["kherson"]),
+           ("Mykolaiv", 46.97, 32.00, ["mykolaiv", "nikolaev"]), ("Sumy", 50.91, 34.80, ["sumy"]), ("Chernihiv", 51.50, 31.30, ["chernihiv"]), ("Lviv", 49.84, 24.03, ["lviv"]),
+           ("Poltava", 49.59, 34.55, ["poltava"]), ("Kramatorsk", 48.74, 37.58, ["kramatorsk"]), ("Sloviansk", 48.87, 37.62, ["sloviansk"]), ("Pokrovsk", 48.28, 37.18, ["pokrovsk"]),
+           ("Donetsk", 48.00, 37.80, ["donetsk"]), ("Luhansk", 48.57, 39.31, ["luhansk"]), ("Bakhmut", 48.60, 38.00, ["bakhmut"]), ("Kupiansk", 49.71, 37.62, ["kupiansk"]),
+           ("Kursk", 51.73, 36.19, ["kursk"]), ("Belgorod", 50.60, 36.60, ["belgorod"]), ("Bryansk", 53.25, 34.37, ["bryansk"]), ("Rostov", 47.23, 39.72, ["rostov"]),
+           ("Voronezh", 51.67, 39.20, ["voronezh"]), ("Moscow", 55.75, 37.62, ["moscow"]), ("St Petersburg", 59.93, 30.34, ["st petersburg", "st. petersburg", "saint petersburg"]),
+           ("Crimea / Sevastopol", 44.60, 33.50, ["crimea", "sevastopol"]), ("Mariupol", 47.10, 37.55, ["mariupol"]), ("Kryvyi Rih", 47.91, 33.39, ["kryvyi rih"]),
+           ("Vinnytsia", 49.23, 28.47, ["vinnytsia"]), ("Black Sea", 43.5, 34.0, ["black sea"]), ("Donbas", 48.3, 38.0, ["donbas", "donbass"])],
+    "me": [("Tehran", 35.69, 51.39, ["tehran"]), ("Isfahan", 32.65, 51.67, ["isfahan", "esfahan"]), ("Natanz", 33.72, 51.73, ["natanz"]), ("Tabriz", 38.08, 46.29, ["tabriz"]),
+           ("Gaza", 31.50, 34.47, ["gaza"]), ("Rafah", 31.30, 34.25, ["rafah"]), ("Tel Aviv", 32.08, 34.78, ["tel aviv"]), ("Jerusalem", 31.77, 35.21, ["jerusalem"]),
+           ("Beirut", 33.89, 35.50, ["beirut"]), ("Southern Lebanon", 33.30, 35.40, ["south lebanon", "southern lebanon", "hezbollah"]), ("Damascus", 33.50, 36.30, ["damascus"]),
+           ("Aleppo", 36.20, 37.16, ["aleppo"]), ("Baghdad", 33.30, 44.40, ["baghdad"]), ("Erbil", 36.19, 44.01, ["erbil"]), ("Sanaa", 15.37, 44.19, ["sanaa", "sana'a"]),
+           ("Hodeidah", 14.80, 42.95, ["hodeidah", "hudaydah"]), ("Aden", 12.80, 45.00, ["aden"]), ("Marib", 15.46, 45.33, ["marib"]), ("Riyadh", 24.70, 46.70, ["riyadh"]),
+           ("Jeddah", 21.50, 39.20, ["jeddah"]), ("Doha", 25.29, 51.53, ["doha"]), ("Dubai", 25.20, 55.27, ["dubai"]), ("Abu Dhabi", 24.45, 54.38, ["abu dhabi"]),
+           ("Red Sea", 20.00, 38.50, ["red sea"]), ("Gulf of Aden", 12.00, 47.00, ["gulf of aden"]), ("Persian Gulf", 27.00, 51.00, ["persian gulf", "arabian gulf"]),
+           ("Strait of Hormuz", 26.57, 56.25, ["hormuz"]), ("Bab-el-Mandeb", 12.60, 43.30, ["mandeb", "mandab"]), ("Houthi territory", 15.5, 44.0, ["houthi"])],
+}
+
+
+def news_incidents(cid, rows, now=None):
+    """[{lat, lon, n, count, items: [{t, l, s, ts}]}]: headlines of the last 7 days that name a place together with an attack word."""
+    now = now or time.time()
+    places = GEO_PLACES[cid] + [(n, la, lo, w) for n, la, lo, k, w in GEO_SITES[cid]]
+    seen, out = set(), {}
+    for h in rows:
+        if now - h["ts"] > 7 * 86400 or h["title"] in seen:
+            continue
+        t = (h["title"] + " " + (h.get("summary") or "")).lower()
+        if not _ATTACK_RX.search(t):
+            continue
+        seen.add(h["title"])
+        title_l = h["title"].lower()
+        for name, la, lo, words in places:
+            if any(w in title_l for w in words):
+                e = out.setdefault(name, {"lat": la, "lon": lo, "n": name, "count": 0, "items": []})
+                e["count"] += 1
+                e["items"].append({"t": h["title"], "l": h["link"], "s": h["source"], "ts": h["ts"]})
+    for e in out.values():
+        e["items"] = sorted(e["items"], key=lambda x: -x["ts"])[:4]
+    return sorted(out.values(), key=lambda e: -e["count"])
+
+
+PORTWATCH_TRIES = [
+    ("by name", "?f=json&outFields=*&orderByFields=date+DESC&resultRecordCount={n}&where={where}"),
+    ("latest days, all straits", "?f=json&outFields=*&orderByFields=date+DESC&resultRecordCount=3000&where=1%3D1"),
+]

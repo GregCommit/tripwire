@@ -36,7 +36,7 @@ h2+.muted{margin-bottom:10px}
 .rng{position:relative;height:4px;background:var(--line2);border-radius:1px;margin:12px 0 3px}
 .rng i{position:absolute;top:-4px;width:3px;height:12px;border-radius:1px;background:var(--txt)}
 .rngl{display:flex;justify-content:space-between;font-size:11px;color:var(--dim);font-variant-numeric:tabular-nums}
-.spark{display:block;width:100%;height:36px;margin-top:8px}
+.sparkw{position:relative;margin-top:8px}.spark{display:block;width:100%;height:52px}.sl{position:absolute;font-size:10px;color:var(--dim);background:rgba(8,8,10,.75);padding:0 3px;font-variant-numeric:tabular-nums}.sl.h{right:0;top:0}.sl.l{right:0;bottom:3px}.sl.r{left:4px;bottom:3px}
 .detail{margin-top:14px;border-top:1px solid var(--line);padding-top:14px;cursor:auto}
 .ranges{display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap}
 .ranges button,.btn{background:var(--card2);border:1px solid var(--line2);border-radius:4px;padding:5px 10px;font-size:13px;cursor:pointer;color:var(--mute)}
@@ -87,10 +87,12 @@ h2.sub{font-size:14px;color:var(--mute);font-weight:500;margin:18px 0 6px}
 .gchip{display:inline-block;font-size:11px;border:1px solid var(--line2);border-radius:2px;padding:0 6px;margin-left:6px;color:var(--mute)}.gchip.hot{border-color:var(--watch);color:var(--watch)}
 .ships{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px}.ship{border:1px solid var(--line);border-radius:4px;background:var(--card);padding:8px 12px;min-width:210px;flex:1}.ship .n{font-size:12px;color:var(--mute)}.ship .v{font-size:20px;font-weight:600;font-variant-numeric:tabular-nums}.ship .small.down{color:var(--alert)}.ship .small.up{color:var(--up)}
 .wm-bar{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:13px;color:var(--mute);margin:2px 0 8px}.wm-bar input{accent-color:var(--accent)}
-.wmap{height:540px;border:1px solid var(--line);border-radius:6px;background:#0b0b0e}.wmap:not(.nofilter) .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(.8) contrast(.9) saturate(.4)}.wmap .leaflet-popup-content-wrapper{background:#111114;color:#fff;border:1px solid var(--line2)}.wmap .leaflet-popup-tip{background:#111114}.wmap a{color:var(--accent)}
+.wmap{position:relative;z-index:0;isolation:isolate;height:540px;border:1px solid var(--line);border-radius:6px;background:#0b0b0e}.wmap:not(.nofilter) .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(.8) contrast(.9) saturate(.4)}.wmap .leaflet-popup-content-wrapper{background:#111114;color:#fff;border:1px solid var(--line2)}.wmap .leaflet-popup-tip{background:#111114}.wmap a{color:var(--accent)}
 .wm-leg{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:12px;color:var(--mute);margin-top:8px}.wm-leg i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px}
+.small.warn{color:var(--watch)}.wm-links a{color:var(--accent)}
 .wm-hits{margin-top:10px;font-size:13.5px;line-height:1.5}.wm-hits div{padding:4px 0;border-top:1px solid var(--line)}.wm-hits .hn{color:var(--alert);font-weight:600}.wm-hits a{color:var(--txt)}
 @media (max-width:700px){.wmap{height:400px}}
+.parts2{margin-top:12px}.pchips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}.pc{font-size:12.5px;border:1px solid var(--line2);border-radius:3px;padding:2px 8px;font-variant-numeric:tabular-nums}.pc i{font-style:normal;color:var(--mute);margin-right:4px}.pc.up{color:var(--up)}.pc.down{color:var(--down)}
 .movers{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;margin:14px 2px 6px;font-size:13.5px}.mv{font-variant-numeric:tabular-nums}
 @media (max-width:700px){.gh{grid-template-columns:1fr;gap:6px}.ghl{flex-direction:row;align-items:center}}
 .geohead{margin-top:12px}.geoblurb{font-size:15px;line-height:1.6}
@@ -127,8 +129,8 @@ h2.sub{font-size:14px;color:var(--mute);font-weight:500;margin:18px 0 6px}
 .tmr-l{font-size:20px;font-weight:700}.tmr-l.high{color:var(--alert)}.tmr-l.elevated{color:var(--watch)}.tmr-l.low{color:var(--up)}
 .tmr-s{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-top:12px}
 .sg{border:1px solid var(--line2);border-radius:4px;padding:7px 10px}.sg.hit{border-color:var(--alert);background:rgba(255,59,59,.07)}
-.sg .n{font-size:11.5px;color:var(--mute)}.sg .v{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:2px}.sg.hit .v{color:var(--alert)}
-.tmr-w{margin-top:12px;font-size:13px;color:var(--mute);display:flex;flex-wrap:wrap;gap:4px 16px}.tmr-w b{color:var(--txt);font-weight:600}
+.sg .r{font-size:11px;line-height:1.35;color:var(--dim);margin-top:3px}.sg .n{font-size:11.5px;color:var(--mute)}.sg .v{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:2px}.sg.hit .v{color:var(--alert)}
+.tmr-w{margin-top:12px;font-size:13px;color:var(--mute);display:flex;flex-wrap:wrap;gap:4px 16px}.tmr-w b{color:var(--txt);font-weight:600}.tmr-w .up,.tmr-w b.up{color:var(--up)}.tmr-w .down,.tmr-w b.down{color:var(--down)}
 .tiles-head{margin:2px 0 10px}.tlabel{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
 .tflag{font-size:12px;font-weight:500;color:var(--alert);margin-top:8px;letter-spacing:.02em}
 .relmissing .ind.mini{opacity:.7}
@@ -260,7 +262,7 @@ details.quiet{margin-top:18px}details.quiet>summary{cursor:pointer;color:var(--m
 <h3>Motion</h3>
 <p>The button <b>Motion</b> in the top bar sets the speed of the animations: calm (default), slower, quick or off. The choice is remembered in this browser.</p>
 <h3>The ? on every card</h3>
-<p>Tap the small <b>?</b> on a card to see how it is connected. The page switches to just that card, the indicators that <b>explain</b> it and the ones it <b>moves</b>, each with one sentence on how they usually behave and a tag that says whether they are behaving that way right now (<b>as usual</b>, or <b>against the usual link</b>, which means something else is driving it). Below that are the <b>news headlines</b> that fit. Tap a ? on any related card to follow the chain; ← Back or Esc returns.</p>
+<p>Tap a card, a tile at the top or its small <b>?</b> to see how it is connected. The page switches to just that card, the indicators that <b>explain</b> it and the ones it <b>moves</b>, each with one sentence on how they usually behave and a tag that says whether they are behaving that way right now (<b>as usual</b>, or <b>against the usual link</b>, which means something else is driving it). Below that are the <b>news headlines</b> that fit. Tap a ? on any related card to follow the chain; ← Back or Esc returns.</p>
 <p>News comes from free RSS feeds (CNBC, MarketWatch, Yahoo Finance, the Federal Reserve and Google News searches). Each headline is matched to indicators by keywords, so now and then a headline fits loosely. The app shows headlines and does not write its own explanation of them.</p>
 <h3>What the colours mean</h3>
 <ul><li><b style="color:var(--alert)">Red</b>: danger or a negative move — an extreme, credit stress, falling stocks, a rising fear gauge.</li>
@@ -318,11 +320,18 @@ function ago(ts){ const m = Math.round((Date.now()/1000 - ts)/60); return m < 1 
 const toneWord = {calm:'t-calm', watch:'t-watch', alert:'t-alert'};
 
 // ── charts ────────────────────────────────────────────────────────────────
-function sparkSVG(vals, color){
+function sparkSVG(vals, color, meta){
   if (!vals || vals.length < 2) return '';
   const lo = Math.min(...vals), hi = Math.max(...vals), span = hi - lo || 1;
   const pts = vals.map((v, i) => (i / (vals.length - 1) * 100).toFixed(2) + ',' + (34 - (v - lo) / span * 32).toFixed(2)).join(' ');
-  return `<svg class="spark" viewBox="0 0 100 36" preserveAspectRatio="none"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.6" vector-effect="non-scaling-stroke" stroke-linejoin="round"/></svg>`;
+  const n = vals.length, mx = (n - 1) * (n - 2) / 2 || 1; let sx = 0, sy = 0, sxy = 0, sxx = 0;
+  vals.forEach((v, i) => { sx += i; sy += v; sxy += i * v; sxx += i * i; });
+  const b = (n * sxy - sx * sy) / ((n * sxx - sx * sx) || 1), a = (sy - b * sx) / n, ty = k => (34 - ((a + b * k) - lo) / span * 32).toFixed(2);
+  const grid = [2, 18, 34].map(y => `<line x1="0" x2="100" y1="${y}" y2="${y}" stroke="#26262c" stroke-width="1" vector-effect="non-scaling-stroke"/>`).join('');
+  const lab = meta ? `<span class="sl h">${esc(meta.fmt(hi))}</span><span class="sl l">${esc(meta.fmt(lo))}</span><span class="sl r">${esc(meta.rng)}</span>` : '';
+  return `<div class="sparkw"><svg class="spark" viewBox="0 0 100 36" preserveAspectRatio="none">${grid}<line x1="0" x2="0" y1="0" y2="36" stroke="#52525b" stroke-width="1" vector-effect="non-scaling-stroke"/><line x1="0" x2="100" y1="35" y2="35" stroke="#52525b" stroke-width="1" vector-effect="non-scaling-stroke"/>
+    <line x1="0" y1="${ty(0)}" x2="100" y2="${ty(n - 1)}" stroke="#4673FF" stroke-width="1" stroke-dasharray="3 3" vector-effect="non-scaling-stroke" opacity=".7"/>
+    <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.6" vector-effect="non-scaling-stroke" stroke-linejoin="round"/></svg>${lab}</div>`;
 }
 // opt: {h, from, to, series:[{pts,color,label,fmt,width}], refs:[{y,label,color}], bands:[{x0,x1,y0,y1,color,y,label}],
 //       zones:[{y0,y1,color,label}] (horizontal bands, e.g. the extreme zones), area, draw, dot, extra(v), yfmt, monthly}
@@ -348,14 +357,16 @@ function lineChart(el, opt){
   const step = niceStep((hi - lo) / 4);
   for (let v0 = Math.ceil(lo / step) * step; v0 <= hi; v0 += step){
     const v = Math.abs(v0) < step / 1e6 ? 0 : v0;
-    g += `<line x1="${padL}" x2="${W - padR}" y1="${Y(v)}" y2="${Y(v)}" stroke="#1b1b1f"/><text x="${W - padR + 6}" y="${Y(v) + 4}" fill="#71717a" font-size="11">${esc(opt.yfmt ? opt.yfmt(v) : num(v, step < 1 ? (step < 0.1 ? 2 : 1) : 0))}</text>`;
+    g += `<line x1="${padL}" x2="${W - padR}" y1="${Y(v)}" y2="${Y(v)}" stroke="#2c2c33"/><text x="${W - padR + 6}" y="${Y(v) + 4}" fill="#71717a" font-size="11">${esc(opt.yfmt ? opt.yfmt(v) : num(v, step < 1 ? (step < 0.1 ? 2 : 1) : 0))}</text>`;
   }
   const spanDays = (x1 - x0) / 864e5, ticks = 5;
   for (let i = 0; i <= ticks; i++){
     const t = x0 + (x1 - x0) * i / ticks, d = new Date(t);
     const lab = spanDays > 1400 ? String(d.getFullYear()) : MONTHS[d.getMonth()] + (spanDays > 200 ? " '" + String(d.getFullYear()).slice(2) : ' ' + d.getDate());
+    g += `<line x1="${X(t)}" x2="${X(t)}" y1="${padT}" y2="${H - padB}" stroke="#202026"/>`;
     g += `<text x="${X(t)}" y="${H - 6}" fill="#71717a" font-size="11" text-anchor="${i === 0 ? 'start' : i === ticks ? 'end' : 'middle'}">${lab}</text>`;
   }
+  g += `<line x1="${padL}" x2="${padL}" y1="${padT}" y2="${H - padB}" stroke="#52525b"/><line x1="${padL}" x2="${W - padR}" y1="${H - padB}" y2="${H - padB}" stroke="#52525b"/>`;
   for (const b of opt.bands || []){
     g += `<rect x="${X(b.x0)}" y="${Y(b.y1)}" width="${Math.max(1, X(b.x1) - X(b.x0))}" height="${Math.max(2, Y(b.y0) - Y(b.y1))}" fill="${b.color}" opacity=".22" rx="1"/>`;
     if (b.y !== undefined) g += `<line x1="${X(b.x0)}" x2="${X(b.x1)}" y1="${Y(b.y)}" y2="${Y(b.y)}" stroke="${b.color}" stroke-width="2.5"/>`;
@@ -365,6 +376,11 @@ function lineChart(el, opt){
     g += `<line x1="${padL}" x2="${W - padR}" y1="${Y(r.y)}" y2="${Y(r.y)}" stroke="${r.color || '#9CA3AF'}" stroke-dasharray="4 4" opacity=".8"/>`;
     if (r.label) g += `<text x="${padL + 4}" y="${Y(r.y) - 5}" fill="${r.color || '#9CA3AF'}" font-size="11">${esc(r.label)}</text>`;
   }
+  { const tp = opt.series[0].pts.filter(q => { const t = pdate(q[0]).getTime(); return t >= x0 && t <= x1; });
+    if (tp.length > 8){ const xs = tp.map(q => pdate(q[0]).getTime()), m = xs.length, ax = xs.reduce((a, b) => a + b, 0) / m, ay = tp.reduce((a, q) => a + q[1], 0) / m;
+      let nu = 0, de = 0; tp.forEach((q, k) => { nu += (xs[k] - ax) * (q[1] - ay); de += (xs[k] - ax) ** 2; });
+      const sl = de ? nu / de : 0, ya = ay + sl * (xs[0] - ax), yb = ay + sl * (xs[m - 1] - ax);
+      g += `<line x1="${X(xs[0])}" y1="${Y(ya)}" x2="${X(xs[m - 1])}" y2="${Y(yb)}" stroke="#4673FF" stroke-width="1.4" stroke-dasharray="6 5" opacity=".85"/><text x="${W - padR - 4}" y="${padT + 2}" fill="#4673FF" font-size="11" text-anchor="end">trend ${sl > 0 ? '↗' : sl < 0 ? '↘' : '→'}</text>`; } }
   let lastX = null, lastY = null, lastC = '#fff';
   opt.series.forEach((s, si) => {
     const p = s.pts.filter(q => { const t = pdate(q[0]).getTime(); return t >= x0 && t <= x1; });
@@ -438,7 +454,7 @@ function cardHTML(s, cid){
     <div class="chg">${chgRow(s)}</div>
     <div class="rng"><i style="left:${(s.pos * 100).toFixed(1)}%;transform:translateX(-${(s.pos * 100).toFixed(1)}%)"></i></div>
     <div class="rngl"><span>1-yr low ${esc(fmtVal(s, s.lo))}</span><span>high ${esc(fmtVal(s, s.hi))}</span></div>
-    ${sparkSVG(s.spark, color)}
+    ${sparkSVG(s.spark, color, {fmt: v => fmtVal(s, v), rng: '1 yr'})}
     ${open ? detailHTML(s, cid) : ''}
   </div>`;
 }
@@ -455,6 +471,8 @@ function detailHTML(s, cid){
       return `<div class="part sect"><span>${esc(x.name)}${x.ai ? ' <i class="aitag">AI</i>' : ''}</span><div class="bar2"><div class="hf l">${x.pct < 0 ? `<i style="width:${w}%"></i>` : ''}</div><div class="hf r">${x.pct >= 0 ? `<i style="width:${w}%"></i>` : ''}</div></div><b class="${x.pct >= 0 ? 'up' : 'down'}">${x.pct > 0 ? '+' : ''}${x.pct.toFixed(1)}%</b></div>`; }).join('')}</div>
       <p class="muted">The AI tag marks the sectors that hold the AI builders (technology, communication services, consumer discretionary).</p>`;
   }
+  const PT = OV.parts && OV.parts[s.key];
+  if (PT) extra += `<div class="parts2"><div class="small">${esc(PT.note)}</div><div class="pchips">${PT.members.map(x => `<span class="pc ${x.pct >= 0 ? 'up' : 'down'}"><i>${esc(x.name)}</i> ${x.pct > 0 ? '+' : ''}${x.pct.toFixed(1)}%</span>`).join('')}</div>${PT.up !== undefined ? `<div class="small"><b>${PT.up} of ${PT.members.length}</b> up today</div>` : ''}</div>`;
   return `<div class="detail" onclick="event.stopPropagation()">
     <div class="ranges">${RANGES.map(([k]) => `<button class="${k === r ? 'on' : ''}" onclick="setRange('${cid}','${s.key}','${k}')">${k}</button>`).join('')}</div>
     <div class="chart" id="chart-${uid(cid, s.key)}"><div class="muted">Loading chart…</div></div>
@@ -531,7 +549,7 @@ function driversHTML(c){
 function moverTile(m){
   const arrow = m.chg > 0 ? '▲' : m.chg < 0 ? '▼' : '', cls = m.extreme ? 'down' : chgClass({good: m.good}, m.chg);
   const big = `${arrow} ${fmtChg({chgKind: m.chgKind, unit: m.unit, dec: m.dec}, m.chg)}`;
-  return `<div class="tile" onclick="goCluster('${m.cluster}')"><div class="tl">${esc(m.clusterTitle)}</div><div class="tn">${esc(m.name)}</div>
+  return `<div class="tile" onclick="explain('${m.key}', this)"><div class="tl">${esc(m.clusterTitle)}</div><div class="tn">${esc(m.name)}</div>
     ${m.extreme ? '<div class="tflag">At an extreme</div>' : `<div class="tv ${cls}">${big}<span class="tw">${esc(m.horizon)}</span></div>`}
     <div class="tnow">Now ${esc(fmtVal({unit: m.unit, dec: m.dec, signed: m.signed}, m.value))}</div>
     ${m.news ? `<a class="tnews" href="${esc(m.news.link)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">${esc(m.news.title)}<span>${esc(m.news.source)} · ${esc(ago(m.news.ts))}</span></a>` : ''}</div>`;
@@ -544,10 +562,10 @@ function earnHTML(E){
 }
 function tomorrowHTML(t){
   if (!t || !t.signs.length) return '';
-  const w = t.heat && t.heat.worst && t.heat.worst.length ? `<div class="tmr-w"><span>Weakest parts of the S&amp;P 500 today</span>${t.heat.worst.slice(0, 4).map(x => `<span><b>${esc(x.name)}</b> ${x.pct > 0 ? '+' : ''}${x.pct.toFixed(1)}%</span>`).join('')}</div>`
-    + `<div class="tmr-w"><span>Giants vs the average stock</span><span><b>${t.heat.cap > 0 ? '+' : ''}${t.heat.cap.toFixed(1)}%</b> by size</span><span><b>${t.heat.eq > 0 ? '+' : ''}${t.heat.eq.toFixed(1)}%</b> equal weight</span></div>` : '';
+  const w = t.heat && t.heat.worst && t.heat.worst.length ? `<div class="tmr-w"><span>Weakest parts of the S&amp;P 500 today</span>${t.heat.worst.slice(0, 4).map(x => `<span><b>${esc(x.name)}</b> <span class="${x.pct >= 0 ? 'up' : 'down'}">${x.pct > 0 ? '+' : ''}${x.pct.toFixed(1)}%</span></span>`).join('')}</div>`
+    + `<div class="tmr-w"><span>Giants vs the average stock</span><span><b class="${t.heat.cap >= 0 ? 'up' : 'down'}">${t.heat.cap > 0 ? '+' : ''}${t.heat.cap.toFixed(1)}%</b> by size</span><span><b class="${t.heat.eq >= 0 ? 'up' : 'down'}">${t.heat.eq > 0 ? '+' : ''}${t.heat.eq.toFixed(1)}%</b> equal weight</span></div>` : '';
   return `<div class="tmr"><div class="tmr-h"><span class="tmr-t">Pressure into tomorrow</span><span class="tmr-l ${t.level}">${t.level}</span><span class="small">${t.hits} of ${t.total} warning signs</span></div>
-    <div class="tmr-s">${t.signs.map(s => `<div class="sg ${s.hit ? 'hit' : ''}"><div class="n">${esc(s.name)}</div><div class="v">${esc(s.value)}</div></div>`).join('')}</div>${w}</div>`;
+    <div class="tmr-s">${t.signs.map(s => `<div class="sg ${s.hit ? 'hit' : ''}"><div class="n">${esc(s.name)}</div><div class="v">${esc(s.value)}</div><div class="r">${esc(s.rule || '')}</div></div>`).join('')}</div>${w}</div>`;
 }
 function renderToday(){
   if (!OV) return;
@@ -562,7 +580,7 @@ function renderToday(){
       <div class="grid">${c.main.map(s => cardHTML(s, c.id)).join('')}</div>${c.id === 'internals' ? earnHTML(OV.earnings) : ''}`;
   }
   $('today').innerHTML = h;
-  document.querySelectorAll('#today .ind[data-cid]').forEach(c => c.onclick = () => { if (OPEN !== c.dataset.cid) openCard(c.dataset.cid); });
+  document.querySelectorAll('#today .ind[data-cid]').forEach(c => c.onclick = () => explain(c.dataset.cid.split('|')[1], c));
   drawOpen();
 }
 function japanCards(){ const o = OPEN; OPEN = null; const h = (OV.groups.find(g => g.id === 'japan')?.items || []).map(s => cardHTML(s, 'jp')).join(''); OPEN = o; return h; }
@@ -641,7 +659,7 @@ function miniHTML(s){
   const mo = s.freq === 'monthly' || s.freq === 'quarterly';
   return `<div class="ind mini"><div class="nm"><span>${esc(s.name)}</span><span class="nmr"><span class="small">${esc(fdate(s.date, mo))}</span>${qBtn(s)}</span></div>
     <div class="val">${esc(fmtVal(s, s.value))}</div>${chipOf(s)}${badge(s)}
-    <div class="chg">${chgRow(s)}</div>${sparkSVG(s.spark, sparkColor(s))}</div>`;
+    <div class="chg">${chgRow(s)}</div>${sparkSVG(s.spark, sparkColor(s), {fmt: v => fmtVal(s, v), rng: 'all history'})}</div>`;
 }
 const REL_LABEL = {asusual: ['AS USUAL', ''], against: ['AGAINST THE USUAL LINK', 'warn'], other: ['OTHER CAUSE', 'warn'], noreact: ['NOT FOLLOWING', 'warn'], quiet: ['QUIET', '']};
 function relNode(l, other, side, i){
@@ -742,7 +760,7 @@ function enterScene(from){
     drawOpen(); }).catch(() => {});
 }
 async function explain(key, el){
-  const src = el ? (el.closest('.ind') || el.closest('.gnode')) : null, from = src ? src.getBoundingClientRect() : null;
+  const src = el ? (el.closest('.ind') || el.closest('.gnode') || el.closest('.tile')) : null, from = src ? src.getBoundingClientRect() : null;
   const animate = !!(src && !REDUCED);
   try {
     const [E] = await Promise.all([api('/api/explain/' + key), animate ? slideOut(src) : Promise.resolve()]);
@@ -941,13 +959,16 @@ function shipHTML(s){
 }
 function drawWarMap(box, m, cid){
   const hits = m.sites.filter(s => s.hit).sort((a, b) => b.hit.ts - a.hit.ts), errs = Object.entries(m.errors || {});
-  box.innerHTML = `<div class="wm-bar"><label><input type="checkbox" data-l="front" checked> Front line</label><label><input type="checkbox" data-l="points" checked> Reported incidents, 7 days</label>
+  box.innerHTML = `<div class="wm-bar"><label><input type="checkbox" data-l="front" checked> Front line</label><label><input type="checkbox" data-l="points" checked> Reported incidents, 7 days (${(m.incidents || []).length} places from headlines, ${(m.points || []).length} from GDELT)</label>
     <label><input type="checkbox" data-l="sites" checked> Refineries &amp; terminals</label><label><input type="checkbox" data-l="choke" checked> Straits &amp; bridges</label></div>
     <div id="wmap" class="wmap"></div>
     ${m.ships && m.ships.length ? `<div class="ships">${m.ships.map(shipHTML).join('')}</div>` : ''}
-    <div class="wm-leg"><span><i style="background:#FF4D4F"></i>${cid === 'ua' ? 'Russian-held area / ' : ''}reported hit, last 7 days</span><span><i style="background:#fff"></i>oil site, no report</span><span><i style="background:#F5C518"></i>incident (bigger = more reports)</span><span><i style="background:#4673FF"></i>strait / bridge</span></div>
+    <div class="wm-leg"><span><i style="background:#FF4D4F"></i>${cid === 'ua' ? 'Russian-held area / ' : ''}reported hit, last 7 days</span><span><i style="background:#fff"></i>oil site, no report</span><span><i style="background:#F5C518"></i>incident reported (bigger = more reports)</span><span><i style="background:#4673FF"></i>strait / bridge</span></div>
     ${hits.length ? `<div class="wm-hits"><b>Oil sites named in an attack report this week</b>${hits.map(s => `<div><span class="hn">${esc(s.name)}</span> <a href="${esc(s.hit.link)}" target="_blank" rel="noopener noreferrer">${esc(s.hit.title)}</a> <span class="small">${esc(s.hit.source)} · ${esc(ago(s.hit.ts))}</span></div>`).join('')}</div>` : `<div class="small" style="margin-top:8px">No refinery or terminal is named in an attack headline this week.</div>`}
-    <div class="small" style="margin-top:8px">Sources: ${cid === 'ua' ? 'DeepStateMap (front line), ' : ''}GDELT (geolocated news reports), OpenStreetMap (base map), site names matched against the headlines this app collects. ${m.ts ? 'Updated ' + esc(ago(m.ts)) + '.' : 'The first update comes a minute after the app starts.'}${errs.length ? ' Not reached: ' + errs.map(([k, v]) => esc(k) + ' (' + esc(v) + ')').join('; ') : ''}</div>`;
+    ${errs.length ? `<div class="small warn" style="margin-top:8px">Not reached right now: ${errs.map(([k, v]) => '<b>' + esc(k) + '</b> — ' + esc(v)).join('<br>')}</div>` : ''}
+    <div class="small wm-links">Open the live maps: ${(cid === 'ua' ? [['DeepStateMap', 'https://deepstatemap.live/en/'], ['Liveuamap Ukraine', 'https://liveuamap.com/'], ['ISW map', 'https://understandingwar.org/map/'], ['Black Sea ships', 'https://www.marinetraffic.com/en/ais/home/centerx:33/centery:44/zoom:6']]
+      : [['Liveuamap Middle East', 'https://middleeast.liveuamap.com/'], ['Hormuz ships', 'https://www.marinetraffic.com/en/ais/home/centerx:56.3/centery:26.5/zoom:8'], ['Red Sea / Bab-el-Mandeb ships', 'https://www.marinetraffic.com/en/ais/home/centerx:43.3/centery:13/zoom:7'], ['Oil &amp; gas infrastructure', 'https://www.globalenergymonitor.org/']]).map(([n, u]) => `<a href="${u}" target="_blank" rel="noopener noreferrer">${n}</a>`).join(' · ')}</div>
+    <div class="small" style="margin-top:8px">Sources: ${cid === 'ua' ? 'DeepStateMap (front line), ' : ''}GDELT (geolocated news reports), this app's own headlines (a place named together with an attack word), IMF PortWatch (ship counts), OpenStreetMap (base map). ${m.ts ? 'Updated ' + esc(ago(m.ts)) + '.' : 'The first update comes a minute after the app starts.'}</div>`;
   if (LMAP){ LMAP.remove(); LMAP = null; }
   const map = LMAP = L.map('wmap', {zoomControl: true, attributionControl: true, scrollWheelZoom: false}).setView([m.view[0], m.view[1]], m.view[2]);
   // plain OpenStreetMap tiles (no key), darkened with a CSS filter; if they fail, a second free provider takes over
@@ -959,6 +980,8 @@ function drawWarMap(box, m, cid){
     if (f.t === 'poly') L.polygon(f.c, {color: '#FF4D4F', weight: 1, fillColor: '#FF4D4F', fillOpacity: 0.22, interactive: false}).addTo(layers.front);
     else L.polyline(f.c, {color: '#FF4D4F', weight: 2, interactive: false}).addTo(layers.front);
   }
+  for (const p of m.incidents || []) L.circleMarker([p.lat, p.lon], {radius: Math.min(16, 6 + 2.5 * p.count), color: '#F5C518', weight: 2, fillColor: '#F5C518', fillOpacity: 0.55})
+    .bindPopup(`<b>${esc(p.n)}</b> · ${p.count} headline${p.count > 1 ? 's' : ''}<br>${p.items.map(x => `<a href="${esc(x.l)}" target="_blank" rel="noopener noreferrer">${esc(x.t)}</a> <span style="color:#a1a1aa">${esc(x.s)} · ${esc(ago(x.ts))}</span>`).join('<br>')}`).bindTooltip(`${p.n}: ${p.count}`, {direction: 'top'}).addTo(layers.points);
   for (const p of m.points || []) L.circleMarker([p.lat, p.lon], {radius: Math.min(11, 3 + Math.sqrt(p.count || 1)), color: '#F5C518', weight: 1, fillColor: '#F5C518', fillOpacity: 0.35})
     .bindPopup(`<b>${esc(p.n)}</b><br>${esc(p.html)}`).addTo(layers.points);
   for (const s of m.sites){
@@ -1118,7 +1141,7 @@ function exCardHTML(h, cid){
     ${h.side ? `<div class="mean"><b>${esc(sinceText(h))}.</b></div>` : ''}
     ${saysHTML(h, cid === 'ex')}
     <div class="chg">${chgRow(h)}</div>
-    ${sparkSVG(h.spark, color)}
+    ${sparkSVG(h.spark, color, {fmt: v => fmtVal(h, v), rng: 'all history'})}
     ${open ? exDetailHTML(h, cid) : ''}</div>`;
 }
 function exRowHTML(h){

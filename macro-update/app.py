@@ -468,6 +468,7 @@ FRONT_URLS = ["https://deepstatemap.live/api/history/last"]
 def refresh_geo_map():
     """Open map data: the Ukraine front line (DeepStateMap) and a week of geolocated incidents from GDELT, for both conflicts."""
     for cid in S.GEO:
+        from urllib.parse import quote
         st = {"ts": int(time.time()), "front": None, "points": [], "errors": {}}
         prev = json.loads(get_setting("geomap_" + cid, "null") or "null")
         if prev:
@@ -480,40 +481,64 @@ def refresh_geo_map():
                     break
                 except Exception as e:
                     st["errors"]["front"] = f"{type(e).__name__}: {e}"[:140]
-        try:
-            from urllib.parse import quote
-            url = "https://api.gdeltproject.org/api/v2/geo/geo?query=" + quote(S.GEO_INCIDENT_Q[cid]) + "&format=GeoJSON&timespan=7d&maxpoints=1000"
-            st["points"] = S.parse_gdelt_points(S.http_get(url, timeout=40, ua=BROWSER_UA).decode("utf-8", "replace"))
-            st["pointsTs"] = int(time.time())
-        except Exception as e:
-            st["errors"]["points"] = f"{type(e).__name__}: {e}"[:140]
-        try:
-            from urllib.parse import quote
-            words = [w for _, w in S.PORTWATCH_STRAITS[cid]]
-            where = " OR ".join(f"UPPER(portname) LIKE '%{w[:6].upper()}%'" for w in words)
-            url = S.PORTWATCH_URL + "?f=json&outFields=*&orderByFields=date+DESC&resultRecordCount=%d&where=%s" % (80 * len(words), quote(where))
-            got = S.parse_portwatch(S.http_get(url, timeout=40, ua=BROWSER_UA).decode("utf-8", "replace"))
-            ships = []
-            for label, w in S.PORTWATCH_STRAITS[cid]:
-                ser = next((v for k, v in got.items() if w in k.lower()), None)
-                sm = ser and S.ship_summary(ser, label)
-                if sm:
-                    ships.append(sm)
-            if ships:
-                st["ships"] = ships
-                st["errors"].pop("ships", None)
-            else:
-                st["errors"]["ships"] = "no ship counts in the answer"
-        except Exception as e:
-            st["errors"]["ships"] = f"{type(e).__name__}: {e}"[:140]
+        from urllib.parse import quote
+        tried = []
+        for q in S.GEO_INCIDENT_Q[cid]:
+            try:
+                url = "https://api.gdeltproject.org/api/v2/geo/geo?query=" + quote(q) + "&format=GeoJSON&timespan=7d&maxpoints=1000"
+                pts = S.parse_gdelt_points(S.http_get(url, timeout=40, ua=BROWSER_UA).decode("utf-8", "replace"))
+                tried.append(f"{len(pts)} points")
+                if pts:
+                    st["points"], st["pointsTs"] = pts, int(time.time())
+                    st["errors"].pop("points", None)
+                    break
+            except Exception as e:
+                tried.append(f"{type(e).__name__}: {e}"[:110])
+            time.sleep(6)       # GDELT asks for one request every few seconds
+        else:
+            st["errors"]["points"] = "GDELT: " + " | ".join(tried)
+        ships, why = [], []
+        words = [w for _, w in S.PORTWATCH_STRAITS[cid]]
+        where = " OR ".join(f"UPPER(portname) LIKE '%{w[:6].upper()}%'" for w in words)
+        for label_try, tpl in S.PORTWATCH_TRIES:
+            try:
+                url = S.PORTWATCH_URL + tpl.format(n=80 * len(words), where=quote(where))
+                got = S.parse_portwatch(S.http_get(url, timeout=40, ua=BROWSER_UA).decode("utf-8", "replace"))
+                for label, w in S.PORTWATCH_STRAITS[cid]:
+                    ser = next((v for k, v in got.items() if w in k.lower()), None)
+                    sm = ser and S.ship_summary(ser, label)
+                    if sm:
+                        ships.append(sm)
+                if ships:
+                    break
+                why.append(f"{label_try}: answer had {sum(len(v) for v in got.values())} rows, none usable")
+            except Exception as e:
+                why.append(f"{label_try}: {type(e).__name__}: {e}"[:130])
+        if ships:
+            st["ships"] = ships
+            st["errors"].pop("ships", None)
+        else:
+            st["errors"]["ships"] = "IMF PortWatch: " + " | ".join(why)
             st["ships"] = (prev or {}).get("ships", [])
         set_setting("geomap_" + cid, json.dumps(st))
         log.info("War map %s: front %s, %d incident points, errors %s", cid, len(st["front"] or []), len(st["points"]), st["errors"])
 
 
+def refresh_cnn_fng():
+    """CNN's own Fear & Greed Index (the number everyone quotes)."""
+    raw = S.http_get("https://production.dataviz.cnn.io/index/fearandgreed/graphdata", timeout=30, ua=BROWSER_UA)
+    fg = json.loads(raw)["fear_and_greed"]
+    set_setting("cnn_fng", json.dumps({"score": round(float(fg["score"])), "rating": str(fg.get("rating", "")), "prev": fg.get("previous_close"),
+                                       "week": fg.get("previous_1_week"), "ts": int(time.time())}))
+
+
 def geo_map_loop():
     time.sleep(60)
     while True:
+        try:
+            refresh_cnn_fng()
+        except Exception as e:
+            log.warning("CNN Fear & Greed not reached: %s", e)
         try:
             refresh_geo_map()
         except Exception as e:
@@ -1117,6 +1142,32 @@ def build_clusters(sm, hub):
     return out
 
 
+def composite_parts():
+    """What the calculated indicators are made of, with each member's move today."""
+    def d1(k):
+        pts = load_series(k)
+        return (pts[-1][1] / pts[-2][1] - 1) * 100 if len(pts) >= 2 and pts[-2][1] else None
+    def members(keys, names=None):
+        out = [{"name": (names or {}).get(k, S.SECTOR_NAMES.get(k, k)), "pct": round(v, 2)} for k in keys for v in [d1(k)] if v is not None]
+        return sorted(out, key=lambda x: -x["pct"])
+    parts = {}
+    sec = members([k for k, _ in S._SECTORS])
+    if sec:
+        parts["SECT_UP"] = {"note": "The 11 sectors of the S&P 500 (each as a fund): today's move.", "members": sec, "up": sum(1 for x in sec if x["pct"] > 0)}
+    for key, keys, note in [("AIB", S.AI_BUILDERS, "The AI builders, counted equally: the chip, cloud and software giants that spend on AI."),
+                            ("AIU", ["XLF", "XLI"], "The companies that use AI: banks & financials and industrials."),
+                            ("DEFN", ["XLV", "XLP", "XLU", "XLRE"], "The defensive sectors: health care, consumer staples, utilities, real estate. They hold up when investors are afraid."),
+                            ("BREADTH", ["RSP", "SPY"], "Equal-weight S&P 500 (every company the same) against the normal one (the biggest count most). If the equal-weight one lags, the index rests on a few giants.")]:
+        m = members(keys, {"RSP": "S&P 500 equal weight", "SPY": "S&P 500 by size"})
+        if m:
+            parts[key] = {"note": note, "members": m, "up": sum(1 for x in m if x["pct"] > 0)}
+    if "AIB" in parts and "AIU" in parts:
+        a, u = [sum(x["pct"] for x in parts[k]["members"]) / len(parts[k]["members"]) for k in ("AIB", "AIU")]
+        parts["AIB_AIU"] = {"note": "AI builders against AI users. Down means money moves out of the builders into the companies that use AI.",
+                            "members": [{"name": "AI builders (average)", "pct": round(a, 2)}, {"name": "AI users (average)", "pct": round(u, 2)}]}
+    return parts
+
+
 def tomorrow_panel(sm):
     chg = {}
     for k in ("FUT_ES", "FUT_NQ", "FUT_RTY"):
@@ -1130,7 +1181,12 @@ def tomorrow_panel(sm):
     earn = json.loads(get_setting("earn_rows", "null") or "null")
     if not (chg or vix or heat):
         return None
-    out = S.build_tomorrow(chg, vix, ts[-1][1] if ts else None, up[-1][1] if up else None, heat, earn["rows"] if earn else None)
+    v3 = load_series("VIX3M")
+    fng = json.loads(get_setting("cnn_fng", "null") or "null")
+    if not fng and sm.get("MOOD"):
+        fng = {"score": sm["MOOD"]["value"], "rating": "", "estimate": True}
+    out = S.build_tomorrow(chg, vix, ts[-1][1] if ts else None, up[-1][1] if up else None, heat, earn["rows"] if earn else None,
+                           v3[-1][1] if v3 else None, fng)
     out["heat"] = heat and {k: heat[k] for k in ("worst", "best", "cap", "eq", "n", "ts")}
     return out
 
@@ -1159,6 +1215,7 @@ def api_overview():
                                        for k, v in json.loads(get_setting("sector_parts", "{}") or "{}").items()), key=lambda x: -x["pct"]),
                     "earnings": json.loads(get_setting("earn_rows", "null") or "null"),
                     "tomorrow": tomorrow_panel(sm),
+                    "parts": composite_parts(),
                     "summary": build_summary(clusters, crossed_levels(sm, get_rules()), recent),
                     "newsIdx": {k: [n["h"] for n in v] for k, v in recent.items()},
                     "moodParts": json.loads(get_setting("mood_parts", "{}") or "{}"),
@@ -1434,7 +1491,7 @@ def api_geomap():
     with get_db() as conn:
         rows = [dict(r) for r in conn.execute("SELECT ts, source, title, summary, link FROM news WHERE ts > ? ORDER BY ts DESC LIMIT 2500", (int(time.time()) - 7 * 86400,))]
     return jsonify({"view": S.GEO_VIEW[cid], "sites": S.site_status(cid, rows), "front": st.get("front"), "points": st.get("points", []),
-                    "errors": st.get("errors", {}), "ships": st.get("ships", []), "ts": st.get("ts"), "pointsTs": st.get("pointsTs")})
+                    "errors": st.get("errors", {}), "ships": st.get("ships", []), "incidents": S.news_incidents(cid, rows), "ts": st.get("ts"), "pointsTs": st.get("pointsTs")})
 
 
 @app.route("/api/geo")
