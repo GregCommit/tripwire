@@ -869,7 +869,7 @@ def build_summary(clusters, levels, recent):
         movers.append({"key": x["key"], "name": x["name"], "cluster": c["id"], "clusterTitle": c["title"], "rank": x["rank"],
                        "horizon": x["horizon"], "hub": bool(x.get("hub")), "value": x["value"], "unit": x["unit"], "dec": x["dec"],
                        "signed": bool(x.get("signed")), "chgKind": x["chgKind"], "chg": x.get(field), "good": x.get("good", 0),
-                       "extreme": bool(x.get("hub") and x["zone"].startswith("extreme")), "news": news})
+                       "extreme": bool(x.get("hub") and x["zone"].startswith("extreme")), "news": news, "context": x.get("context", "")})
     movers.sort(key=lambda m: -m["rank"])
     return {"movers": movers[:3], "calm": not movers and not levels, "levels": levels}
 
@@ -881,9 +881,11 @@ def apply_link_ranking(items):
         it.setdefault("rank0", it.get("rank", 0.0))
         it["rank"] = it["rank0"]
     adj, edges = S.adjusted_scores(items)
+    ctx = S.context_lines(items, edges)
     for k, v in adj.items():
         items[k]["rank"] = v["adj"]
         items[k]["linkBoost"], items[k]["linkFactor"] = v["boost"], v["factor"]
+        items[k]["context"] = ctx.get(k, "")
     return adj, edges
 
 
@@ -1127,7 +1129,8 @@ def api_series(key):
 @app.route("/api/extremes")
 @login_required
 def api_extremes():
-    items = hub_summaries()
+    everything = all_items()
+    items = [everything[h["key"]] for h in S.HUB if h["key"] in everything and everything[h["key"]].get("hub")]
     have = {h["key"] for h in items}
     errors = json.loads(get_setting("hub_errors", "{}") or "{}")
     missing = [{"key": h["key"], "name": h["name"], "cat": h["cat"],

@@ -47,6 +47,8 @@ h2+.muted{margin-bottom:10px}
 .chart svg{display:block;width:100%}
 .tip{position:absolute;top:0;pointer-events:none;background:#000000ee;border:1px solid var(--line2);border-radius:4px;padding:4px 8px;font-size:12px;white-space:nowrap;display:none;font-variant-numeric:tabular-nums}
 .says{font-size:13px;line-height:1.5;color:var(--mute);margin:8px 0 0}.says b{color:var(--txt)}
+.ctxline{border-left:2px solid #3a3a44;padding-left:9px}
+.tctx{font-size:13px;line-height:1.5;color:var(--mute);margin-top:6px}
 .badge{display:inline-block;margin-left:6px;font-size:11.5px;font-weight:600;padding:1px 8px;border-radius:3px;color:var(--watch);border:1px solid var(--watch);vertical-align:1px}
 .badge.strong{background:var(--watch);color:#000;border-color:var(--watch)}
 .ind.hot{border-color:#3a3a44}
@@ -379,7 +381,8 @@ function chgRow(s){
   if (!s.hub && s.y1 !== null && s.y1 !== undefined) p.push(`1 yr ${cc(s.y1)}`);
   return p.map(x => `<span>${x}</span>`).join('');
 }
-function saysHTML(s){ return `<div class="says"><b>What it says.</b> ${esc(s.hub ? (s.side ? s.meaning : (s.reading || s.why)) : s.says)}</div>`; }
+function saysHTML(s){ return `<div class="says"><b>What it says.</b> ${esc(s.hub ? (s.side ? s.meaning : (s.reading || s.why)) : s.says)}</div>` + (s.context ? `<div class="says ctxline"><b>In context.</b> ${esc(s.context)} <button class="link" onclick="event.stopPropagation();explain('${s.key}', this)">All links ›</button></div>` : ''); }
+function shortText(t, n){ if (!t || t.length <= n) return t || ''; const cut = t.slice(0, n), i = cut.lastIndexOf('. '); return i > 60 ? cut.slice(0, i + 1) : cut.trim() + '…'; }
 function cardHTML(s, cid){
   if (s.hub) return exCardHTML(s, cid);
   const id = cid + '|' + s.key, open = OPEN === id, mo = s.freq === 'monthly';
@@ -460,6 +463,7 @@ function moverTile(m){
   return `<div class="tile" onclick="goCluster('${m.cluster}')"><div class="tl">${esc(m.clusterTitle)}</div><div class="tn">${esc(m.name)}</div>
     <div class="tv ${cls}">${big}${m.extreme ? '' : `<span class="tw">${esc(m.horizon)}</span>`}</div>
     <div class="tnow">Now ${esc(fmtVal({unit: m.unit, dec: m.dec, signed: m.signed}, m.value))}</div>
+    ${m.context ? `<div class="tctx">${esc(shortText(m.context, 230))}</div>` : ''}
     ${m.news ? `<a class="tnews" href="${esc(m.news.link)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">${esc(m.news.title)}<span>${esc(m.news.source)} · ${esc(ago(m.news.ts))}</span></a>` : ''}</div>`;
 }
 function renderToday(){

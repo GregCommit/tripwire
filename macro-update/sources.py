@@ -532,25 +532,44 @@ HUB = [
          high="Lenders are afraid the weakest companies will not pay back. Defaults usually rise within months, and stocks tend to fall with it.",
          low="Lenders are relaxed even about the weakest borrowers. Money is easy, which also means little cushion if sentiment turns."),
     dict(key="ICSA", name="New jobless claims (weekly)", cat="credit", kind="fred", sym="ICSA", start="1967-01-01", unit="", dec=0,
-         freq="weekly",
+         freq="weekly", sides="high",
          why="How many Americans filed for unemployment benefits for the first time last week, published every Thursday. People who lose their job fall behind on their loans a few months later, so claims lead household loan defaults.",
          high="Layoffs are rising fast. Household incomes — and soon their ability to pay loans — are under pressure, which usually precedes more defaults and weaker spending.",
-         low="Very few layoffs: households' incomes are secure, so loan defaults should stay low."),
+         low=""),
     dict(key="SLOOS_CARD", name="Banks tightening credit-card lending", cat="credit", kind="fred", sym="DRTSCLCC", start="1990-01-01",
          unit="%", dec=0, freq="quarterly", signed=True,
          why="Share of US banks tightening their standards for credit cards, minus the share loosening (Federal Reserve survey of loan officers, quarterly). Banks see their customers' problems first and react by lending less — which slows spending and often comes before more defaults.",
          high="Many banks are making it harder to borrow on cards: they expect more households to struggle. Spending usually slows afterwards.",
-         low="Banks are loosening: they feel confident about households' ability to pay."),
+         low="Banks are loosening card lending. This is a quarterly survey that lags market stress by a few months, so weigh it against the faster signals (junk-bond spreads, jobless claims)."),
     dict(key="SLOOS_BUS", name="Banks tightening business lending", cat="credit", kind="fred", sym="DRTSCILM", start="1990-01-01",
          unit="%", dec=0, freq="quarterly", signed=True,
          why="Share of US banks tightening their standards for loans to medium and large companies, minus the share loosening (Federal Reserve survey, quarterly). Tighter lending starves companies of money, so it leads slower hiring and investment, and often recessions.",
          high="Banks are clamping down on business loans — historically a reliable warning that a slowdown or recession is coming.",
-         low="Banks are loosening: credit is flowing to companies, which supports growth."),
+         low="Banks are loosening business lending. This is a quarterly survey that lags market stress by a few months, so weigh it against the faster signals (junk-bond spreads, financial stress)."),
     dict(key="STLFSI", name="Financial stress (St. Louis Fed)", cat="credit", kind="fred", sym="STLFSI4", start="1993-01-01", unit="", dec=2,
          freq="weekly", signed=True,
          why="Index of 18 weekly market measures (interest rates, spreads, volatility). Zero is average stress; above zero is more stress than usual.",
          high="Financial markets are under unusual stress — typical of crises, when borrowers struggle and lenders pull back.",
          low="Very little stress in the financial system: money is easy and conditions are calm."),
+    dict(key="INCOME", name="Household income after inflation (yearly change)", cat="credit", kind="fred_yoy", sym="DSPIC96", start="1958-01-01",
+         unit="%", dec=1, freq="monthly", signed=True,
+         why="How much more (or less) US households can spend than a year ago, after taxes and inflation (Bureau of Economic Analysis, monthly, published about a month late). This is the money that actually pays the loans, so it is the base under household credit.",
+         high="Real incomes are growing fast: households can carry their debts and keep spending, which supports the economy.",
+         low="Real incomes are shrinking: budgets are squeezed, so spending slows and loans become harder to pay. Defaults tend to follow with a delay."),
+    dict(key="SAVE", name="Personal saving rate", cat="credit", kind="fred", sym="PSAVERT", start="1959-01-01", unit="%", dec=1, freq="monthly",
+         why="Share of their income US households put aside instead of spending (monthly). It is the cushion between a bad month and missed payments.",
+         high="Households are saving a lot: a thick cushion for bad times — but they are also spending less, which slows growth.",
+         low="The cushion is thin: households spend almost everything they earn, so a job loss or a price jump quickly turns into missed payments."),
+    dict(key="DEBTSERV", name="Household debt payments (share of income)", cat="credit", kind="fred", sym="TDSP", start="1980-01-01", unit="%", dec=1,
+         freq="quarterly",
+         why="Share of disposable income that US households spend on debt payments (mortgages, cards, car loans), quarterly. The heavier it is, the less room there is for surprises.",
+         high="Debt payments take an unusually large share of income: households have little room, which is when defaults start to rise.",
+         low="Debt payments are light compared with income: households can carry their loans comfortably."),
+    dict(key="WAGES", name="Wage growth (average hourly earnings, yearly)", cat="credit", kind="fred_yoy", sym="CES0500000003", start="2006-01-01",
+         unit="%", dec=1, freq="monthly", signed=True,
+         why="How much pay per hour grew over the last year (monthly). Wages are the biggest part of household income.",
+         high="Pay is rising fast: good for households' budgets, but also a source of inflation, which keeps interest rates high.",
+         low="Pay growth is weak: household budgets get no help against rising prices."),
     dict(key="US10Y_L", name="US 10-year yield", cat="credit", kind="fred", sym="DGS10", start="1962-01-01", unit="%",
          dec=2, freq="daily",
          why="The benchmark long-term borrowing cost.",
@@ -659,6 +678,8 @@ class HubData:
 def build_hub(item, hd):
     """Raw history for one hub item → [[date, value]]."""
     k = item["kind"]
+    if k == "fred_yoy":
+        return yoy(hd.fred(item["sym"], item.get("start", "1950-01-01")))
     if k == "fred":
         pts = hd.fred(item["sym"], item.get("start", "1950-01-01"))
         if item.get("extend"):      # newest days from the regular (Yahoo) series
@@ -776,13 +797,13 @@ WEIGHT = {
     "US2Y": 4, "US1Y": 3, "CURVE": 4, "MORT30": 2, "FEDFUNDS": 4, "DXY": 4, "USCPI": 4, "REAL10": 4, "HYSPREAD": 4.5,
     "GOLD": 3, "SILVER": 2, "COPPER": 3.5, "CUAU": 3.5, "GSR": 2, "WTI": 3.5, "BRENT": 3, "NATGAS": 2,
     "USDJPY": 4.5, "GAP": 4, "JP10Y": 3.5, "BOJRATE": 3, "JPCPI": 3, "NIKKEI200": 3,
-    "NFCI": 3.5, "SAHM": 4, "UMCSENT": 2.5, "CCC": 4, "ICSA": 3.5, "SLOOS_CARD": 3, "SLOOS_BUS": 3, "STLFSI": 3,
+    "NFCI": 3.5, "SAHM": 4, "UMCSENT": 2.5, "CCC": 4, "ICSA": 3.5, "SLOOS_CARD": 3, "SLOOS_BUS": 3, "STLFSI": 3, "INCOME": 3.5, "SAVE": 2.5, "DEBTSERV": 3, "WAGES": 3,
     "BUFFETT": 3.5, "CAPE": 3.5, "ERP": 3.5, "SPX200": 3,
 }
 SPECIAL_Z = 2.0
 # Is a rise good (+1) or bad (-1) for stock investors? 0 = no clear good or bad (shown in white, never green/red).
 GOOD = {"SPX": 1, "IXIC": 1, "DJI": 1, "RUT": 1, "VIX": -1, "VOLRATIO": -1, "HYSPREAD": -1, "MORT30": -1, "REAL10": -1, "USCPI": -1,
-        "NFCI": -1, "SAHM": -1, "UMCSENT": 1, "CCC": -1, "ICSA": -1, "SLOOS_CARD": -1, "SLOOS_BUS": -1, "STLFSI": -1}
+        "NFCI": -1, "SAHM": -1, "UMCSENT": 1, "CCC": -1, "ICSA": -1, "SLOOS_CARD": -1, "SLOOS_BUS": -1, "STLFSI": -1, "INCOME": 1, "DEBTSERV": -1}
 HORIZON = {"daily": ("today", "this week", "this month"), "weekly": ("this week", "this week", "this month"),
            "monthly": ("this month", None, None), "quarterly": ("this quarter", None, None)}
 STEPS = {"daily": (1, 5, 21), "weekly": (1, 1, 4), "monthly": (1, None, None), "quarterly": (1, None, None)}
@@ -833,8 +854,8 @@ CLUSTERS = [
          intro="Traders borrow cheap yen to buy higher-yielding assets. When the yen jumps, they must buy yen back and sell those assets, stocks included.",
          main=["USDJPY", "GAP", "JP10Y", "BOJRATE", "JPCPI", "NIKKEI200"], context=["US10Y", "US2Y"]),
     dict(id="credit", title="Credit, jobs & defaults ahead",
-         intro="Will borrowers keep paying their loans? These react before defaults appear in bank statistics: the weakest bonds, layoffs, and banks tightening their lending.",
-         main=["HYSPREAD", "CCC", "ICSA", "SLOOS_CARD", "SLOOS_BUS", "STLFSI", "NFCI", "SAHM", "UMCSENT"], context=["US10Y", "CURVE"]),
+         intro="Will borrowers keep paying their loans? Markets and layoffs react first (junk-bond spreads, jobless claims); household income and savings are the base under the loans; bank surveys follow months later.",
+         main=["HYSPREAD", "CCC", "ICSA", "SLOOS_CARD", "SLOOS_BUS", "STLFSI", "NFCI", "SAHM", "UMCSENT", "INCOME", "WAGES", "SAVE", "DEBTSERV"], context=["US10Y", "CURVE"]),
     dict(id="energy", title="Oil & energy",
          intro="Oil drives inflation and, through inflation, interest rates; the dollar and oil usually move in opposite directions.",
          main=["WTI", "BRENT", "NATGAS"], context=["DXY", "USCPI"]),
@@ -1093,6 +1114,15 @@ RELATIONS = [
     ("CCC", "HYSPREAD", "same", "The weakest borrowers' spread is the earliest part of the junk-bond spread to move."),
     ("ICSA", "SAHM", "same", "More new jobless claims lead to a higher unemployment rate, which is what the Sahm rule measures."),
     ("SLOOS_BUS", "SAHM", "same", "When banks tighten business lending, companies hire and invest less, so unemployment rises months later."),
+    ("ICSA", "INCOME", "inverse", "Layoffs cut household incomes: more new claims usually mean weaker income growth a few weeks to months later."),
+    ("WAGES", "INCOME", "same", "Wages are the biggest part of household income."),
+    ("USCPI", "INCOME", "inverse", "Higher inflation eats into income after inflation."),
+    ("INCOME", "UMCSENT", "same", "Households feel better when their real income is rising."),
+    ("INCOME", "SAVE", "same", "Households save more when their income grows."),
+    ("DEBTSERV", "SLOOS_CARD", "same", "When payments take a bigger share of income, banks see more risk and tighten card lending."),
+    ("ICSA", "SLOOS_CARD", "same", "When more people lose their jobs, banks expect more card defaults and tighten card lending months later."),
+    ("CCC", "SLOOS_BUS", "same", "The weakest borrowers' spread reacts first; banks tighten their business lending standards a quarter or two later."),
+    ("HYSPREAD", "SLOOS_BUS", "same", "Wider spreads show that lenders are afraid; banks follow by tightening their standards, with a delay of a quarter or two."),
     ("UMCSENT", "SPX", "same", "Households' mood drives spending (about 70% of the US economy), and stocks tend to follow confidence."),
     ("NFCI", "SPX", "inverse", "Tighter financial conditions mean harder, costlier credit, which weighs on stocks and growth."),
     ("STLFSI", "VIX", "same", "Both measure market stress; the stress index adds bond and credit stress."),
@@ -1147,7 +1177,8 @@ def rel_eval(items, driver, affected, mode, why=""):
     score = [max(abs(d.get(z) or 0), abs(a.get(z) or 0)) for z in zk]
     hi = max(range(3), key=lambda i: score[i]) if any(score) else 0
     hz = names[hi] if (d.get("freq") == "daily" or a.get("freq") == "daily") else "this month"
-    cd, ca = fchg(d["chgKind"], d.get(ck[hi])), fchg(a["chgKind"], a.get(ck[hi]))
+    pick = lambda x: x.get(ck[hi]) if x.get("freq") in ("daily", "weekly") else x.get("d1")      # slow series: change since the last release
+    cd, ca = fchg(d["chgKind"], pick(d)), fchg(a["chgKind"], pick(a))
     sd, sa = stress(d), stress(a)
     expected = sd * (1 if mode == "same" else -1)
     if abs(sd) < 0.25 and abs(sa) < 0.25:
@@ -1167,22 +1198,30 @@ def rel_eval(items, driver, affected, mode, why=""):
                 helpers.append((dd, sc * (1 if mm == "same" else -1)))
     pull_same = [k for k, e in helpers if e * sa > 0] if abs(sa) >= 0.2 else []
     pull_other = [k for k, e in helpers if e * (expected or 1) < 0]
+    slow = [x for x in (d, a) if x.get("freq") in ("monthly", "quarterly")]
+    fast = [x for x in (d, a) if x.get("freq") in ("daily", "weekly")]
+    lag = ""
+    if slow and fast:
+        sl = slow[0]
+        lag = (f"{sl['name']} is a {sl['freq']} {'survey' if str(sl['key']).startswith('SLOOS') else 'figure'} that reacts months after market signals, "
+               f"so a gap now does not mean the market signal is wrong — watch its next release.")
+    reason = ""
+    if status == "noreact":
+        reason = f"{_names(items, pull_other)} pulls the other way." if pull_other else (lag or "The link is weaker than usual, so treat both signals with less weight.")
+    elif status in ("against", "other"):
+        reason = f"{_names(items, pull_same)} explains it." if pull_same else (lag or ("Something else is driving it; check the news." if status == "against" else "No tracked driver explains it; check the news."))
     if status == "quiet":
         note = f"Neither moved much {hz}."
     elif status == "asusual":
         note = f"{d['name']} {cd}, {a['name']} {ca} {hz}: the usual link is working."
     elif status == "noreact":
-        note = f"{d['name']} moved ({cd} {hz}) but {a['name']} has not followed."
-        note += (f" {_names(items, pull_other)} pulls the other way, which explains it." if pull_other else
-                 " The link is weaker than usual, so treat both signals with less weight.")
+        note = f"{d['name']} moved ({cd} {hz}) but {a['name']} has not followed. {reason}"
     elif status == "against":
-        note = f"{d['name']} {cd}, {a['name']} {ca} {hz}: moving against the usual link."
-        note += (f" {_names(items, pull_same)} explains it." if pull_same else " Something else is driving it; check the news.")
+        note = f"{d['name']} {cd}, {a['name']} {ca} {hz}: moving against the usual link. {reason}"
     else:
-        note = f"{a['name']} moved ({ca} {hz}) without a matching move in {d['name']}."
-        note += (f" {_names(items, pull_same)} explains it." if pull_same else " No tracked driver explains it; check the news.")
+        note = f"{a['name']} moved ({ca} {hz}) without a matching move in {d['name']}. {reason}"
     return {"driver": driver, "affected": affected, "mode": mode, "modeText": _MODE_WORDS[mode], "why": why,
-            "status": status, "note": note, "horizon": hz, "sd": round(sd, 2), "sa": round(sa, 2)}
+            "status": status, "note": note, "reason": reason, "cd": cd, "ca": ca, "horizon": hz, "sd": round(sd, 2), "sa": round(sa, 2)}
 
 
 def adjusted_scores(items):
@@ -1207,6 +1246,37 @@ def adjusted_scores(items):
         edges.append(e)
     boost = {k: min(boost[k], base[k]) for k in items}                  # a link can at most double an indicator's weight
     return {k: {"adj": round((base[k] + boost[k]) * factor[k], 2), "boost": round(boost[k], 2), "factor": round(factor[k], 2)} for k in items}, edges
+
+
+def context_lines(items, edges):
+    """For each indicator: what its connected indicators say about it right now, written from that card's
+    point of view — divergences first (with the reason), then confirmations — so nothing stands alone."""
+    by = {k: [] for k in items}
+    for e in edges:
+        for k in (e["driver"], e["affected"]):
+            if k in by:
+                by[k].append(e)
+    order = {"against": 0, "noreact": 1, "other": 2, "asusual": 3, "quiet": 4}
+    out = {}
+    for k, es in by.items():
+        es = sorted(es, key=lambda e: (order[e["status"]], -max(abs(e["sd"]), abs(e["sa"]))))
+        lines = []
+        for e in es:
+            if len(lines) >= 2 or e["status"] == "quiet":
+                break
+            is_aff = e["affected"] == k
+            o = items[e["driver"] if is_aff else e["affected"]]["name"]
+            me = items[k]["name"]
+            if e["status"] == "asusual":
+                lines.append(f"Confirmed by {o}, which moved the usual way.")
+            elif e["status"] == "noreact":
+                lines.append((f"{o} moved ({e['cd']}) but {me} has not followed. " if is_aff else f"{me} moved but {o} has not followed yet. ") + e["reason"])
+            elif e["status"] == "against":
+                lines.append((f"{o} moved ({e['cd']}), yet {me} went the other way. " if is_aff else f"{o} went the other way from what {me} normally implies. ") + e["reason"])
+            elif is_aff:
+                lines.append(f"{me} moved without a matching move in {o}. " + e["reason"])
+        out[k] = lines[0][:400] if lines else ""        # the most important link only; the rest is behind the ? on the card
+    return out
 
 
 def explain(key, items):
