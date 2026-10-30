@@ -461,6 +461,46 @@ def refresh_geo_news():
     log.info("Geopolitics news: %d of %d feeds reachable, %d new headlines", ok, len(feeds), added)
 
 
+GEOMAP_EVERY = 1800
+FRONT_URLS = ["https://deepstatemap.live/api/history/last"]
+
+
+def refresh_geo_map():
+    """Open map data: the Ukraine front line (DeepStateMap) and a week of geolocated incidents from GDELT, for both conflicts."""
+    for cid in S.GEO:
+        st = {"ts": int(time.time()), "front": None, "points": [], "errors": {}}
+        prev = json.loads(get_setting("geomap_" + cid, "null") or "null")
+        if prev:
+            st["front"], st["points"] = prev.get("front"), prev.get("points", [])
+        if cid == "ua":
+            for url in FRONT_URLS:
+                try:
+                    st["front"] = S.parse_frontline(S.http_get(url, timeout=40, ua=BROWSER_UA).decode("utf-8", "replace"))
+                    st["errors"].pop("front", None)
+                    break
+                except Exception as e:
+                    st["errors"]["front"] = f"{type(e).__name__}: {e}"[:140]
+        try:
+            from urllib.parse import quote
+            url = "https://api.gdeltproject.org/api/v2/geo/geo?query=" + quote(S.GEO_INCIDENT_Q[cid]) + "&format=GeoJSON&timespan=7d&maxpoints=1000"
+            st["points"] = S.parse_gdelt_points(S.http_get(url, timeout=40, ua=BROWSER_UA).decode("utf-8", "replace"))
+            st["pointsTs"] = int(time.time())
+        except Exception as e:
+            st["errors"]["points"] = f"{type(e).__name__}: {e}"[:140]
+        set_setting("geomap_" + cid, json.dumps(st))
+        log.info("War map %s: front %s, %d incident points, errors %s", cid, len(st["front"] or []), len(st["points"]), st["errors"])
+
+
+def geo_map_loop():
+    time.sleep(60)
+    while True:
+        try:
+            refresh_geo_map()
+        except Exception as e:
+            log.exception("War map failed: %s", e)
+        time.sleep(GEOMAP_EVERY)
+
+
 def geo_news_loop():
     time.sleep(45)
     while True:
@@ -703,6 +743,7 @@ def start_background():
         threading.Thread(target=news_loop, daemon=True, name="news").start()
         threading.Thread(target=heat_loop, daemon=True, name="heat").start()
         threading.Thread(target=geo_news_loop, daemon=True, name="geonews").start()
+        threading.Thread(target=geo_map_loop, daemon=True, name="geomap").start()
 
 
 # ── Summaries and alerts ────────────────────────────────────────────────────
@@ -1361,6 +1402,19 @@ def geo_headlines(cid, items, limit=60):
                     "markets": markets, "moved": [S.item_name(k) for k in moved][:2], "rank": S.geo_rank(impact, age, 0.35 * min(2, len(moved)))})
     out.sort(key=lambda x: -x["rank"])
     return out[:limit]
+
+
+@app.route("/api/geomap")
+@login_required
+def api_geomap():
+    cid = request.args.get("c", "ua")
+    if cid not in S.GEO:
+        return jsonify({"error": "unknown"}), 404
+    st = json.loads(get_setting("geomap_" + cid, "null") or "null") or {"front": None, "points": [], "errors": {}, "ts": None}
+    with get_db() as conn:
+        rows = [dict(r) for r in conn.execute("SELECT ts, source, title, summary, link FROM news WHERE ts > ? ORDER BY ts DESC LIMIT 2500", (int(time.time()) - 7 * 86400,))]
+    return jsonify({"view": S.GEO_VIEW[cid], "sites": S.site_status(cid, rows), "front": st.get("front"), "points": st.get("points", []),
+                    "errors": st.get("errors", {}), "ts": st.get("ts"), "pointsTs": st.get("pointsTs")})
 
 
 @app.route("/api/geo")

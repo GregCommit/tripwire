@@ -11,6 +11,8 @@ CNN's Fear & Greed page blocks automated reads from servers, so the mood gauge i
 from four of CNN's seven published ingredients (see mood_series), and CNN's "market volatility"
 ingredient (VIX against its 50-day average) is computed the same way CNN describes it.
 """
+import json
+import time
 import csv
 import io
 import logging
@@ -2191,3 +2193,121 @@ def build_tomorrow(chg, vix, vixts, sect_up, heat, earn):
     hits, total = sum(1 for s in signs if s["hit"]), len(signs)
     level = "high" if total and hits >= max(3, total * 0.4) else "elevated" if hits >= 2 else "low"
     return {"level": level, "hits": hits, "total": total, "signs": signs}
+
+
+# ══ War maps: open data on a map ══════════════════════════════════════════════════════════════
+# (name, lat, lon, kind, words that identify it in a headline)
+GEO_SITES = {
+    "ua": [
+        ("Moscow refinery (Kapotnya)", 55.65, 37.80, "refinery", ["moscow refinery", "kapotnya"]),
+        ("Ryazan refinery", 54.60, 39.83, "refinery", ["ryazan"]),
+        ("Volgograd refinery", 48.67, 44.45, "refinery", ["volgograd refinery", "volgograd oil", "volgograd"]),
+        ("Saratov refinery", 51.50, 45.90, "refinery", ["saratov"]),
+        ("Syzran refinery", 53.17, 48.50, "refinery", ["syzran"]),
+        ("Novokuibyshevsk refinery", 53.10, 49.90, "refinery", ["novokuibyshevsk"]),
+        ("Kirishi refinery", 59.45, 32.05, "refinery", ["kirishi"]),
+        ("Yaroslavl refinery", 57.60, 39.80, "refinery", ["yaroslavl"]),
+        ("Tuapse refinery and port", 44.10, 39.07, "refinery", ["tuapse"]),
+        ("Afipsky refinery", 44.87, 38.82, "refinery", ["afipsky", "afipskiy"]),
+        ("Ilsky refinery", 44.85, 38.55, "refinery", ["ilsky", "ilskiy"]),
+        ("Novoshakhtinsk refinery", 47.80, 39.90, "refinery", ["novoshakhtinsk"]),
+        ("Ukhta refinery", 63.60, 53.70, "refinery", ["ukhta"]),
+        ("Orsk refinery", 51.20, 58.60, "refinery", ["orsk"]),
+        ("Salavat refinery", 53.40, 55.90, "refinery", ["salavat"]),
+        ("Ufa refineries", 54.70, 55.90, "refinery", ["ufa refinery", "bashneft"]),
+        ("Nizhnekamsk refinery", 55.60, 51.80, "refinery", ["nizhnekamsk", "taneco"]),
+        ("Omsk refinery", 55.00, 73.20, "refinery", ["omsk"]),
+        ("Kremenchuk refinery (Ukraine)", 49.10, 33.40, "refinery", ["kremenchuk"]),
+        ("Primorsk oil port", 60.35, 28.67, "terminal", ["primorsk"]),
+        ("Ust-Luga port", 59.67, 28.40, "terminal", ["ust-luga", "ust luga"]),
+        ("Novorossiysk / CPC terminal", 44.70, 37.80, "terminal", ["novorossiysk", "cpc terminal", "caspian pipeline"]),
+        ("Taman port", 45.20, 36.70, "terminal", ["taman"]),
+        ("Crimean bridge (Kerch)", 45.30, 36.51, "chokepoint", ["kerch", "crimean bridge", "crimea bridge"]),
+    ],
+    "me": [
+        ("Abqaiq (Saudi Arabia)", 25.94, 49.68, "refinery", ["abqaiq"]),
+        ("Ras Tanura (Saudi Arabia)", 26.64, 50.16, "refinery", ["ras tanura"]),
+        ("Jubail (Saudi Arabia)", 27.00, 49.65, "refinery", ["jubail"]),
+        ("Yanbu (Saudi Arabia)", 24.09, 38.06, "refinery", ["yanbu"]),
+        ("Jizan refinery (Saudi Arabia)", 16.90, 42.60, "refinery", ["jizan", "jazan"]),
+        ("Ras Laffan (Qatar)", 25.90, 51.55, "refinery", ["ras laffan"]),
+        ("Ruwais (UAE)", 24.10, 52.70, "refinery", ["ruwais"]),
+        ("Fujairah (UAE)", 25.12, 56.35, "terminal", ["fujairah"]),
+        ("Jebel Ali (UAE)", 25.00, 55.06, "terminal", ["jebel ali"]),
+        ("Abadan refinery (Iran)", 30.34, 48.28, "refinery", ["abadan"]),
+        ("Bandar Abbas refinery (Iran)", 27.15, 56.10, "refinery", ["bandar abbas"]),
+        ("Kharg Island (Iran)", 29.24, 50.32, "terminal", ["kharg"]),
+        ("South Pars / Asaluyeh (Iran)", 27.48, 52.60, "refinery", ["south pars", "asaluyeh", "assaluyeh"]),
+        ("Basra oil terminal (Iraq)", 29.70, 48.80, "terminal", ["basra"]),
+        ("Haifa refinery (Israel)", 32.80, 35.00, "refinery", ["haifa"]),
+        ("Ashdod / Ashkelon (Israel)", 31.75, 34.60, "refinery", ["ashdod", "ashkelon"]),
+        ("Ras Isa / Hodeidah (Yemen)", 15.10, 42.90, "terminal", ["hodeidah", "hudaydah", "ras isa"]),
+        ("Aden refinery (Yemen)", 12.80, 44.95, "refinery", ["aden refinery", "aden"]),
+        ("Strait of Hormuz", 26.57, 56.25, "chokepoint", ["hormuz"]),
+        ("Bab-el-Mandeb (Yemen – Djibouti/Eritrea)", 12.60, 43.30, "chokepoint", ["bab-el-mandeb", "bab el-mandeb", "bab al-mandab", "bab el mandeb", "mandab"]),
+        ("Suez Canal", 30.00, 32.55, "chokepoint", ["suez"]),
+    ],
+}
+GEO_VIEW = {"ua": [49.0, 35.0, 5], "me": [24.0, 47.0, 4]}
+GEO_INCIDENT_Q = {
+    "ua": '(Ukraine OR Russia) (drone OR missile OR strike OR shelling OR refinery) sourcelang:eng',
+    "me": '(Iran OR Houthi OR Yemen OR Israel OR "Red Sea" OR Hormuz OR tanker OR refinery) (attack OR strike OR missile OR drone) sourcelang:eng',
+}
+_ATTACK_RX = re.compile(r"\b(?:drone|drones|strike[sd]?|struck|attack(?:s|ed)?|hit|hits|fire|blaze|explosion|explosions|missile|missiles|shell(?:ed|ing)|blast|bomb(?:ed|ing)?|halt(?:s|ed)?\s+(?:operations|output|production))\b", re.I)
+
+
+def site_status(cid, headlines, now=None):
+    """The sites of a conflict, each marked 'hit' when a headline of the last 7 days names it together with an attack word."""
+    now = now or time.time()
+    out = []
+    for name, lat, lon, kind, words in GEO_SITES[cid]:
+        hit = None
+        for h in headlines:
+            if now - h["ts"] > 7 * 86400:
+                continue
+            t = (h["title"] + " " + (h.get("summary") or "")).lower()
+            if any(w in t for w in words) and _ATTACK_RX.search(t):
+                if hit is None or h["ts"] > hit["ts"]:
+                    hit = {"title": h["title"], "link": h["link"], "ts": h["ts"], "source": h["source"]}
+        out.append({"name": name, "lat": lat, "lon": lon, "kind": kind, "hit": hit})
+    return out
+
+
+def _simplify(coords, step):
+    return coords[::step] if len(coords) > 4 * step else coords
+
+
+def parse_frontline(raw):
+    """DeepStateMap 'last' snapshot (or any GeoJSON) -> list of {t: 'poly'|'line', c: [[lat, lon], ...], n: name}. Tolerant of the shape."""
+    data = json.loads(raw)
+    fc = data.get("map") if isinstance(data, dict) and isinstance(data.get("map"), dict) else data
+    feats = fc.get("features", []) if isinstance(fc, dict) else []
+    out = []
+    def ring(r):
+        pts = [[p[1], p[0]] for p in r if len(p) >= 2]
+        return [[round(a, 3), round(b, 3)] for a, b in _simplify(pts, 2 if len(pts) > 600 else 1)]
+    for f in feats:
+        g, props = f.get("geometry") or {}, f.get("properties") or {}
+        name = str(props.get("name") or "")
+        t, c = g.get("type"), g.get("coordinates")
+        if t == "Polygon" and c:
+            out.append({"t": "poly", "c": ring(c[0]), "n": name})
+        elif t == "MultiPolygon" and c:
+            out.extend({"t": "poly", "c": ring(p[0]), "n": name} for p in c if p)
+        elif t == "LineString" and c:
+            out.append({"t": "line", "c": ring(c), "n": name})
+    return out
+
+
+def parse_gdelt_points(raw, limit=250):
+    """GDELT GEO 2.0 GeoJSON -> [{lat, lon, n, html}]"""
+    data = json.loads(raw)
+    out = []
+    for f in data.get("features", []):
+        g, p = f.get("geometry") or {}, f.get("properties") or {}
+        c = g.get("coordinates")
+        if g.get("type") == "Point" and c and len(c) >= 2:
+            out.append({"lat": round(c[1], 3), "lon": round(c[0], 3), "n": str(p.get("name") or ""), "count": p.get("count") or 1,
+                        "html": re.sub(r"<[^>]+>", " ", str(p.get("html") or ""))[:300].strip()})
+    out.sort(key=lambda x: -(x["count"] or 0))
+    return out[:limit]
