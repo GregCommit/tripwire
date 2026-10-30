@@ -62,7 +62,7 @@ app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
                   SESSION_COOKIE_SECURE=PUBLIC_URL.startswith("https://"))
 
 # How often each source is fetched (seconds); a failed fetch is retried after 10 minutes
-EVERY = {"yahoo": 15 * 60, "fred": 2 * 3600, "bis": 12 * 3600, "boj": 12 * 3600, "hub": 3 * 3600, "geo": 15 * 60, "earn": 30 * 60}
+EVERY = {"yahoo": 3 * 60, "fred": 30 * 60, "bis": 6 * 3600, "boj": 6 * 3600, "hub": 3600, "geo": 3 * 60, "earn": 10 * 60}
 SOURCE_NAMES = {"yahoo": "Yahoo Finance", "fred": "FRED (St. Louis Fed)", "bis": "BIS (Japan CPI)",
                 "boj": "Bank of Japan forecasts", "hub": "Extremes (long histories)", "geo": "Geopolitics markets", "earn": "Earnings reactions"}
 
@@ -428,7 +428,7 @@ def background_loop():
 
 
 BROWSER_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36"
-NEWS_EVERY = 15 * 60
+NEWS_EVERY = 5 * 60
 NEWS_KEEP_DAYS = 7
 
 
@@ -491,7 +491,7 @@ def refresh_geo_news():
     log.info("Geopolitics news: %d of %d feeds reachable, %d new headlines", ok, len(feeds), added)
 
 
-GEOMAP_EVERY = 1800
+GEOMAP_EVERY = 600
 FRONT_URLS = ["https://deepstatemap.live/api/history/last"]
 
 
@@ -633,7 +633,7 @@ def geo_news_loop():
             refresh_geo_news()
         except Exception as e:
             log.exception("Geopolitics news failed: %s", e)
-        time.sleep(300)
+        time.sleep(120)
 
 
 def news_loop():
@@ -802,7 +802,7 @@ def ai_summarize(h):
 
 
 # ── Heatmap ────────────────────────────────────────────────────────────────────────────────
-HEAT_EVERY = 3 * 60
+HEAT_EVERY = 90
 
 
 def refresh_heat():
@@ -865,7 +865,7 @@ def heat_loop():
 
 
 # ── Stocks: your holdings and watch list ──────────────────────────────────────
-STOCKS_EVERY = 300
+STOCKS_EVERY = 90
 _stock_lock = threading.Lock()
 STOCK_PTS = {}        # ticker -> daily closes of the last year, kept for the 'what moves with it' calculation
 
@@ -1983,7 +1983,7 @@ def stock_related(t, pts, mine):
         quiet = abs(d1) < (0.2 if pct else 0.02)
         same_dir = (d1 > 0) == (own_d > 0)
         status = "quiet" if quiet else "asusual" if same_dir == (r > 0) else "against"
-        res.append({"key": k, "name": name, "r": round(r, 2), "mode": "same" if r > 0 else "inverse", "d1": round(d1, 2), "status": status,
+        res.append({"key": k, "name": name, "sym": (ind or {}).get("sym") or k, "card": bool(ind and ind.get("group")), "r": round(r, 2), "mode": "same" if r > 0 else "inverse", "d1": round(d1, 2), "status": status,
                     "chgKind": "pct" if pct else "pt", "unit": (ind or {}).get("unit", ""), "dec": (ind or {}).get("dec", 2), "stock": ind is None})
     pos = sorted([x for x in res if x["r"] > 0], key=lambda x: -x["r"])[:5]
     neg = sorted([x for x in res if x["r"] < 0], key=lambda x: x["r"])[:3]

@@ -90,7 +90,7 @@ h2.sub{font-size:14px;color:var(--mute);font-weight:500;margin:18px 0 6px}
 .wm-bar{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:13px;color:var(--mute);margin:2px 0 8px}.wm-bar input{accent-color:var(--accent)}
 .wmap{position:relative;z-index:0;isolation:isolate;height:540px;border:1px solid var(--line);border-radius:6px;background:#0b0b0e}.wmap:not(.nofilter) .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(.8) contrast(.9) saturate(.4)}.wmap .leaflet-popup-content-wrapper{background:#111114;color:#fff;border:1px solid var(--line2)}.wmap .leaflet-popup-tip{background:#111114}.wmap a{color:var(--accent)}
 .wm-leg{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:12px;color:var(--mute);margin-top:8px}.wm-leg i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px}
-.small.warn{color:var(--watch)}.wm-links a{color:var(--accent)}
+.aiskey{border:1px solid var(--watch);border-radius:6px;padding:10px 14px;margin-top:10px;font-size:13.5px;line-height:1.5}.aiskey a{color:var(--accent)}.small.warn{color:var(--watch)}.wm-links a{color:var(--accent)}
 .wm-hits{margin-top:10px;font-size:13.5px;line-height:1.5}.wm-hits div{padding:4px 0;border-top:1px solid var(--line)}.wm-hits .hn{color:var(--alert);font-weight:600}.wm-hits a{color:var(--txt)}
 @media (max-width:700px){.wmap{height:400px}}
 .parts2{margin-top:12px}.pchips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}.pc{font-size:12.5px;border:1px solid var(--line2);border-radius:3px;padding:2px 8px;font-variant-numeric:tabular-nums}.pc i{font-style:normal;color:var(--mute);margin-right:4px}.pc.up{color:var(--up)}.pc.down{color:var(--down)}
@@ -100,7 +100,11 @@ h2.sub{font-size:14px;color:var(--mute);font-weight:500;margin:18px 0 6px}
 .skh{display:flex;justify-content:space-between;align-items:flex-start}.skt{font-size:17px}.skb .link{margin-left:10px;font-size:12.5px}.skf{display:flex;flex-wrap:wrap;gap:4px 6px;margin:8px 0}.skf span{font-size:11.5px;border:1px solid var(--line2);border-radius:3px;padding:1px 7px;color:var(--mute)}.stk.loss .skf span{border-color:rgba(255,77,79,.6);color:#ffb4b5}.stk.gain .skf span{border-color:rgba(34,197,94,.6);color:#a7f0c0}
 .skp{display:flex;flex-wrap:wrap;gap:2px 14px;font-size:13px;margin:6px 0;color:var(--mute)}.skp .up{color:var(--up)}.skp .down{color:var(--down)}.skp b{color:var(--txt)}.skedit{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}.skedit input{width:110px}
 .sknews{display:block;font-size:13px;line-height:1.35;color:var(--txt);margin-top:8px;padding-top:8px;border-top:1px solid var(--line);text-decoration:none}.sknews span{display:block;font-size:11.5px;color:var(--dim);margin-top:2px}
-.strels{display:grid;grid-template-columns:1fr 1fr;gap:16px}.strel{border:1px solid var(--line);border-radius:6px;background:var(--card);padding:10px 12px;margin-bottom:8px}.strel .nm{margin-top:4px}@media (max-width:800px){.strels{grid-template-columns:1fr}}
+.strels{display:grid;grid-template-columns:1fr 1fr;gap:16px}.strel.click{cursor:pointer}.strel.click:hover{background:#0d0d10}.strel{border:1px solid var(--line);border-radius:6px;background:var(--card);padding:10px 12px;margin-bottom:8px}.strel .nm{margin-top:4px}@media (max-width:800px){.strels{grid-template-columns:1fr}}
+.tile,.ind,.stk,.sg,.gh,.strel,.btn,.chips button,.seg button,.mgc,.tab,.qbtn,.gnode,.hm{transition:transform .14s ease,background-color .18s,border-color .18s}
+.tile:active,.ind:active,.stk:active,.sg.click:active,.gh:active,.strel.click:active,.btn:active,.chips button:active,.seg button:active,.mgc:active,.gnode:active{transform:scale(.97)}
+#prog{position:fixed;left:0;top:0;height:2px;width:100%;z-index:200;pointer-events:none;opacity:0;transition:opacity .2s;background:linear-gradient(90deg,transparent,var(--accent),transparent);background-size:40% 100%;background-repeat:no-repeat}
+#prog.on{opacity:1;animation:prog 1s linear infinite}@keyframes prog{from{background-position:-40% 0}to{background-position:140% 0}}
 .movers{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;margin:14px 2px 6px;font-size:13.5px}.mv{font-variant-numeric:tabular-nums}
 @media (max-width:700px){.gh{grid-template-columns:1fr;gap:6px}.ghl{flex-direction:row;align-items:center}}
 .geohead{margin-top:12px}.geoblurb{font-size:15px;line-height:1.6}
@@ -231,7 +235,7 @@ details.quiet{margin-top:18px}details.quiet>summary{cursor:pointer;color:var(--m
 .qrow .qn{overflow:hidden;text-overflow:ellipsis}.qrow .qv{font-variant-numeric:tabular-nums;text-align:right}
 .qopen{border-top:1px solid var(--line);padding:0 0 12px}.qopen .qrow{border-top:none}
 @media (max-width:600px){main{padding:12px 16px}.grid{grid-template-columns:1fr}.part{grid-template-columns:105px 1fr 30px}#upd{display:none}.qrow{grid-template-columns:minmax(0,1fr) 78px}.qrow .qp{display:none}}
-</style></head><body>
+</style></head><body><div id="prog"></div>
 <div id="top"><div id="logo"><svg width="26" height="18" viewBox="0 0 26 18"><polyline points="1,10 7,10 10,3 14,15 17,8 19,10 25,10" fill="none" stroke="#4673FF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Macro Watch</div>
 <div id="topRight"><span id="upd"></span><button id="motionBtn" class="link" style="font-size:12px;color:var(--mute)" onclick="cycleMotion()" title="Speed of the animations">Motion</button><a href="/logout">Log out</a></div></div>
 <div id="tabs"><button class="tab on" data-t="today">Today</button><button class="tab" data-t="stocks">Stocks</button><button class="tab" data-t="headlines">Headlines</button><button class="tab" data-t="geo">Geopolitics</button><button class="tab" data-t="heatmap">Heatmap</button><button class="tab" data-t="extremes">Extremes</button><button class="tab" data-t="overview">Overview</button><button class="tab" data-t="alerts">Alerts</button><button class="tab" data-t="guide">Guide</button></div>
@@ -318,10 +322,20 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 let OV = null, ROLE = 'owner', OPEN = null, RANGE = {}, SERIES = {}, ALERTS = null;
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 function track(what){ fetch('/api/track',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({what})}).catch(()=>{}); }
+let BUSY = 0, BUSY_T = null, USER_UNTIL = 0;
+document.addEventListener('click', () => { USER_UNTIL = Date.now() + 4000; }, true);
+function busy(on){
+  BUSY = Math.max(0, BUSY + (on ? 1 : -1));
+  if (BUSY > 0 && !BUSY_T && Date.now() < USER_UNTIL) BUSY_T = setTimeout(() => { const p = document.getElementById('prog'); if (p) p.classList.add('on'); }, 150);
+  if (BUSY === 0){ clearTimeout(BUSY_T); BUSY_T = null; const p = document.getElementById('prog'); if (p) p.classList.remove('on'); }
+}
 async function api(url, body){
-  const r = await fetch(url, body===undefined ? {} : {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-  if (r.status === 401){ location.href = '/login'; throw new Error('signed out'); }
-  return r.json();
+  busy(true);
+  try {
+    const r = await fetch(url, body===undefined ? {} : {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if (r.status === 401){ location.href = '/login'; throw new Error('signed out'); }
+    return await r.json();
+  } finally { busy(false); }
 }
 function num(v, dec){ return Number(v).toLocaleString('en-US',{minimumFractionDigits:dec, maximumFractionDigits:dec}); }
 function fmtVal(s, v){
@@ -600,7 +614,7 @@ function tomorrowHTML(t){
     + `<div class="tmr-w"><span>Giants vs the average stock</span><span><b class="${t.heat.cap >= 0 ? 'up' : 'down'}">${t.heat.cap > 0 ? '+' : ''}${t.heat.cap.toFixed(1)}%</b> by size</span><span><b class="${t.heat.eq >= 0 ? 'up' : 'down'}">${t.heat.eq > 0 ? '+' : ''}${t.heat.eq.toFixed(1)}%</b> equal weight</span></div>` : '';
   const mg = t.heat && t.heat.mega && t.heat.mega.length ? `<div class="tmr-m"><span class="tmr-t">Mega caps over $1 trillion · ${t.heat.megaShare.toFixed(0)}% of the S&amp;P 500</span><div class="mc">${t.heat.mega.map(x => `<a class="mgc ${x.pct >= 0 ? 'up' : 'down'}" href="https://finance.yahoo.com/quote/${encodeURIComponent(x.t)}" target="_blank" rel="noopener noreferrer" data-tk="${esc(x.t)}" data-tn="${esc(x.n || '')}" data-tp="${x.pct}"><i>${esc(x.t)}</i> ${x.pct > 0 ? '+' : ''}${x.pct.toFixed(1)}%</a>`).join('')}</div></div>` : '';
   return `<div class="tmr"><div class="tmr-h"><span class="tmr-t">Pressure on the market</span><span class="tmr-l ${t.level}">${t.level}</span><span class="small">${t.hits} of ${t.total} warning signs</span></div>
-    ${mg}<div class="tmr-s">${t.signs.map(s => `<div class="sg ${s.hit ? 'hit' : ''}${s.key ? ' click' : ''}"${s.key ? ` onclick="explain('${s.key}', this)"` : ''}><div class="n">${esc(s.name)}</div><div class="v">${esc(s.value)}</div><div class="r">${esc(s.rule || '')}</div></div>`).join('')}</div>${w}</div>`;
+    ${mg}<div class="tmr-s">${t.signs.map(s => `<div class="sg ${s.hit ? 'hit' : ''}${s.key || s.sym ? ' click' : ''}"${s.key ? ` onclick="explain('${s.key}', this)"` : s.sym ? ` onclick="window.open('https://finance.yahoo.com/quote/${encodeURIComponent(s.sym)}', '_blank', 'noopener')"` : ''}${s.sym && !s.key ? ' title="Opens Yahoo Finance"' : ''}><div class="n">${esc(s.name)}</div><div class="v">${esc(s.value)}</div><div class="r">${esc(s.rule || '')}</div></div>`).join('')}</div>${w}</div>`;
 }
 function renderToday(){
   if (!OV) return;
@@ -619,8 +633,8 @@ function renderToday(){
   drawOpen();
 }
 function japanCards(){ const o = OPEN; OPEN = null; const h = (OV.groups.find(g => g.id === 'japan')?.items || []).map(s => cardHTML(s, 'jp')).join(''); OPEN = o; return h; }
-function goCluster(id){ showTab('today'); setTimeout(() => $('cl-' + id)?.scrollIntoView({behavior:'smooth', block:'start'}), 30); }
-function goCard(cid, key){ showTab('today'); openCard(cid + '|' + key); }
+function goCluster(id){ doShowTab('today'); setTimeout(() => $('cl-' + id)?.scrollIntoView({behavior:'smooth', block:'start'}), 30); }
+function goCard(cid, key){ doShowTab('today'); openCard(cid + '|' + key); }
 
 // ── Japan ─────────────────────────────────────────────────────────────────
 async function renderJapan(){
@@ -803,7 +817,7 @@ async function explain(key, el){
     else { EXPL_SCROLL = window.scrollY; EXSTACK = []; EXPL_ORIGIN = {tab: TAB, key, cid: src && src.dataset ? (src.dataset.cid || null) : null}; }
     EXPL_NEW = new Set(((OV && OV.newsIdx && OV.newsIdx[key]) || []).filter(h => !SEEN.has(h)));
     EXPL = E; OPEN = null; markSeen((OV && OV.newsIdx && OV.newsIdx[key]) || []);
-    if (TAB !== 'today') showTab('today');
+    if (TAB !== 'today') doShowTab('today');
     window.scrollTo(0, 0); renderToday();
     if (animate && from) enterScene(from); else requestAnimationFrame(() => drawLines(true));
     track('Explain ' + key);
@@ -831,7 +845,7 @@ async function closeExplain(){
     await new Promise(r => setTimeout(r, 250));
   }
   OPEN = null; EXPL = null; EXSTACK = []; EXPL_NEW = new Set(); document.body.classList.remove('wide');
-  showTab(origin.tab); renderOrigin(origin.tab); if (origin.tab !== 'today') renderToday(); window.scrollTo(0, EXPL_SCROLL || 0);
+  doShowTab(origin.tab); renderOrigin(origin.tab); if (origin.tab !== 'today') renderToday(); window.scrollTo(0, EXPL_SCROLL || 0);
   if (clone){
     const target = findOriginEl(origin), dest = target ? target.getBoundingClientRect() : null;
     slideIn(target);
@@ -1015,12 +1029,16 @@ function stkNewsRow(n){
   return `<div class="gh ${cls}"><div class="ghl"><span class="urg ${cls}">${n.urgency}</span><span class="gcat">${n.about === STK_OPEN ? 'about ' + esc(n.about) : n.about ? 'via ' + esc(n.about) : ''}</span></div>
     <div class="ghb"><a class="ntitle" href="${esc(n.link)}" target="_blank" rel="noopener noreferrer">${esc(n.title)}</a>${n.summary ? `<div class="nsum">${esc(n.summary)}</div>` : ''}<div class="nmeta">${esc(n.source)} · ${esc(ago(n.ts))} ${st}</div></div></div>`;
 }
+function stkGo(k, g, sym, el){
+  if (g === 's') openStock(k); else if (g === 'c') explain(k, el); else window.open('https://finance.yahoo.com/quote/' + encodeURIComponent(sym), '_blank', 'noopener');
+}
 function stkRel(x){
   const lab = x.status === 'asusual' ? ['AS USUAL', ''] : x.status === 'against' ? ['AGAINST THE USUAL LINK', 'warn'] : ['QUIET', ''];
   const strength = Math.abs(x.r) >= 0.7 ? 'strong' : Math.abs(x.r) >= 0.5 ? 'clear' : 'loose';
   const mv = x.chgKind === 'pct' ? `${sgn(x.d1)}${Math.abs(x.d1).toFixed(2)}%` : `${sgn(x.d1)}${Math.abs(x.d1).toFixed(2)} pt`;
-  return `<div class="strel"><div class="relhead"><span class="reltag ${lab[1]}">${lab[0]}</span><span class="small">${strength} link (${x.r > 0 ? '+' : '−'}${Math.abs(x.r).toFixed(2)})</span></div>
-    <div class="nm"><b>${esc(x.name)}</b>${x.stock ? ' <span class="small">your stock</span>' : ''}</div><div class="skv ${x.d1 >= 0 ? 'up' : 'down'}" style="font-size:18px">${mv} <span class="small">today</span></div></div>`;
+  const go = x.stock ? 's' : x.card ? 'c' : 'y';
+  return `<div class="strel click" onclick="stkGo(this.dataset.k, this.dataset.g, this.dataset.s, this)" data-k="${esc(x.key)}" data-g="${go}" data-s="${esc(x.sym || x.key)}" title="${go === 'y' ? 'Opens Yahoo Finance' : 'Opens it'}"><div class="relhead"><span class="reltag ${lab[1]}">${lab[0]}</span><span class="small">${strength} link (${x.r > 0 ? '+' : '−'}${Math.abs(x.r).toFixed(2)})</span></div>
+    <div class="nm"><b>${esc(x.name)}</b>${x.stock ? ' <span class="small">your stock</span>' : go === 'y' ? ' <span class="small">↗ Yahoo Finance</span>' : ''}</div><div class="skv ${x.d1 >= 0 ? 'up' : 'down'}" style="font-size:18px">${mv} <span class="small">today</span></div></div>`;
 }
 function renderStockDetail(){
   const root = $('stocks'), D = STK_D, r = (STK && [...STK.hold, ...STK.watch].find(x => x.t === STK_OPEN)) || (D && D.row) || {t: STK_OPEN};
@@ -1173,8 +1191,9 @@ function drawWarMap(box, m, cid){
     ${m.ships && m.ships.length ? `<div class="ships">${m.ships.map(shipHTML).join('')}</div>` : ''}
     <div class="wm-leg"><span><i style="background:#FF4D4F"></i>${cid === 'ua' ? 'Russian-held area (darker = taken since 2022) / ' : ''}reported hit, last 7 days</span>${cid === 'ua' ? '<span><i style="background:#F5C518"></i>contested (gray) zone</span>' : ''}<span><i style="background:#fff"></i>oil site, no report</span><span><i style="background:#F5C518"></i>incident reported (bigger = more reports)</span><span><i style="background:#4673FF"></i>strait / bridge / tanker</span><span><i style="background:#c4c4cc"></i>other ship</span></div>
     ${hits.length ? `<div class="wm-hits"><b>Oil sites named in an attack report this week</b>${hits.map(s => `<div><span class="hn">${esc(s.name)}</span> <a href="${esc(s.hit.link)}" target="_blank" rel="noopener noreferrer">${esc(s.hit.title)}</a> <span class="small">${esc(s.hit.source)} · ${esc(ago(s.hit.ts))}</span></div>`).join('')}</div>` : `<div class="small" style="margin-top:8px">No refinery or terminal is named in an attack headline this week.</div>`}
-    ${m.ais && !m.ais.hasKey && !(OV && OV.role === 'guest') ? `<div class="aiskey small"><b>Live ships:</b> needs a free key from <a href="https://aisstream.io" target="_blank" rel="noopener noreferrer">aisstream.io</a> (sign in with GitHub, then “API Keys”). Paste it here: <input id="aisK" placeholder="API key" style="width:260px"> <button class="btn" onclick="saveAis()">Save</button></div>` : m.ais && m.ais.status ? `<div class="small ${m.ais.status.ok ? '' : 'warn'}" style="margin-top:8px">Live ships: ${esc(m.ais.status.msg)} · ${esc(ago(m.ais.status.ts))}</div>` : m.ais && m.ais.hasKey ? '<div class="small" style="margin-top:8px">Live ships: key saved, the first picture arrives within a few minutes.</div>' : ''}
-    ${errs.length ? `<div class="small warn" style="margin-top:8px">Not reached right now: ${errs.map(([k, v]) => '<b>' + esc(k) + '</b> — ' + esc(v)).join('<br>')}</div>` : ''}
+    ${m.ais && !m.ais.hasKey && !(OV && OV.role === 'guest') ? `<div class="aiskey"><b>Live ships need a free key (about 1 minute):</b> 1. open <a href="https://aisstream.io" target="_blank" rel="noopener noreferrer">aisstream.io</a> · 2. sign in with GitHub · 3. “API Keys” → create one · 4. paste it here:
+      <div style="margin-top:8px"><input id="aisK" placeholder="API key" style="width:300px"> <button class="btn" onclick="saveAis()">Save</button></div><div class="small" style="margin-top:6px">Without a key nobody can show you the ships: ship positions are not free anywhere else. Once saved, the ships appear within a few minutes.</div></div>` : m.ais && m.ais.status ? `<div class="small ${m.ais.status.ok ? '' : 'warn'}" style="margin-top:8px">Live ships: ${esc(m.ais.status.msg)} · ${esc(ago(m.ais.status.ts))}</div>` : m.ais && m.ais.hasKey ? '<div class="small" style="margin-top:8px">Live ships: key saved, the first picture arrives within a few minutes.</div>' : ''}
+    ${errs.length ? `<div class="small warn" style="margin-top:8px">Some data could not be loaded right now: ${errs.map(([k, v]) => '<b>' + esc(k) + '</b> — ' + esc(v)).join('<br>')}</div>` : ''}
     <div class="small wm-links">Open the live maps: ${(cid === 'ua' ? [['DeepStateMap', 'https://deepstatemap.live/en/'], ['Liveuamap Ukraine', 'https://liveuamap.com/'], ['ISW map', 'https://understandingwar.org/map/'], ['Black Sea ships', 'https://www.marinetraffic.com/en/ais/home/centerx:33/centery:44/zoom:6']]
       : [['Liveuamap Middle East', 'https://middleeast.liveuamap.com/'], ['Hormuz ships', 'https://www.marinetraffic.com/en/ais/home/centerx:56.3/centery:26.5/zoom:8'], ['Red Sea / Bab-el-Mandeb ships', 'https://www.marinetraffic.com/en/ais/home/centerx:43.3/centery:13/zoom:7'], ['Oil &amp; gas infrastructure', 'https://www.globalenergymonitor.org/']]).map(([n, u]) => `<a href="${u}" target="_blank" rel="noopener noreferrer">${n}</a>`).join(' · ')}</div>
     <div class="small" style="margin-top:8px">${cid === 'ua' ? frontNote(m) : ''}Sources: ${cid === 'ua' ? 'DeepStateMap (front line), ' : ''}this app's own headlines (a place named together with an attack word), IMF PortWatch (ship counts), OpenStreetMap (base map). ${m.ts ? 'Updated ' + esc(ago(m.ts)) + '.' : 'The first update comes a minute after the app starts.'}</div>`;
@@ -1309,7 +1328,7 @@ async function openSummary(h){
   try {
     const d = await api('/api/summary', {h});
     body.innerHTML = d.success ? aiBody(d) : `<p class="muted" style="color:var(--watch)">${esc(d.message || 'The summary could not be created.')}</p>` +
-      (['no_key', 'bad_key', 'model'].includes(d.error) ? `<p style="margin-top:10px"><button class="btn primary" onclick="closeModal();showTab('alerts');setTimeout(() => $('aiCard')?.scrollIntoView({behavior:'smooth'}), 300)">Open the AI settings</button></p>` : '');
+      (['no_key', 'bad_key', 'model'].includes(d.error) ? `<p style="margin-top:10px"><button class="btn primary" onclick="closeModal();doShowTab('alerts');setTimeout(() => $('aiCard')?.scrollIntoView({behavior:'smooth'}), 300)">Open the AI settings</button></p>` : '');
   } catch (e){ if (e.message !== 'signed out') body.innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
 }
 
@@ -1390,7 +1409,7 @@ function openEx(key){
   transitionLayout('#extremes', 'data-ex', () => { EXOPEN = key; renderExtremes(); }, key || null, prevKey && prevKey !== key ? prevKey : null);
   if (key){ drawExDetail(key); setTimeout(() => $('ex-' + uid('', key))?.scrollIntoView({behavior:'smooth', block:'nearest'}), 50); track('Opened extreme ' + key); }
 }
-function goExtreme(key){ EXCAT = 'all'; showTab('extremes'); EXOPEN = key; renderExtremes(); drawExDetail(key); }
+function goExtreme(key){ EXCAT = 'all'; doShowTab('extremes'); EXOPEN = key; renderExtremes(); drawExDetail(key); }
 function setExCat(c){ EXCAT = c; renderExtremes(); }
 function renderExtremes(){
   if (!EX) return;
@@ -1423,7 +1442,7 @@ function toggleJapan(){
   $('japanBtn').textContent = 'Yen carry trade in detail ' + (JAPAN_OPEN ? '▴' : '▾');
   if (JAPAN_OPEN){ renderJapan().catch(e => { $('japan').innerHTML = '<div class="card muted">Could not load the Japan section: ' + esc(e.message) + '</div>'; }); track('Opened Japan detail'); }
 }
-function openJapan(){ showTab('extremes'); if (!JAPAN_OPEN) toggleJapan(); setTimeout(() => $('japanBtn').scrollIntoView({behavior:'smooth'}), 150); }
+function openJapan(){ doShowTab('extremes'); if (!JAPAN_OPEN) toggleJapan(); setTimeout(() => $('japanBtn').scrollIntoView({behavior:'smooth'}), 150); }
 
 // ── Alerts ────────────────────────────────────────────────────────────────
 let AIS = null;
@@ -1485,7 +1504,19 @@ async function addRule(){
 // ── tabs and refresh ──────────────────────────────────────────────────────
 let TAB = 'today';
 function tabIsOpen(t){ return TAB === t; }
+const TAB_ORDER = ['today', 'stocks', 'headlines', 'geo', 'heatmap', 'extremes', 'overview', 'alerts', 'guide'];
+let TAB_BUSY = 0;
 function showTab(t){
+  const prev = TAB, from = $('pane-' + prev);
+  if (REDUCED || prev === t || !from || from.hidden || Date.now() < TAB_BUSY){ doShowTab(t); return; }
+  TAB_BUSY = Date.now() + 900;
+  const dir = TAB_ORDER.indexOf(t) > TAB_ORDER.indexOf(prev) ? 1 : -1;
+  document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x.dataset.t === t));       // the tab lights up at once
+  const out = from.animate([{transform: 'none', opacity: 1}, {transform: `translateX(${-dir * 120}px) rotate(${-dir * 1.2}deg)`, opacity: 0}], {duration: D(520), easing: 'cubic-bezier(.5,0,.9,.55)', fill: 'forwards'});
+  out.finished.then(() => { out.cancel(); doShowTab(t); $('pane-' + t).animate([{transform: `translateX(${dir * 80}px) translateY(-12px) rotate(${dir * 1}deg)`, opacity: 0}, {transform: 'none', opacity: 1}], {duration: D(820), easing: 'cubic-bezier(.2,.8,.25,1)'}); })
+     .catch(() => { out.cancel(); doShowTab(t); });
+}
+function doShowTab(t){
   TAB = t;
   try { sessionStorage.setItem('macroTab', t); } catch (e) {}
   document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x.dataset.t === t));
@@ -1539,6 +1570,6 @@ async function load(){
   } catch (e){ if (e.message !== 'signed out') $('upd').textContent = 'Cannot reach the server right now'; }
 }
 let rz; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { if (EXPL) drawLines(false); if (TAB === 'overview') renderOverview(); if (TAB === 'heatmap') renderHeat(); if (TAB === 'geo') renderGeo(); if (TAB === 'today' && OPEN) drawDetail(OPEN); if (TAB === 'extremes'){ if (EXOPEN) drawExDetail(EXOPEN); if (JAPAN_OPEN) renderJapan().catch(() => {}); } }, 250); });
-load(); setInterval(load, 60000); showMotion();
-try { const t = sessionStorage.getItem('macroTab'); if (t && t !== 'today' && document.querySelector(`.tab[data-t="${t}"]`)) showTab(t); } catch (e) {}
+load(); setInterval(load, 20000); showMotion();
+try { const t = sessionStorage.getItem('macroTab'); if (t && t !== 'today' && document.querySelector(`.tab[data-t="${t}"]`)) doShowTab(t); } catch (e) {}
 </script></body></html>

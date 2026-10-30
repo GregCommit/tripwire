@@ -2208,12 +2208,12 @@ def heat_stats(rows):
 def build_tomorrow(chg, vix, vixts, sect_up, heat, earn, vix3=None, fng=None):
     """Turn the short-term numbers into warning signs. A sign 'hits' past a fixed, simple threshold. Gauge, not forecast."""
     signs = []
-    def add(name, val, txt, hit, rule, key=None):
-        signs.append({"name": name, "value": txt, "hit": bool(hit), "v": val, "rule": rule, "key": key})
+    def add(name, val, txt, hit, rule, key=None, sym=None):
+        signs.append({"name": name, "value": txt, "hit": bool(hit), "v": val, "rule": rule, "key": key, "sym": sym})
     for k, name, lim in [("FUT_ES", "S&P 500 futures", -0.7), ("FUT_NQ", "Nasdaq futures", -1.0), ("FUT_RTY", "Small-cap futures", -1.0)]:
         v = chg.get(k)
         if v is not None:
-            add(name, v, f"{v:+.1f}%", v <= lim, f"Where traders price it now vs the last close. Red at {lim:g}% or worse.")
+            add(name, v, f"{v:+.1f}%", v <= lim, f"Where traders price it now vs the last close. Red at {lim:g}% or worse.", sym={"FUT_ES": "ES=F", "FUT_NQ": "NQ=F", "FUT_RTY": "RTY=F"}[k])
     if vix:
         add("VIX", vix[1], f"{vix[0]:.1f} ({vix[1]:+.0f}%)", vix[1] >= 10 or vix[0] >= 25, "The fear gauge. Red when it jumps 10% in a day or sits above 25.", "VIX")
     if vixts is not None:
