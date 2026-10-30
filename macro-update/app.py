@@ -61,9 +61,9 @@ app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
                   SESSION_COOKIE_SECURE=PUBLIC_URL.startswith("https://"))
 
 # How often each source is fetched (seconds); a failed fetch is retried after 10 minutes
-EVERY = {"yahoo": 15 * 60, "fred": 2 * 3600, "bis": 12 * 3600, "boj": 12 * 3600, "hub": 3 * 3600}
+EVERY = {"yahoo": 15 * 60, "fred": 2 * 3600, "bis": 12 * 3600, "boj": 12 * 3600, "hub": 3 * 3600, "geo": 15 * 60, "earn": 30 * 60}
 SOURCE_NAMES = {"yahoo": "Yahoo Finance", "fred": "FRED (St. Louis Fed)", "bis": "BIS (Japan CPI)",
-                "boj": "Bank of Japan forecasts", "hub": "Extremes (long histories)"}
+                "boj": "Bank of Japan forecasts", "hub": "Extremes (long histories)", "geo": "Geopolitics markets", "earn": "Earnings reactions"}
 
 DEFAULT_RULES = [
     ("MOOD", "below", 20), ("MOOD", "above", 80), ("VIX", "above", 30),
@@ -189,6 +189,10 @@ def refresh_source(source):
             set_setting("boj_outlook", json.dumps(S.fetch_boj_outlook()))
         elif source == "hub":
             refresh_hub()
+        elif source == "geo":
+            refresh_geo()
+        elif source == "earn":
+            refresh_earn()
         mark_fetch(source, True)
         log.info("Refreshed %s", source)
     except Exception as e:
@@ -244,6 +248,111 @@ def hub_summaries():
     return out
 
 
+def refresh_geo():
+    """Prices for the geopolitics tab: defense, energy, shipping, airlines and so on (Yahoo), jet fuel (FRED), plus the averages."""
+    syms = S.geo_symbols()
+    got = S.fetch_yahoo(syms, period="2y")
+    saved = 0
+    for k, v in S.GEO_ITEMS.items():
+        if v.get("sym") and v["sym"] in got:
+            save_series(k, got[v["sym"]])
+            saved += 1
+    try:
+        save_series("G_JETFUEL", S.fetch_fred("DJFUELUSGULF", "2023-01-01"))
+    except Exception as e:
+        log.warning("Jet fuel series failed: %s", e)
+    for bk, members in S.GEO_BASKETS.items():
+        pts = S.build_basket([load_series(m) for m in members if load_series(m)])
+        if len(pts) > 30:
+            save_series(bk, pts)
+    if not saved:
+        raise RuntimeError("Yahoo returned no geopolitics prices")
+    missing = [v["name"] for k, v in S.GEO_ITEMS.items() if v.get("sym") and v["sym"] not in got]
+    set_setting("geo_missing", json.dumps(missing))
+
+
+def compute_internals():
+    out, parts = S.compute_internals(load_series)
+    for k, pts in out.items():
+        save_series(k, pts)
+    set_setting("sector_parts", json.dumps(parts))
+
+
+def _earnings_date(tk):
+    try:
+        cal = tk.calendar
+        v = cal.get("Earnings Date") if isinstance(cal, dict) else None
+        if v:
+            d = v[0] if isinstance(v, (list, tuple)) else v
+            return d.date() if hasattr(d, "date") else d
+    except Exception:
+        pass
+    return None
+
+
+def _implied_for(tk, spot, on_or_after):
+    exps = [e for e in (tk.options or []) if e >= on_or_after.isoformat()]
+    if not exps:
+        return None
+    ch = tk.option_chain(exps[0])
+    cols = lambda df: [{"strike": r["strike"], "bid": r["bid"], "ask": r["ask"], "last": r["lastPrice"]} for r in df.to_dict("records")]
+    return S.implied_move_pct(spot, cols(ch.calls), cols(ch.puts))
+
+
+def refresh_earn():
+    """After-hours / next-day reaction of the big names, set against the move the options market expected BEFORE the report.
+    The expectation is captured while the report is still ahead (earnings date within two days) and kept for the comparison."""
+    import yfinance as yf
+    from datetime import time as dtime
+    try:
+        from zoneinfo import ZoneInfo
+        ny = ZoneInfo("America/New_York")
+    except Exception:
+        ny = None
+    df = yf.download(S.EARN_WATCH, period="5d", interval="5m", prepost=True, auto_adjust=False, progress=False, group_by="ticker", threads=False)
+    state = json.loads(get_setting("earn_state", "{}") or "{}")
+    now = int(time.time())
+    today = datetime.now(ny).date() if ny else datetime.now().date()
+    rows = []
+    for t in S.EARN_WATCH:
+        try:
+            s = df[t]["Close"].dropna()
+            idx = s.index.tz_convert(ny) if s.index.tz is not None else s.index.tz_localize("UTC").tz_convert(ny)
+            s = s.copy()
+            s.index = idx
+            reg = s[(s.index.time >= dtime(9, 30)) & (s.index.time <= dtime(16, 0))]
+            if reg.empty:
+                continue
+            reg_close, reg_t = float(reg.iloc[-1]), reg.index[-1]
+            prev = reg[reg.index.date < reg_t.date()]
+            after = s[s.index > reg_t]
+            ah = (float(after.iloc[-1]) / reg_close - 1) * 100 if len(after) else None
+            day = (reg_close / float(prev.iloc[-1]) - 1) * 100 if len(prev) else None
+        except Exception as e:
+            log.warning("Earnings %s: %s", t, e)
+            continue
+        st = state.get(t, {})
+        try:
+            tk = yf.Ticker(t)
+            ed = _earnings_date(tk)
+            if ed and today <= ed <= today + timedelta(days=2) and (st.get("exp_date") != ed.isoformat() or now - st.get("exp_ts", 0) > 6 * 3600):
+                pct = _implied_for(tk, reg_close, ed)
+                if pct:
+                    st = state[t] = {"exp_date": ed.isoformat(), "expect": pct, "exp_ts": now}
+        except Exception as e:
+            log.warning("Earnings options %s: %s", t, e)
+        move = ah if ah is not None else day
+        exp_recent = st.get("expect") and st.get("exp_date") and abs((today - datetime.strptime(st["exp_date"], "%Y-%m-%d").date()).days) <= 3
+        if move is None or not (exp_recent or abs(move) >= 5):
+            continue
+        ratio, words = S.surprise_ratio(move, st.get("expect") if exp_recent else None)
+        rows.append({"t": t, "move": round(move, 2), "when": "after hours" if ah is not None else "today", "expected": st.get("expect") if exp_recent else None,
+                     "ratio": ratio, "words": words, "date": st.get("exp_date") if exp_recent else None})
+    set_setting("earn_state", json.dumps(state))
+    rows.sort(key=lambda r: -(r["ratio"] or abs(r["move"]) / 5))
+    set_setting("earn_rows", json.dumps({"ts": now, "rows": rows}))
+
+
 def compute_mood():
     mood, vr, latest = S.mood_series(load_series("SPX"), load_series("VIX"), load_series("IEF"),
                                      load_series("HYSPREAD"))
@@ -283,6 +392,10 @@ def refresh_cycle(force=False):
             except Exception as e:
                 log.warning("Mood calculation failed: %s", e)
             try:
+                compute_internals()
+            except Exception as e:
+                log.warning("Market internals failed: %s", e)
+            try:
                 check_alerts()
             except Exception as e:
                 log.exception("Alert check failed: %s", e)
@@ -301,7 +414,7 @@ def background_loop():
 
 BROWSER_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36"
 NEWS_EVERY = 15 * 60
-NEWS_KEEP_DAYS = 4
+NEWS_KEEP_DAYS = 7
 
 
 def refresh_news():
@@ -386,8 +499,8 @@ def news_for(primary, drivers, effects, limit=10):
         if not hit:
             continue
         score = max(rel[k] * w for k, w in hit) + max(0.0, 1 - (time.time() - r["ts"]) / 3600 / 96)
-        tags = [S.BY_KEY[k]["name"] if k in S.BY_KEY else S.HUB_BY_KEY[k]["name"] for k, _ in sorted(hit, key=lambda x: -rel[x[0]])
-                if k in S.BY_KEY or k in S.HUB_BY_KEY][:3]
+        tags = [S.item_name(k) for k, _ in sorted(hit, key=lambda x: -rel[x[0]])
+                if k in S.BY_KEY or k in S.HUB_BY_KEY or k in S.GEO_ITEMS][:3]
         keys = [k for k, _ in sorted(hit, key=lambda x: -rel[x[0]])]
         out.append({"score": score, "keys": keys, "h": link_hash(r["link"]), "title": r["title"], "summary": r["summary"], "link": r["link"], "source": r["source"],
                     "ts": r["ts"], "tags": tags})
@@ -930,6 +1043,9 @@ def api_overview():
     recent = news_recent(24)
     return jsonify({"role": session.get("role"), "groups": groups, "sources": sources,
                     "clusters": clusters,
+                    "sectors": sorted(({"k": k, "name": S.SECTOR_NAMES.get(k, k), "pct": v, "ai": k in S.AI_BUILDER_SECTORS}
+                                       for k, v in json.loads(get_setting("sector_parts", "{}") or "{}").items()), key=lambda x: -x["pct"]),
+                    "earnings": json.loads(get_setting("earn_rows", "null") or "null"),
                     "summary": build_summary(clusters, crossed_levels(sm, get_rules()), recent),
                     "newsIdx": {k: [n["h"] for n in v] for k, v in recent.items()},
                     "moodParts": json.loads(get_setting("mood_parts", "{}") or "{}"),
@@ -951,14 +1067,24 @@ def _code_version():
 VERSION = _code_version()
 
 
+STARTED = int(time.time())
+
+
+def deployed_commit():
+    try:
+        return Path("/var/lib/macro-autoupdate/sha").read_text().strip()[:7]
+    except OSError:
+        return ""
+
+
 @app.route("/api/version")
 @login_required
 def api_version():
-    return jsonify({"version": VERSION})
+    return jsonify({"version": VERSION, "commit": deployed_commit(), "started": STARTED})
 
 
 def all_items():
-    items = {**summaries(), **{h["key"]: h for h in hub_summaries()}}
+    items = {**summaries(), **{h["key"]: h for h in hub_summaries()}, **S.geo_summaries(load_series)}
     apply_link_ranking(items)
     return items
 
@@ -1108,6 +1234,79 @@ def api_graph():
                                request.args.get("linked") == "1", request.args.get("newsonly") == "1"))
 
 
+
+def build_geo_graph(cid, items, edges):
+    """The conflict as a map: the conflict itself in the middle, the markets it moves around it, the links between
+    those markets, and the headlines about it."""
+    G = S.GEO[cid]
+    keys = []
+    for g in G["groups"]:
+        if g.get("basket"):
+            keys.append(g["basket"][0])
+        else:
+            keys += [S.geo_key(s) for s, _, _ in g["members"]][:2]
+        keys += [k for k, _, _ in g.get("extra", [])] + list(g.get("refs", []))
+    keys = [k for k in dict.fromkeys(keys) if k in items]
+    keyset = set(keys)
+    recent = news_recent(72)
+    nodes = [{"key": G["topic"], "name": G["title"], "special": True, "value": 0, "unit": "", "dec": 0, "chgKind": "pct", "chg": None, "horizon": None, "good": 0,
+              "hub": False, "zone": None, "tone": None, "rank": 99, "boost": 0, "factor": 1, "rank0": 99, "cluster": None,
+              "why": "The conflict itself. The boxes around it are the markets it moves.", "nNews": len(recent.get(G["topic"], []))}]
+    for k in keys:
+        it = items[k]
+        field = HZ_FIELD.get(it.get("horizon") or "today", "d1")
+        nodes.append({"key": k, "name": it["name"], "value": it["value"], "unit": it["unit"], "dec": it["dec"], "signed": bool(it.get("signed")), "chgKind": it["chgKind"],
+                      "chg": it.get(field), "horizon": it.get("horizon"), "good": it.get("good", 0), "hub": False, "zone": None, "tone": it.get("tone"),
+                      "rank": max(it["rank"], 1.0), "boost": it.get("linkBoost", 0), "factor": it.get("linkFactor", 1), "rank0": it.get("rank0", it["rank"]),
+                      "cluster": None, "why": node_why(k, items, edges, recent), "nNews": len(recent.get(k, []))})
+    es = [{"a": e["driver"], "b": e["affected"], "mode": e["mode"], "status": e["status"], "reinforce": e.get("reinforce", False), "note": e["note"]}
+          for e in edges if e["driver"] in keyset and e["affected"] in keyset]
+    linked = {x for e in es for x in (e["a"], e["b"])}
+    for k in keys:                                                       # the conflict touches every market in the map that has no other link yet
+        if k not in linked:
+            es.append({"a": G["topic"], "b": k, "mode": "same", "status": "quiet", "reinforce": False, "note": ""})
+    es += [{"a": G["topic"], "b": k, "mode": "same", "status": "quiet", "reinforce": False, "note": ""} for k in keys if k in linked and S.GEO_ITEMS.get(k, {}).get("basket")]
+    cutoff = int(time.time()) - 72 * 3600
+    with get_db() as conn:
+        rows = [dict(r) for r in conn.execute("SELECT * FROM news WHERE ts > ? ORDER BY ts DESC LIMIT 800", (cutoff,))]
+    news = []
+    for r in rows:
+        try:
+            topics = json.loads(r["topics"])
+        except ValueError:
+            continue
+        if G["topic"] not in {t for t, _ in topics}:
+            continue
+        hit = [k for k, w in topics if k in keyset and w >= 2][:1]
+        news.append({"score": r["ts"], "h": link_hash(r["link"]), "title": r["title"], "summary": r["summary"], "link": r["link"], "source": r["source"],
+                     "ts": r["ts"], "keys": [G["topic"]] + hit})
+    news.sort(key=lambda x: -x["score"])
+    notes = []
+    return {"nodes": nodes, "edges": es, "news": news[:6], "notes": notes, "total": len(keys), "shown": len(keys), "allNews": news[:14]}
+
+
+@app.route("/api/geo")
+@login_required
+def api_geo():
+    cid = request.args.get("c", "ua")
+    if cid not in S.GEO:
+        return jsonify({"error": "unknown"}), 404
+    G = S.GEO[cid]
+    items = all_items()
+    _, edges = S.adjusted_scores(items)
+    groups = []
+    for g in G["groups"]:
+        ks = ([g["basket"][0]] if g.get("basket") else []) + [S.geo_key(s) for s, _, _ in g["members"]] + [k for k, _, _ in g.get("extra", [])] + list(g.get("refs", []))
+        groups.append({"id": g["id"], "title": g["title"], "says": g["says"], "items": [items[k] for k in dict.fromkeys(ks) if k in items]})
+    graph = build_geo_graph(cid, items, edges)
+    now = time.time()
+    rec = news_recent(7 * 24).get(G["topic"], [])
+    pulse = {"day": sum(1 for n in rec if now - n["ts"] < 86400), "week": len(rec)}
+    return jsonify({"id": cid, "title": G["title"], "blurb": G["blurb"], "groups": groups, "graph": graph, "pulse": pulse,
+                    "missing": json.loads(get_setting("geo_missing", "[]") or "[]"),
+                    "conflicts": [{"id": k, "title": v["title"]} for k, v in S.GEO.items()]})
+
+
 @app.route("/api/explain/<key>")
 @login_required
 def api_explain(key):
@@ -1126,6 +1325,8 @@ def api_explain(key):
 def api_series(key):
     if key in S.HUB_BY_KEY:
         return jsonify({"key": key, "points": load_series("H_" + key)})
+    if key in S.GEO_ITEMS:
+        return jsonify({"key": key, "points": load_series(key)})
     if key not in S.BY_KEY:
         return jsonify({"error": "unknown"}), 404
     return jsonify({"key": key, "points": load_series(key)})

@@ -34,6 +34,7 @@ GROUPS = [
     ("commod", "Commodities", "Energy, metals and the raw materials of the economy."),
     ("macro", "Dollar & US economy", "The dollar, the Fed's rate and US inflation."),
     ("japan", "Japan & the yen", "The yen, Japan's inflation and the Bank of Japan."),
+    ("internals", "Market internals", "What is under the index: how many sectors move, the AI builders, banks and the volatility curve."),
 ]
 
 CALM, WATCH, ALERT = "calm", "watch", "alert"
@@ -160,6 +161,35 @@ INDICATORS = [
     # Helpers used only in calculations
     dict(key="IEF", name="7–10y Treasury bond fund", group=None, source="yahoo", sym="IEF", unit="$", dec=2,
          kind="range", chg="pct", freq="daily", explain=""),
+]
+# ── Market internals: what is under the index (sector ETFs and big AI names are helpers; the rest is calculated from them)
+_SECTORS = [("XLK", "Technology"), ("XLC", "Communication services"), ("XLY", "Consumer discretionary"), ("XLF", "Financials"), ("XLI", "Industrials"),
+            ("XLV", "Health care"), ("XLP", "Consumer staples"), ("XLU", "Utilities"), ("XLRE", "Real estate"), ("XLE", "Energy"), ("XLB", "Materials")]
+AI_BUILDER_SECTORS = {"XLK", "XLC", "XLY"}
+AI_BUILDERS = ["NVDA", "MSFT", "GOOGL", "META", "AMZN", "AVGO"]
+for _k, _n in _SECTORS:
+    INDICATORS.append(dict(key=_k, name=_n + " sector", group=("internals" if _k == "XLF" else None), source="yahoo", sym=_k, unit="$", dec=2, kind="range", chg="pct",
+                           freq="daily", money=True, explain=f"The {_n.lower()} companies of the S&P 500 as one fund."))
+INDICATORS[-11 + [k for k, _ in _SECTORS].index("XLF")]["name"] = "Banks & financials (XLF)"
+INDICATORS += [dict(key=k, name=n, group=g, source="yahoo", sym=sym, unit=u, dec=2, kind="range", chg="pct", freq="daily", money=m, explain=ex)
+               for k, n, g, sym, u, m, ex in [
+    ("KRE", "Regional banks (KRE)", "internals", "KRE", "$", True, "A fund of smaller US banks. They are the most exposed to the economy and to credit losses."),
+    ("RSP", "S&P 500, equal weight", None, "RSP", "$", True, "The S&P 500 with every company counted the same."),
+    ("SPY", "S&P 500, by company size", None, "SPY", "$", True, "The S&P 500 as usual: the biggest companies count the most."),
+    ("VIX3M", "VIX, 3 months", None, "^VIX3M", "", False, "Expected swings over the next 3 months."),
+    ("VVIX", "VVIX (volatility of the VIX)", "internals", "^VVIX", "", False, "How much options traders expect the VIX itself to jump."),
+] + [(t, t, None, t, "$", True, "A big AI builder.") for t in AI_BUILDERS]]
+INDICATORS += [
+    dict(key="SECT_UP", name="Sectors up today (of 11)", group="internals", source="calc", unit="", dec=0, kind="level", chg="pt", freq="daily",
+         bands=[(4, "Broad sell-off: most sectors down", ALERT), (8, "Mixed day", CALM), (1e9, "Broad rally: most sectors up", CALM)],
+         explain="How many of the 11 S&P 500 sectors rose today."),
+    dict(key="AIB", name="AI builders (average)", group="internals", source="calc", unit="", dec=1, kind="range", chg="pct", freq="daily", explain="Nvidia, Microsoft, Alphabet, Meta, Amazon, Broadcom."),
+    dict(key="AIU", name="AI users: banks & industrials (average)", group="internals", source="calc", unit="", dec=1, kind="range", chg="pct", freq="daily", explain="Financials and industrials."),
+    dict(key="AIB_AIU", name="AI builders vs AI users", group="internals", source="calc", unit="", dec=1, kind="range", chg="pct", freq="daily", explain="AI builders divided by AI users."),
+    dict(key="DEFN", name="Defensive sectors (average)", group="internals", source="calc", unit="", dec=1, kind="range", chg="pct", freq="daily", explain="Health care, staples, utilities, real estate."),
+    dict(key="BREADTH", name="Breadth: equal weight vs size weight", group="internals", source="calc", unit="", dec=1, kind="range", chg="pct", freq="daily", explain="Equal-weight S&P 500 divided by the normal one."),
+    dict(key="VIXTS", name="VIX ÷ 3-month VIX", group="internals", source="calc", unit="", dec=2, kind="level", chg="pt", freq="daily",
+         bands=[(0.9, "Calm: near-term fear below 3-month fear", CALM), (1.0, "Normal", CALM), (1e9, "Inverted: fear now is above fear later", ALERT)], explain="Short-term fear divided by 3-month fear."),
 ]
 BY_KEY = {i["key"]: i for i in INDICATORS}
 
@@ -1146,6 +1176,8 @@ def drivers(cid, items, main=None):
         out.append("Valuation barely changes from day to day. An extreme level describes long-run risk and expected returns over years, not a reason to act this week.")
         if sg("SPX200"):
             out.append("The S&P 500 moved a lot against its trend: that is the quickest-moving valuation signal here.")
+    elif cid == "internals":
+        _drivers_internals(sg, val, items, out)
     elif cid == "consumer":
         infl = sg("CORECPI") or sg("PCEPI") or sg("USCPI")
         if infl:
@@ -1441,7 +1473,7 @@ def explain(key, items):
     out = [x["affected"] for x in effects if x["status"] == "asusual"]
     if out:
         parts.append(f"In turn it is moving {_names(items, out)}.")
-    nm = lambda k: (BY_KEY.get(k) or HUB_BY_KEY.get(k) or {"name": k})["name"]
+    nm = lambda k: item_name(k)
     missing = [{"key": d, "name": nm(d), "side": "l", "why": w, "modeText": _MODE_WORDS[m]} for d, a, m, w in RELATIONS if a == key and d not in items] + \
               [{"key": a, "name": nm(a), "side": "r", "why": w, "modeText": _MODE_WORDS[m]} for d, a, m, w in RELATIONS if d == key and a not in items]
     return {"key": key, "drivers": drivers, "effects": effects, "summary": " ".join(parts), "missing": missing}
@@ -1465,7 +1497,9 @@ NEWS_TOPIC_QUERIES = ["Treasury yields", "Federal Reserve interest rates", "gold
                       "oil prices OPEC", "US dollar index", "Japanese yen Bank of Japan", "Wall Street stocks S&P 500",
                       "jobless claims unemployment", "inflation CPI", "junk bond credit spreads", "mortgage rates",
                       "Nikkei Japan stocks", "VIX volatility", "natural gas prices", "consumer sentiment",
-                      "bank lending standards", "Nasdaq tech stocks", "Russell 2000 small caps"]
+                      "bank lending standards", "Nasdaq tech stocks", "Russell 2000 small caps",
+                      "Ukraine war", "Russia Ukraine peace talks", "NATO defense spending", "European defense stocks", "Iran", "Houthi Red Sea shipping",
+                      "Strait of Hormuz oil", "Saudi Arabia oil production", "jet fuel prices", "diesel prices", "oil tanker rates"]
 
 
 def news_feeds():
@@ -1508,6 +1542,10 @@ NEWS_TOPICS = {
     "INDPRO": ["industrial production", "factory output", "manufacturing"], "JOBOPEN": ["job openings", "jolts"], "CCSA": ["continuing claims"],
     "INCOME": ["household income", "personal income", "real wages"], "WAGES": ["wage growth", "average hourly earnings", "wages"], "SAVE": ["saving rate", "savings rate"],
     "REVOLV": ["credit card balances", "credit card borrowing", "revolving credit"], "DEBTSERV": ["debt payments", "household debt"], "M2G": ["money supply", "m2"],
+    "GEO_UA": ["ukraine", "ukrainian", "kyiv", "kiev", "zelensky", "zelenskyy", "putin", "kremlin", "moscow", "donbas", "crimea", "russian forces", "russia's war", "russia-ukraine",
+               "nato", "rheinmetall", "european defense", "european defence", "rearmament", "defense spending", "defence spending"],
+    "GEO_ME": ["iran", "iranian", "tehran", "houthi", "houthis", "red sea", "strait of hormuz", "hormuz", "yemen", "saudi", "riyadh", "opec", "persian gulf", "gaza", "israel",
+               "hezbollah", "suez canal", "tanker attack", "oil tanker", "middle east"],
     "UMCSENT": ["consumer sentiment", "consumer confidence"],
     "NFCI": ["financial conditions"], "STLFSI": ["financial stress"],
     "SLOOS_CARD": ["lending standards", "senior loan officer", "credit card delinquencies", "credit card debt"],
@@ -1704,3 +1742,263 @@ def yahoo_changes(tickers):
         if len(pts) >= 2 and pts[-2][1]:
             out[t] = (pts[-1][1] / pts[-2][1] - 1) * 100
     return out
+
+
+# ══ Geopolitics: two conflicts that move markets ═══════════════════════════════════════════════
+def geo_key(sym):
+    return "G_" + re.sub(r"[^A-Z0-9]", "_", sym.upper())
+
+
+# member: (Yahoo symbol, name, unit). refs: indicators the app already has. Baskets are equal-weight averages.
+GEO = {
+    "ua": dict(
+        title="Russia–Ukraine", topic="GEO_UA",
+        blurb="The war keeps NATO governments buying weapons, so defense companies on both sides of the Atlantic follow rearmament budgets and peace hopes. It also decides how much Europe pays for gas and how much Ukrainian and Russian grain reaches the world.",
+        groups=[
+            dict(id="eudef", title="European defense", basket=("G_EUDEF", "European defense stocks (average)"),
+                 says="European defense companies: orders follow the NATO members' rearmament budgets, which rise with the war and fall with peace hopes.",
+                 members=[("RHM.DE", "Rheinmetall", "€"), ("BA.L", "BAE Systems", ""), ("LDO.MI", "Leonardo", "€"), ("HO.PA", "Thales", "€"),
+                          ("SAAB-B.ST", "Saab", ""), ("HAG.DE", "Hensoldt", "€"), ("KOG.OL", "Kongsberg", "")]),
+            dict(id="usdef", title="US defense", basket=("G_USDEF", "US defense stocks (average)"),
+                 says="US defense companies: they sell to the Pentagon and to allies who buy American weapons, so they follow US budgets and Ukraine aid.",
+                 members=[("LMT", "Lockheed Martin", "$"), ("RTX", "RTX", "$"), ("NOC", "Northrop Grumman", "$"), ("GD", "General Dynamics", "$"),
+                          ("LHX", "L3Harris", "$"), ("ITA", "US aerospace & defense ETF", "$")]),
+            dict(id="gas", title="Gas & grain", basket=None,
+                 says="What the war costs everyone else: Europe's gas price and the world's wheat price both react to supply fears.",
+                 members=[("TTF=F", "European gas (TTF)", "€"), ("ZW=F", "Wheat", ""), ("RUB=X", "Rubles per dollar", ""), ("EURUSD=X", "Euro in dollars", "$"), ("^GDAXI", "German DAX", "")],
+                 refs=["NATGAS"]),
+        ]),
+    "me": dict(
+        title="Middle East", topic="GEO_ME",
+        blurb="Iran, the Houthis in the Red Sea and Saudi Arabia decide how much oil flows and how safely ships can carry it. Disruption lifts oil, diesel, jet fuel and tanker rates, and squeezes airlines.",
+        groups=[
+            dict(id="oil", title="Oil", basket=None, says="Crude oil: the first thing that reacts when Gulf or Red Sea supply is threatened.", members=[], refs=["WTI", "BRENT"]),
+            dict(id="fuels", title="Diesel, jet fuel & petrol", basket=None,
+                 says="Refined fuels: they follow crude oil, but can jump on their own when refineries or shipping routes are disrupted. Diesel and jet fuel matter most for trucks, ships and airlines.",
+                 members=[("HO=F", "Diesel (heating oil futures)", "$"), ("RB=F", "Petrol (gasoline futures)", "$")], extra=[("G_JETFUEL", "Jet fuel / kerosene (US Gulf Coast)", "$")]),
+            dict(id="ships", title="Tankers & shipping", basket=("G_TANKERS", "Oil tanker stocks (average)"),
+                 says="Tanker companies earn more when routes get longer or riskier, because ships are tied up and rates rise. Container lines are hit by the Red Sea detours too.",
+                 members=[("FRO", "Frontline", "$"), ("STNG", "Scorpio Tankers", "$"), ("DHT", "DHT Holdings", "$"), ("INSW", "International Seaways", "$"), ("TNK", "Teekay Tankers", "$"), ("NAT", "Nordic American Tankers", "$")]),
+            dict(id="cont", title="Container shipping", basket=None, says="Container lines: Red Sea attacks force ships around Africa, which lifts freight rates and costs.",
+                 members=[("ZIM", "ZIM Integrated Shipping", "$"), ("MAERSK-B.CO", "Maersk", "")]),
+            dict(id="air", title="Airlines (the losers)", basket=("G_AIRLINES", "Airline stocks (average)"),
+                 says="Airlines: fuel is their biggest cost after pay, so higher jet fuel and a risky Middle East hit their profits.",
+                 members=[("DAL", "Delta", "$"), ("UAL", "United", "$"), ("AAL", "American", "$"), ("LUV", "Southwest", "$"), ("JETS", "US airlines ETF", "$")]),
+            dict(id="region", title="Region & safe haven", basket=None, says="Saudi and Israeli stocks show how the region's markets see the risk; gold is where money goes when it gets scary.",
+                 members=[("KSA", "Saudi Arabia ETF", "$"), ("EIS", "Israel ETF", "$")], refs=["GOLD"]),
+        ]),
+}
+GEO_ITEMS = {}          # key -> definition (name, unit, group says, conflict)
+GEO_BASKETS = {}        # basket key -> member keys
+for _cid, _c in GEO.items():
+    for _g in _c["groups"]:
+        _keys = []
+        for _sym, _nm, _u in _g["members"]:
+            GEO_ITEMS[geo_key(_sym)] = dict(sym=_sym, name=_nm, unit=_u, says=_g["says"], conflict=_cid, group=_g["id"])
+            _keys.append(geo_key(_sym))
+        for _k, _nm, _u in _g.get("extra", []):
+            GEO_ITEMS[_k] = dict(sym=None, name=_nm, unit=_u, says=_g["says"], conflict=_cid, group=_g["id"])
+        if _g.get("basket"):
+            GEO_ITEMS[_g["basket"][0]] = dict(sym=None, name=_g["basket"][1], unit="", says=_g["says"] + " (An equal-weight average of the companies below, starting at 100.)", conflict=_cid, group=_g["id"], basket=True)
+            GEO_BASKETS[_g["basket"][0]] = [k for k in _keys if not k.endswith("_ITA") and not k.endswith("_JETS")]
+
+
+def geo_symbols():
+    return sorted({v["sym"] for v in GEO_ITEMS.values() if v.get("sym")})
+
+
+def item_name(k):
+    return (BY_KEY.get(k) or HUB_BY_KEY.get(k) or GEO_ITEMS.get(k) or {"name": k})["name"]
+
+
+def build_basket(series_list):
+    """Equal-weight average of the members' daily returns, as an index that starts at 100."""
+    rets = {}
+    for pts in series_list:
+        for i in range(1, len(pts)):
+            if pts[i - 1][1]:
+                rets.setdefault(pts[i][0], []).append(pts[i][1] / pts[i - 1][1] - 1)
+    level, out = 100.0, []
+    for d in sorted(rets):
+        level *= 1 + sum(rets[d]) / len(rets[d])
+        out.append([d, level])
+    return out
+
+
+def geo_summaries(load):
+    """Standard indicator summaries (value, changes, sparkline, unusual-ness) for the geopolitics items."""
+    out = {}
+    for k, v in GEO_ITEMS.items():
+        pts = load(k)
+        if not pts or len(pts) < 30:
+            continue
+        ind = dict(key=k, name=v["name"], group=None, source="yahoo" if v.get("sym") else "calc", unit=v["unit"], dec=2, kind="range", chg="pct", freq="daily",
+                   explain=v["says"])
+        try:
+            s_ = summarize(ind, pts)
+        except Exception:
+            continue
+        if s_:
+            s_["geo"] = v["conflict"]
+            s_["group"] = v["group"]
+            out[k] = s_
+    return out
+
+
+GEO_RELATIONS = [
+    ("G_EUDEF", "G_USDEF", "same", "European and US defense companies both live off NATO rearmament, so they usually move together; a gap points to budget news in one region."),
+    ("G_TTF_F", "NATGAS", "same", "European and US gas prices react to the same supply fears, but Europe's moves first and hardest."),
+    ("G_RUB_X", "G_TTF_F", "inverse", "A weaker ruble is often a sign of heavier sanctions or war stress, which tends to come with higher European gas prices."),
+    ("BRENT", "G_HO_F", "same", "Diesel is made from crude oil, so it follows Brent — and can run ahead of it when refineries or shipping routes are disrupted."),
+    ("BRENT", "G_RB_F", "same", "Petrol is made from crude oil, so it follows Brent."),
+    ("BRENT", "G_JETFUEL", "same", "Jet fuel is made from crude oil, so it follows Brent."),
+    ("G_HO_F", "G_JETFUEL", "same", "Jet fuel and diesel come from the same refinery stream (middle distillates), so they move together."),
+    ("G_JETFUEL", "G_AIRLINES", "inverse", "Jet fuel is an airline's biggest cost after pay: higher fuel cuts profit, lower fuel lifts it."),
+    ("BRENT", "G_AIRLINES", "inverse", "Oil sets fuel costs for airlines, and a Middle East crisis also scares travellers."),
+    ("BRENT", "G_TANKERS", "same", "Gulf and Red Sea disruptions lengthen routes and lift tanker rates, which lifts tanker stocks and oil together."),
+    ("G_TANKERS", "G_ZIM", "same", "Both are shipping companies that profit when routes get longer and ships get scarce."),
+    ("BRENT", "G_KSA", "same", "Saudi Arabia lives off oil: its stock market follows the oil price."),
+    ("GOLD", "G_EIS", "inverse", "Money runs into gold and out of risky regional markets when war news gets worse."),
+    ("BRENT", "INFEXP", "same", "Oil is the fastest-moving part of inflation, so oil prices move inflation expectations."),
+]
+RELATIONS.extend(GEO_RELATIONS)
+WEAK_LINKS.update({("G_RUB_X", "G_TTF_F"), ("GOLD", "G_EIS"), ("G_TANKERS", "G_ZIM"), ("BRENT", "G_KSA"), ("BRENT", "G_AIRLINES"), ("BRENT", "INFEXP")})
+WEIGHT.update({"G_EUDEF": 3.5, "G_USDEF": 3.5, "G_TANKERS": 3, "G_AIRLINES": 3, "G_HO_F": 3, "G_JETFUEL": 3, "G_TTF_F": 3, "G_RB_F": 2})
+GOOD.update({"G_AIRLINES": 1, "G_EUDEF": 0, "G_USDEF": 0})
+
+
+# ══ Market internals ═════════════════════════════════════════════════════════════════════════════
+SAYS.update({
+    "SECT_UP": "How many of the 11 sectors rose. A falling index with most sectors up is a narrow sell-off in a few giants (today's AI names); with most sectors down it is broad and more serious.",
+    "AIB": "The companies building the AI infrastructure: Nvidia, Microsoft, Alphabet, Meta, Amazon, Broadcom. They are a big share of the index, so when they fall the index falls, even if other sectors rise.",
+    "AIU": "The companies that use AI and pay for it: banks and industrials. When money rotates from AI builders to these, the market is questioning the builders' spending, not the economy.",
+    "AIB_AIU": "AI builders against AI users. Falling = money leaves the builders for the users: a rotation, not necessarily a crash. Rising = the AI trade is back in charge.",
+    "DEFN": "Health care, staples, utilities and real estate: where money hides when growth stocks are sold. They rise on days when tech falls.",
+    "XLF": "Banks reflect the economy: if banks rally, markets are not worried about growth or credit, whatever tech does.",
+    "KRE": "Small US banks are the first to suffer from credit losses and funding stress, so they warn early.",
+    "BREADTH": "Equal-weight against size-weight S&P 500. Falling = a few giants carry the index (narrow and fragile — a bubble sign); rising = the rally is broad and healthier.",
+    "VIXTS": "Fear now against fear in three months. Above 1 (inverted) means traders pay more for protection now than later: real stress, not just noise.",
+    "VVIX": "How much traders pay to protect against a jump in the VIX itself. High while the VIX is calm warns that calm can end suddenly.",
+})
+WEIGHT.update({"SECT_UP": 3.5, "AIB": 4, "AIU": 3, "AIB_AIU": 3.5, "DEFN": 2.5, "XLF": 3.5, "KRE": 3, "BREADTH": 3.5, "VIXTS": 4, "VVIX": 3})
+GOOD.update({"SECT_UP": 1, "AIB": 1, "AIU": 1, "XLF": 1, "KRE": 1, "BREADTH": 1, "DEFN": 0, "VIXTS": -1, "VVIX": -1})
+CLUSTERS.append(dict(id="internals", title="Market internals: breadth, AI & banks",
+                     intro="What is under the index: how broad a move is, the AI builders against their customers, banks, and how stressed the volatility curve is.",
+                     main=["SECT_UP", "AIB", "AIU", "AIB_AIU", "DEFN", "XLF", "KRE", "BREADTH", "VIXTS", "VVIX"], context=["SPX", "VIX"]))
+RELATIONS.extend([
+    ("SECT_UP", "SPX", "same", "When most sectors rise the index rises broadly. A falling index with most sectors up means a few giant stocks pull it down."),
+    ("AIB", "IXIC", "same", "The AI builders are the biggest part of the Nasdaq, so they move it."),
+    ("AIB", "SPX", "same", "The AI builders are a large share of the S&P 500, so they move it a lot."),
+    ("AIB", "AIB_AIU", "same", "The builders are the top of the ratio: when they fall faster than the users, the ratio falls."),
+    ("AIU", "AIB_AIU", "inverse", "The users are the bottom of the ratio: when they rise against the builders, the ratio falls."),
+    ("AIB_AIU", "BREADTH", "same", "When money leaves the few AI giants for everyone else, the index gets broader."),
+    ("XLF", "SPX", "same", "Banks are tied to the economy: rising banks mean the credit cycle looks fine."),
+    ("XLF", "KRE", "same", "Big and small banks usually move together; small banks swing more."),
+    ("KRE", "HYSPREAD", "inverse", "Regional banks fall when credit stress rises, and rise when it eases."),
+    ("XLF", "AIU", "same", "Banks are half of the AI users basket."),
+    ("VIXTS", "VIX", "same", "When the short-term VIX jumps above the 3-month one, the VIX is the part that is moving."),
+    ("VVIX", "VIX", "same", "A high VVIX warns that the VIX can jump, which is why a quiet VIX can wake up."),
+    ("DEFN", "SECT_UP", "same", "Defensive sectors are four of the eleven, so they decide the count on tech sell-off days."),
+    ("SPX", "SECT_UP", "same", "A rising index usually lifts most sectors."),
+])
+NEWS_TOPICS.update({
+    "AIB": ["nvidia", "microsoft", "alphabet", "google", "meta platforms", "amazon", "broadcom", "ai spending", "ai capex", "capital expenditure", "hyperscaler", "data center",
+            "ai stocks", "ai trade", "ai bubble", "ai boom"],
+    "SECT_UP": ["sector rotation", "stock market today", "market breadth", "sectors"],
+    "XLF": ["bank earnings", "banks rally", "jpmorgan", "financial stocks", "bank stocks"], "KRE": ["regional banks", "regional bank"],
+    "BREADTH": ["market breadth", "narrow rally", "equal-weight", "concentration", "magnificent seven", "mag 7"], "VVIX": ["vvix", "volatility spike"],
+})
+_NEWS_RX.update({k: re.compile(r"(?<![a-z0-9])(?:" + "|".join(re.escape(p) for p in NEWS_TOPICS[k]) + r")(?![a-z0-9])", re.I) for k in ("AIB", "SECT_UP", "XLF", "KRE", "BREADTH", "VVIX")})
+SECTOR_NAMES = dict(_SECTORS)
+
+
+def compute_internals(load):
+    """Series for the calculated internals, from the stored sector / AI-builder / volatility series."""
+    out, parts = {}, {}
+    rets = {}
+    for k, _ in _SECTORS:
+        pts = load(k)
+        for i in range(1, len(pts)):
+            if pts[i - 1][1]:
+                rets.setdefault(pts[i][0], {})[k] = pts[i][1] / pts[i - 1][1] - 1
+    days = sorted(d for d, r in rets.items() if len(r) >= 9)
+    if days:
+        out["SECT_UP"] = [[d, float(sum(1 for v in rets[d].values() if v > 0))] for d in days]
+        parts = {k: rets[days[-1]][k] * 100 for k in rets[days[-1]]}
+    def basket(keys):
+        return build_basket([load(k) for k in keys if load(k)])
+    aib, aiu = basket(AI_BUILDERS), basket(["XLF", "XLI"])
+    if len(aib) > 30:
+        out["AIB"] = aib
+    if len(aiu) > 30:
+        out["AIU"] = aiu
+    if len(aib) > 30 and len(aiu) > 30:
+        um = dict(aiu)
+        ratio = [[d, v / um[d] * 100] for d, v in aib if d in um and um[d]]
+        if ratio:
+            out["AIB_AIU"] = [[d, v / ratio[0][1] * 100] for d, v in ratio]
+    dfn = basket(["XLV", "XLP", "XLU", "XLRE"])
+    if len(dfn) > 30:
+        out["DEFN"] = dfn
+    rsp, spy = dict(load("RSP")), load("SPY")
+    br = [[d, rsp[d] / v * 100] for d, v in spy if d in rsp and v]
+    if len(br) > 30:
+        out["BREADTH"] = [[d, v / br[0][1] * 100] for d, v in br]
+    v3 = dict(load("VIX3M"))
+    ts = [[d, v / v3[d]] for d, v in load("VIX") if d in v3 and v3[d]]
+    if len(ts) > 30:
+        out["VIXTS"] = ts
+    return out, parts
+
+
+def _drivers_internals(sg, val, items, out):
+    sp, up = sg("SPX"), val("SECT_UP")
+    if sp < 0 and up is not None and up >= 7:
+        out.append(f"The index fell while {up:.0f} of 11 sectors rose: a narrow sell-off in a few giants (the AI builders), not a broad one. Less alarming, but it shows how much the index depends on a few names.")
+    elif sp < 0 and up is not None and up <= 3:
+        out.append(f"The index fell and only {up:.0f} of 11 sectors rose: a broad sell-off, which is more serious than a rotation.")
+    elif sp > 0 and up is not None and up <= 4:
+        out.append(f"The index rose while only {up:.0f} of 11 sectors did: a narrow rally that rests on a few names.")
+    if sg("AIB_AIU") < 0:
+        out.append("Money moved from the AI builders to the companies that use AI (banks, industrials): the market questions the builders' spending, not the economy.")
+    elif sg("AIB_AIU") > 0:
+        out.append("Money moved back into the AI builders: the AI trade is in charge again.")
+    if sg("XLF") > 0 and sp < 0:
+        out.append("Banks rose while the index fell: the market is not worried about the economy or credit; the sell-off is about the valuation of one theme.")
+    elif sg("KRE") < 0 and sg("XLF") < 0:
+        out.append("Banks fell: watch credit spreads — this is how stress in the economy shows up first.")
+    ts = val("VIXTS")
+    if ts is not None and ts >= 1.0:
+        out.append("Short-term fear is above 3-month fear (inverted): traders pay more for protection now than later. That marks real stress, not just a bad day.")
+    if sg("VVIX") > 0 and sg("VIX") <= 0:
+        out.append("Traders are buying protection against a VIX jump while the VIX is calm: the calm may not last.")
+
+
+# ══ Earnings reactions against what the options market expected ══════════════════════════════════
+EARN_WATCH = ["AMZN", "GOOGL", "META", "MSFT", "AAPL", "NVDA", "TSLA", "INTC", "AMD", "AVGO", "ORCL", "NFLX", "CRM", "ADBE", "MU", "QCOM", "PLTR", "JPM", "BAC", "XOM"]
+
+
+def implied_move_pct(spot, calls, puts):
+    """Expected move in percent from the at-the-money straddle (what an option buyer pays to bet on a big move either way).
+    calls / puts: [{strike, bid, ask, last}]"""
+    def mid(o):
+        b, a, l = o.get("bid") or 0, o.get("ask") or 0, o.get("last") or 0
+        return (b + a) / 2 if b > 0 and a > 0 else l
+    if not calls or not puts or not spot:
+        return None
+    strike = min((c["strike"] for c in calls), key=lambda k: abs(k - spot))
+    c = next((x for x in calls if x["strike"] == strike), None)
+    p = next((x for x in puts if x["strike"] == strike), None)
+    if not c or not p:
+        return None
+    total = mid(c) + mid(p)
+    return round(total / spot * 100, 2) if total > 0 else None
+
+
+def surprise_ratio(move, implied):
+    """(ratio, plain words) for an actual move against the expected one."""
+    if not implied:
+        return None, ""
+    r = abs(move) / implied
+    return round(r, 2), ("far bigger than the options market expected" if r >= 1.5 else "bigger than expected" if r >= 1.1 else
+                         "about as expected" if r >= 0.7 else "smaller than expected")

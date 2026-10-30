@@ -73,6 +73,14 @@ h2+.muted{margin-bottom:10px}
 .hm:hover{outline:2px solid #fff;outline-offset:-2px;z-index:3}.hm b{font-weight:600}.hm span{opacity:.9}.hm i{font-style:normal;font-size:10px;opacity:.75;margin-top:2px;padding:0 3px}
 .hmsec{position:absolute;height:15px;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute);padding:1px 5px;overflow:hidden;white-space:nowrap;background:#000;z-index:2}
 .hmtip{position:fixed;display:none;z-index:90;background:#000e;border:1px solid var(--line2);border-radius:4px;padding:8px 10px;font-size:12.5px;line-height:1.5;pointer-events:none;max-width:260px}
+.part.sect{grid-template-columns:170px 1fr 56px}.aitag{font-style:normal;font-size:10px;border:1px solid var(--dim);border-radius:2px;padding:0 4px;color:var(--mute);margin-left:4px}
+.bar2{display:grid;grid-template-columns:1fr 1fr;height:8px;background:var(--line)}.hf{position:relative}.hf i{position:absolute;top:0;height:100%;background:var(--up)}.hf.l i{right:0;background:var(--down)}.hf.r i{left:0}
+h2.sub{font-size:14px;color:var(--mute);font-weight:500;margin:18px 0 6px}
+.earn{border:1px solid var(--line);border-radius:6px;background:var(--card)}.erow{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:baseline;padding:11px 16px;border-top:1px solid var(--line);font-size:14px}.erow:first-child{border-top:none}.erow b{min-width:52px;font-weight:600}
+.ratio{color:var(--mute);font-size:13px}.ratio.hot{color:var(--watch)}
+.hmstats{margin:10px 0 4px;font-size:13.5px;color:var(--mute)}.hmstats b{color:var(--txt);font-weight:600}.hmsecs{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.hmchip{font-size:11.5px;padding:3px 8px;border-radius:2px;color:#fff;font-variant-numeric:tabular-nums}
+.geohead{margin-top:12px}.geoblurb{font-size:15px;line-height:1.6}
+.gnode.gspecial{border-color:#fff;background:#000;cursor:default}.gnode.gspecial .gn{color:var(--dim);font-size:11px;letter-spacing:.08em;text-transform:uppercase}.gnode.gspecial .gv{font-size:16px;font-weight:600;margin-top:6px}
 .exsum{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:16px 18px;margin-bottom:14px}
 .exsumh{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
 .exsumt{font-size:15px;line-height:1.55;margin-top:6px}
@@ -101,16 +109,16 @@ h2+.muted{margin-bottom:10px}
 .gtag.up{color:var(--txt);border-color:var(--dim)}.gtag.low{color:var(--watch);border-color:var(--watch)}
 .ctxhead{margin:14px 0 6px}
 .tiles-head{margin:2px 0 10px}.tlabel{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
-.tflag{font-size:14px;font-weight:600;color:var(--alert);margin-top:8px}
+.tflag{font-size:12px;font-weight:500;color:var(--alert);margin-top:8px;letter-spacing:.02em}
 .relmissing .ind.mini{opacity:.7}
 .tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-bottom:8px}
 .tile{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:22px 22px 20px;cursor:pointer;display:flex;flex-direction:column;gap:6px;min-width:0}
 .tile:hover{border-color:#3a3a44}
-.tl{font-size:12px;color:var(--dim)}.tn{font-size:20px;font-weight:600;line-height:1.3}
-.tv{font-size:18px;font-weight:500;letter-spacing:-.01em;font-variant-numeric:tabular-nums;margin-top:8px}
+.tl{font-size:11.5px;color:var(--dim)}.tn{font-size:22px;font-weight:600;line-height:1.3}
+.tv{font-size:16px;font-weight:500;letter-spacing:-.01em;font-variant-numeric:tabular-nums;margin-top:8px}
 .tw{font-size:13px;color:var(--mute);margin-left:10px;font-weight:400;letter-spacing:0}
 .tnow{font-size:13px;color:var(--mute)}
-.tnews{margin-top:14px;padding-top:14px;border-top:1px solid var(--line);color:var(--txt);text-decoration:none;font-size:14px;line-height:1.45}
+.tnews{margin-top:14px;padding-top:14px;border-top:1px solid var(--line);color:var(--txt);text-decoration:none;font-size:15px;line-height:1.45}
 .tnews:hover{text-decoration:underline}.tnews span{display:block;font-size:11.5px;color:var(--dim);margin-top:5px}
 .calmrow{font-size:16px;color:var(--up);padding:20px 22px;border:1px solid var(--line);border-radius:6px;background:var(--card)}
 .levels{margin:14px 0 6px;font-size:14px;color:var(--mute)}.levels b{color:var(--watch);font-weight:600;display:block;margin-bottom:2px}.levels div{margin-top:4px}
@@ -193,11 +201,12 @@ details.quiet{margin-top:18px}details.quiet>summary{cursor:pointer;color:var(--m
 @media (max-width:600px){main{padding:12px 16px}.grid{grid-template-columns:1fr}.part{grid-template-columns:105px 1fr 30px}#upd{display:none}.qrow{grid-template-columns:minmax(0,1fr) 78px}.qrow .qp{display:none}}
 </style></head><body>
 <div id="top"><div id="logo"><svg width="26" height="18" viewBox="0 0 26 18"><polyline points="1,10 7,10 10,3 14,15 17,8 19,10 25,10" fill="none" stroke="#4673FF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Macro Watch</div>
-<div id="topRight"><span id="upd"></span><a href="/logout">Log out</a></div></div>
-<div id="tabs"><button class="tab on" data-t="today">Today</button><button class="tab" data-t="overview">Overview</button><button class="tab" data-t="heatmap">Heatmap</button><button class="tab" data-t="extremes">Extremes</button><button class="tab" data-t="alerts">Alerts</button><button class="tab" data-t="guide">Guide</button></div>
+<div id="topRight"><span id="upd"></span><button id="motionBtn" class="link" style="font-size:12px;color:var(--mute)" onclick="cycleMotion()" title="Speed of the animations">Motion</button><a href="/logout">Log out</a></div></div>
+<div id="tabs"><button class="tab on" data-t="today">Today</button><button class="tab" data-t="overview">Overview</button><button class="tab" data-t="heatmap">Heatmap</button><button class="tab" data-t="geo">Geopolitics</button><button class="tab" data-t="extremes">Extremes</button><button class="tab" data-t="alerts">Alerts</button><button class="tab" data-t="guide">Guide</button></div>
 <main>
 <section id="pane-today"><div id="today">Loading…</div></section>
 <section id="pane-overview" hidden><div id="overview">Loading…</div></section>
+<section id="pane-geo" hidden><div id="geo">Loading…</div></section>
 <section id="pane-heatmap" hidden><div id="heatmap">Loading…</div></section>
 <section id="pane-extremes" hidden><div id="extremes">Loading…</div>
 <div style="margin-top:22px"><button class="btn" id="japanBtn" onclick="toggleJapan()">Yen carry trade in detail ▾</button><div id="japan" hidden style="margin-top:12px"></div></div></section>
@@ -210,6 +219,8 @@ details.quiet{margin-top:18px}details.quiet>summary{cursor:pointer;color:var(--m
 <ul><li><b>Today</b>: the answer first, then <b>groups of indicators that belong together</b> — US bonds, rates &amp; the dollar; gold, silver &amp; Dr. Copper; stocks &amp; investor mood; the yen carry trade; credit, jobs &amp; defaults ahead; oil; valuation. The most special group is at the top, and inside a group the most special indicator comes first. "Special" means a move far larger than usual over the last day, week or month, or a place at the edge of its own history — weighted by how much that indicator matters for stock investing. Every card says in plain words <b>what it says</b>. A group gets a short note under its title <b>only when something in it really moves</b>, explaining the move with the usual links between these markets (for example: gold falls when real yields and the dollar rise). That note is worked out from the numbers, not from news headlines. The small <b>?</b> on a card turns into a red <b>!</b> when there is a headline about it that you have not opened yet. Tap a card for a bigger chart; close it with the ✕ at its top right.</li>
 <li><b>Overview</b>: one map of everything that matters right now. The most important indicators are boxes, the links between them are lines, and the headlines about them hang on those boxes. It ranks on purpose and leaves the rest out. Things that usually move together and both are far out <b>reinforce</b> each other (white line); if one moves and its usual partner does not follow (yellow dashed line), the link is weaker than usual and <b>both count for less</b>. Tap a box to see how it is connected. The filters above the map narrow it to some groups, to linked boxes only, or to boxes that have a headline; point at a box to read why it is shown.</li>
 <li><b>Heatmap</b>: all companies of the S&amp;P 500 or the Nasdaq-100 as one map — the size of a tile is the company's market value, the colour is today's change (green up, red down), grouped by sector. Point at a tile for details, tap it to open the quote. Data: Nasdaq's public screener and Wikipedia's index lists; if they are unreachable the app falls back to Yahoo prices and a built-in list of the biggest companies, and says so under the map.</li>
+<li><b>Geopolitics</b>: the two conflicts that move markets now, each as a map with the conflict in the middle and the markets around it. <b>Russia–Ukraine</b>: European and US defense stocks (rearmament), European gas, wheat. <b>Middle East</b> (Iran, Houthis, Saudi Arabia): oil, diesel, jet fuel, petrol, oil tankers, container shipping, airlines, the Saudi and Israeli markets, gold. Headlines about each conflict are listed and can be summarised by the AI.</li>
+<li><b>Market internals</b> (a group on Today): how many of the 11 sectors rise (a falling index with most sectors up is a narrow sell-off in a few giants), the AI builders against the companies that use AI (banks, industrials), banks as a sign for the economy, breadth (equal-weight against size-weight), the volatility curve (VIX against the 3-month VIX) and the VVIX. Under it, big companies' reactions to earnings are set against the move the options market had priced in, where the data allows.</li>
 <li><b>Extremes</b>: indicators that only matter when they are far out on one side of their own history — the yen carry trade (USD/JPY, the US–Japan yield gap, Japan's yields), the Buffett indicator, Shiller P/E, credit spreads, the yield curve, the VIX and more. Each sits on a 0–100 scale (its percentile against all the history we have). The outer 5% on either side is an <b>extreme</b> (red), the outer 10% is <b>stretched</b> (amber); everything else is "normal range" and tucked away. Open "Yen carry trade in detail" at the bottom for USD/JPY, the interest gap and Japan's inflation with the Bank of Japan's forecasts.</li>
 <li><b>Alerts</b>: your levels (e.g. "USD/JPY above 160"), the email setup, the on/off switch for extreme alerts, and the history of every alert.</li></ul>
 <h3>About extremes — please read</h3>
@@ -224,6 +235,8 @@ details.quiet{margin-top:18px}details.quiet>summary{cursor:pointer;color:var(--m
 <li>Bank of Japan forecasts: checked twice a day; the BoJ publishes new ones in January, April, July and October, and you get an email when it does.</li></ul>
 <h3>AI summaries</h3>
 <p>Tap a headline card (not its title, which opens the article) for a short AI summary of the situation, built only from the headlines and the dashboard's current numbers: what the news says, what the numbers show, and how solid it is — whether the connected indicators confirm the story. It needs your own Anthropic API key, set on the Alerts tab. The AI is told not to add facts of its own, but it can still misread; check the sources before acting.</p>
+<h3>Motion</h3>
+<p>The button <b>Motion</b> in the top bar sets the speed of the animations: calm (default), slower, quick or off. The choice is remembered in this browser.</p>
 <h3>The ? on every card</h3>
 <p>Tap the small <b>?</b> on a card to see how it is connected. The page switches to just that card, the indicators that <b>explain</b> it and the ones it <b>moves</b>, each with one sentence on how they usually behave and a tag that says whether they are behaving that way right now (<b>as usual</b>, or <b>against the usual link</b>, which means something else is driving it). Below that are the <b>news headlines</b> that fit. Tap a ? on any related card to follow the chain; ← Back or Esc returns.</p>
 <p>News comes from free RSS feeds (CNBC, MarketWatch, Yahoo Finance, the Federal Reserve and Google News searches). Each headline is matched to indicators by keywords, so now and then a headline fits loosely. The app shows headlines and does not write its own explanation of them.</p>
@@ -248,7 +261,7 @@ details.quiet{margin-top:18px}details.quiet>summary{cursor:pointer;color:var(--m
 <li>BIS (Bank for International Settlements) — Japan's official consumer price inflation.</li>
 <li>Bank of Japan — the Policy Board's inflation forecasts from each quarterly Outlook Report.</li></ul>
 <p>If a source can't be reached, the app keeps the last good numbers and says so under the summary on the Today tab.</p>
-</div></section>
+<p class="small" id="verLine" style="margin:14px 0"></p></div></section>
 </main>
 <script>
 // ── helpers ───────────────────────────────────────────────────────────────
@@ -415,6 +428,11 @@ function detailHTML(s, cid){
     extra = `<div class="parts">${Object.entries(names).map(([k, n]) => P[k] === undefined ? '' : `<div class="part"><span>${n}</span><div class="bar"><i style="width:${P[k].toFixed(0)}%"></i></div><b>${P[k].toFixed(0)}</b></div>`).join('')}</div>
       <p class="muted">Each ingredient: 0 = most fearful reading of the last two years, 100 = most greedy. CNN's official number differs (it uses three more ingredients we can't read) — <a class="link" href="https://edition.cnn.com/markets/fear-and-greed" target="_blank" rel="noopener">see CNN's index ›</a></p>`;
   }
+  if (s.key === 'SECT_UP' && OV.sectors && OV.sectors.length){
+    extra = `<div class="parts">${OV.sectors.map(x => { const w = Math.min(100, Math.abs(x.pct) * 30).toFixed(0);
+      return `<div class="part sect"><span>${esc(x.name)}${x.ai ? ' <i class="aitag">AI</i>' : ''}</span><div class="bar2"><div class="hf l">${x.pct < 0 ? `<i style="width:${w}%"></i>` : ''}</div><div class="hf r">${x.pct >= 0 ? `<i style="width:${w}%"></i>` : ''}</div></div><b class="${x.pct >= 0 ? 'up' : 'down'}">${x.pct > 0 ? '+' : ''}${x.pct.toFixed(1)}%</b></div>`; }).join('')}</div>
+      <p class="muted">The AI tag marks the sectors that hold the AI builders (technology, communication services, consumer discretionary).</p>`;
+  }
   return `<div class="detail" onclick="event.stopPropagation()">
     <div class="ranges">${RANGES.map(([k]) => `<button class="${k === r ? 'on' : ''}" onclick="setRange('${cid}','${s.key}','${k}')">${k}</button>`).join('')}</div>
     <div class="chart" id="chart-${uid(cid, s.key)}"><div class="muted">Loading chart…</div></div>
@@ -425,6 +443,7 @@ function detailHTML(s, cid){
 function findSummary(key){ for (const g of OV.groups) for (const s of g.items) if (s.key === key) return s; return null; }
 function findAny(key){
   if (EXPL && EXPL.items[key]) return EXPL.items[key];
+  if (GEO && GEO.byKey && GEO.byKey[key]) return GEO.byKey[key];
   for (const c of OV.clusters || []) for (const s of c.main.concat(c.context)) if (s.key === key) return s;
   return findSummary(key);
 }
@@ -469,13 +488,13 @@ function transitionLayout(root, attr, change, openKey, closeKey){
     if (Math.abs(dx) + Math.abs(dy) > 2) e.animate([{opacity: 0.3}, {opacity: 1}], {duration: 550, easing: 'ease-out'}); });      // moved neighbours fade in at their new place: nothing flies across the page
   const open = openKey ? document.querySelector(`${root} [${attr}="${openKey}"]`) : null, was = openKey ? prev.get(openKey) : null;
   if (open && was){ const b = open.getBoundingClientRect(), inset = `inset(${Math.max(0, was.top - b.top)}px ${Math.max(0, b.right - was.right)}px ${Math.max(0, b.bottom - was.bottom)}px ${Math.max(0, was.left - b.left)}px)`;
-    open.animate([{clipPath: inset}, {clipPath: 'inset(0px 0px 0px 0px)'}], {duration: 850, easing: 'cubic-bezier(.3,0,.2,1)'}); }
+    open.animate([{clipPath: inset}, {clipPath: 'inset(0px 0px 0px 0px)'}], {duration: D(1000), easing: 'cubic-bezier(.3,0,.2,1)'}); }
   if (clone){ const el = document.querySelector(`${root} [${attr}="${closeKey}"]`);
     if (el){ const b = el.getBoundingClientRect(), s = Math.min(b.width / oldRect.width, b.height / oldRect.height), tr = `translate(${b.left - oldRect.left}px,${b.top - oldRect.top}px) scale(${s})`;
       clone.style.transformOrigin = '0 0';                                   // the big card shrinks back to its small place
-      clone.animate([{transform: 'none'}, {transform: tr}], {duration: 1000, easing: 'cubic-bezier(.45,0,.2,1)', fill: 'forwards'}).finished
-        .then(() => clone.animate([{opacity: 1}, {opacity: 0}], {duration: 220, fill: 'forwards'}).finished).then(() => clone.remove()).catch(() => clone.remove());
-      el.animate([{opacity: 0}, {opacity: 0, offset: 0.85}, {opacity: 1}], {duration: 1200, easing: 'linear'}); }
+      clone.animate([{transform: 'none'}, {transform: tr}], {duration: D(1200), easing: 'cubic-bezier(.45,0,.15,1)', fill: 'forwards'}).finished
+        .then(() => clone.animate([{opacity: 1}, {opacity: 0}], {duration: D(260), fill: 'forwards'}).finished).then(() => clone.remove()).catch(() => clone.remove());
+      el.animate([{opacity: 0}, {opacity: 0, offset: 0.85}, {opacity: 1}], {duration: D(1450), easing: 'linear'}); }
     else clone.remove(); }
 }
 function openCard(id){
@@ -495,6 +514,12 @@ function moverTile(m){
     <div class="tnow">Now ${esc(fmtVal({unit: m.unit, dec: m.dec, signed: m.signed}, m.value))}</div>
     ${m.news ? `<a class="tnews" href="${esc(m.news.link)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">${esc(m.news.title)}<span>${esc(m.news.source)} · ${esc(ago(m.news.ts))}</span></a>` : ''}</div>`;
 }
+function earnHTML(E){
+  if (!E || !E.rows || !E.rows.length) return '';
+  return `<h2 class="sub">Earnings reactions against what the options market expected</h2><div class="earn">${E.rows.map(r => `<div class="erow"><b>${esc(r.t)}</b><span class="${r.move > 0 ? 'up' : 'down'}">${r.move > 0 ? '+' : ''}${r.move.toFixed(1)}% ${esc(r.when)}</span>
+    <span class="small">${r.expected ? 'options expected ±' + r.expected.toFixed(1) + '%' : 'no stored expectation'}</span>${r.ratio ? `<span class="ratio${r.ratio >= 1.5 ? ' hot' : ''}">${r.ratio.toFixed(1)}× — ${esc(r.words)}</span>` : ''}</div>`).join('')}</div>
+    <div class="small" style="margin-top:6px">Updated ${ago(E.ts)}. The expected move is read from option prices before the report.</div>`;
+}
 function renderToday(){
   if (!OV) return;
   if (EXPL){ renderExplain(); return; }
@@ -505,7 +530,7 @@ function renderToday(){
   if (bad.length) h += `<div class="small" style="margin:10px 0 4px">⚠ ${bad.map(b => esc(b.name) + (b.ok_ts ? ' last updated ' + ago(b.ok_ts) : ' not reached yet')).join(' · ')} — showing the last good numbers.</div>`;
   for (const c of OV.clusters || []){
     h += `<h2 id="cl-${c.id}" title="${esc(c.intro)}">${esc(c.title)}${c.id === 'japan' ? ' <button class="link" style="font-size:13px;font-weight:400;margin-left:8px" onclick="openJapan()">Inflation forecasts ›</button>' : ''}</h2>${driversHTML(c)}
-      <div class="grid">${c.main.map(s => cardHTML(s, c.id)).join('')}</div>`;
+      <div class="grid">${c.main.map(s => cardHTML(s, c.id)).join('')}</div>${c.id === 'internals' ? earnHTML(OV.earnings) : ''}`;
   }
   $('today').innerHTML = h;
   document.querySelectorAll('#today .ind[data-cid]').forEach(c => c.onclick = () => { if (OPEN !== c.dataset.cid) openCard(c.dataset.cid); });
@@ -562,7 +587,17 @@ async function renderJapan(){
 
 // ── "How is this connected?" ──────────────────────────────────────────────
 let EXPL = null, EXSTACK = [], EXPL_SCROLL = 0, EXPL_ORIGIN = null, EXPL_NEW = new Set();
-const REDUCED = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+const PREFERS_REDUCED = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+const MOTION_F = {quick: 0.6, calm: 1, slower: 1.7};
+let MOTION = (() => { try { return localStorage.getItem('macroMotion') || 'calm'; } catch (e) { return 'calm'; } })();
+let REDUCED = PREFERS_REDUCED || MOTION === 'off';
+const D = x => Math.round(x * (MOTION_F[MOTION] || 1));            // durations of the slow, deliberate movements (leaving cards stay quick)
+function cycleMotion(){
+  MOTION = {calm: 'slower', slower: 'quick', quick: 'off', off: 'calm'}[MOTION] || 'calm';
+  try { localStorage.setItem('macroMotion', MOTION); } catch (e) {}
+  REDUCED = PREFERS_REDUCED || MOTION === 'off'; showMotion();
+}
+function showMotion(){ const b = $('motionBtn'); if (b) b.textContent = 'Motion: ' + MOTION; }
 const SEEN = (() => { try { return new Set(JSON.parse(localStorage.getItem('macroSeen') || '[]')); } catch (e) { return new Set(); } })();
 function markSeen(hs){ hs.forEach(h => SEEN.add(h)); try { localStorage.setItem('macroSeen', JSON.stringify([...SEEN].slice(-400))); } catch (e) {} }
 function unseenNews(key){ return ((OV && OV.newsIdx && OV.newsIdx[key]) || []).filter(h => !SEEN.has(h)).length; }
@@ -645,9 +680,9 @@ function drawLines(animate){
     }
   });
   svg.innerHTML = g;
-  if (animate && !REDUCED) svg.querySelectorAll('.mline').forEach((p, i) => p.animate([{strokeDashoffset: 1, opacity: 0}, {strokeDashoffset: 0, opacity: 1}], {duration: 650, delay: i * 80, fill: 'backwards', easing: 'ease-out'}));
+  if (animate && !REDUCED) svg.querySelectorAll('.mline').forEach((p, i) => p.animate([{strokeDashoffset: 1, opacity: 0}, {strokeDashoffset: 0, opacity: 1}], {duration: D(1400), delay: i * D(150), fill: 'backwards', easing: 'ease-out'}));
 }
-const SLIDERS = '#today .ind, #today .tile, #today .relnode, #today .ncard, #overview .gnode, #overview .gnews, #extremes .ind';
+const SLIDERS = '#today .ind, #today .tile, #today .relnode, #today .ncard, #overview .gnode, #overview .gnews, #geo .ind, #geo .gnode, #geo .gnews, #extremes .ind';
 function slideOut(src, ms){
   const vw = innerWidth, els = [...document.querySelectorAll(SLIDERS)].filter(e => e !== src && !e.contains(src) && !src.contains(e));
   els.forEach((e, i) => { const r = e.getBoundingClientRect(), dir = r.left + r.width / 2 < vw / 2 ? -1 : 1;
@@ -658,7 +693,7 @@ function slideOut(src, ms){
 function slideIn(skip){
   const vw = innerWidth, els = [...document.querySelectorAll(SLIDERS)].filter(e => e !== skip);
   els.forEach((e, i) => { const r = e.getBoundingClientRect(), dir = r.left + r.width / 2 < vw / 2 ? -1 : 1;
-    e.animate([{transform: `translateX(${dir * vw * 0.85}px) rotate(${dir * 3}deg)`, opacity: 0}, {transform: 'none', opacity: 1}], {duration: 950, delay: 220 + Math.min(i * 14, 280), easing: 'cubic-bezier(.25,.7,.2,1)', fill: 'backwards'}); });
+    e.animate([{transform: `translateX(${dir * vw * 0.85}px) rotate(${dir * 3}deg)`, opacity: 0}, {transform: 'none', opacity: 1}], {duration: D(1100), delay: D(240) + Math.min(i * 14, 280), easing: 'cubic-bezier(.25,.7,.2,1)', fill: 'backwards'}); });
   document.querySelectorAll('#today h2, #today .muted, #today .drv, #today .tiles-head, #today .levels, #today .calmrow, #overview .gcap, #overview .glines, #overview .gwhy').forEach(e => e.animate([{opacity: 0}, {opacity: 1}], {duration: 500, delay: 300, fill: 'backwards'}));
 }
 function enterScene(from){
@@ -666,16 +701,15 @@ function enterScene(from){
   if (!main) return;
   const card = main.querySelector('.ind') || main; nodes.forEach(n => n.style.opacity = 0); if (svg) svg.style.opacity = 0;
   document.querySelectorAll('#today .exsum').forEach(e => e.style.opacity = 0);
-  const to = card.getBoundingClientRect(), vw = innerWidth, vh = innerHeight;
-  const sx = Math.max(0.2, from.width / to.width), dx0 = from.left - to.left, dy0 = from.top - to.top;
-  const ms = Math.min(0.72, (vh * 0.62) / to.height), mx = vw / 2 - (to.width * ms) / 2 - to.left, my = vh * 0.5 - (to.height * ms) / 2 - to.top;
+  const to = card.getBoundingClientRect(), sx = Math.max(0.2, from.width / to.width), sy = Math.max(0.2, from.height / to.height), dx0 = from.left - to.left, dy0 = from.top - to.top;
   card.style.transformOrigin = '0 0'; card.style.zIndex = 5;
-  const a = card.animate([{transform: `translate(${dx0}px,${dy0}px) scale(${sx})`}, {transform: 'none'}],
-                         {duration: 1900, easing: 'cubic-bezier(.45,0,.2,1)', fill: 'backwards'});
-  a.finished.then(() => { card.style.zIndex = ''; card.style.transformOrigin = '';
+  // the card drifts to its place first and grows a little later, so it is never moving and stopping in turns
+  const move = card.animate([{translate: `${dx0}px ${dy0}px`}, {translate: '0px 0px'}], {duration: D(2600), easing: 'cubic-bezier(.45,0,.15,1)', fill: 'backwards'});
+  card.animate([{scale: `${sx} ${sy}`}, {scale: '1 1'}], {duration: D(2200), delay: D(400), easing: 'cubic-bezier(.4,0,.2,1)', fill: 'both'});
+  move.finished.then(() => { card.style.zIndex = ''; card.style.transformOrigin = '';
     if (svg) svg.style.opacity = 1; drawLines(true);
-    document.querySelectorAll('#today .exsum').forEach(e => { e.style.opacity = ''; e.animate([{opacity: 0, transform: 'translateY(-8px)'}, {opacity: 1, transform: 'none'}], {duration: 420, fill: 'backwards'}); });
-    nodes.forEach((n, i) => { n.style.opacity = ''; const side = n.dataset.side; n.animate([{opacity: 0, transform: side ? `translateX(${side === 'l' ? -46 : 46}px) scale(.95)` : 'translateY(24px)'}, {opacity: 1, transform: 'none'}], {duration: 700, delay: i * 120, easing: 'ease-out', fill: 'backwards'}); });
+    document.querySelectorAll('#today .exsum').forEach(e => { e.style.opacity = ''; e.animate([{opacity: 0, transform: 'translateY(-8px)'}, {opacity: 1, transform: 'none'}], {duration: D(800), fill: 'backwards'}); });
+    nodes.forEach((n, i) => { n.style.opacity = ''; const side = n.dataset.side; n.animate([{opacity: 0, transform: side ? `translateX(${side === 'l' ? -46 : 46}px) scale(.95)` : 'translateY(24px)'}, {opacity: 1, transform: 'none'}], {duration: D(950), delay: i * D(260), easing: 'ease-out', fill: 'backwards'}); });
     drawOpen(); }).catch(() => {});
 }
 async function explain(key, el){
@@ -693,10 +727,11 @@ async function explain(key, el){
     track('Explain ' + key);
   } catch (e) { if (e.message !== 'signed out') alert('Could not load the explanation: ' + e.message); }
 }
-function renderOrigin(tab){ if (tab === 'overview') renderOverview(); else if (tab === 'extremes') renderExtremes(); else renderToday(); }
+function renderOrigin(tab){ if (tab === 'overview') renderOverview(); else if (tab === 'geo') renderGeo(); else if (tab === 'heatmap') renderHeat(); else if (tab === 'extremes') renderExtremes(); else renderToday(); }
 function findOriginEl(o){
   if (!o) return null;
   if (o.tab === 'overview') return document.querySelector(`#overview .gnode[data-key="${o.key}"]`);
+  if (o.tab === 'geo') return (o.cid && document.querySelector(`#geo .ind[data-cid="${o.cid}"]`)) || document.querySelector(`#geo .gnode[data-key="${o.key}"]`);
   if (o.tab === 'extremes') return document.querySelector(`#extremes .ind[data-ex="${o.key}"]`) || document.querySelector(`#extremes [data-ex="${o.key}"] .qrow`);
   return (o.cid && document.querySelector(`#today .ind[data-cid="${o.cid}"]`)) || document.querySelector(`#today .ind[data-cid$="|${o.key}"]`);
 }
@@ -719,9 +754,11 @@ async function closeExplain(){
     const target = findOriginEl(origin), dest = target ? target.getBoundingClientRect() : null;
     slideIn(target);
     if (dest){
-      target.animate([{opacity: 0}, {opacity: 0, offset: 0.8}, {opacity: 1}], {duration: 1700, easing: 'linear'});
-      const sx = dest.width / from.width, sy = dest.height / from.height, tr = `translate(${dest.left - from.left}px,${dest.top - from.top}px) scale(${sx},${sy})`;
-      clone.animate([{transform: 'none'}, {transform: tr}], {duration: 1500, easing: 'cubic-bezier(.45,0,.2,1)', fill: 'forwards'}).finished.then(() => { clone.animate([{opacity: 1}, {opacity: 0}], {duration: 250, fill: 'forwards'}).finished.then(() => clone.remove()).catch(() => clone.remove()); }).catch(() => clone.remove());
+      target.animate([{opacity: 0}, {opacity: 0, offset: 0.82}, {opacity: 1}], {duration: D(2000), easing: 'linear'});
+      const sx = dest.width / from.width, sy = dest.height / from.height;
+      clone.animate([{scale: '1 1'}, {scale: `${sx} ${sy}`}], {duration: D(1700), easing: 'cubic-bezier(.4,0,.2,1)', fill: 'forwards'});
+      clone.animate([{translate: '0px 0px'}, {translate: `${dest.left - from.left}px ${dest.top - from.top}px`}], {duration: D(1800), easing: 'cubic-bezier(.45,0,.15,1)', fill: 'forwards'}).finished
+        .then(() => clone.animate([{opacity: 1}, {opacity: 0}], {duration: D(300), fill: 'forwards'}).finished).then(() => clone.remove()).catch(() => clone.remove());
     } else clone.animate([{opacity: 1}, {opacity: 0}], {duration: 300}).finished.then(() => clone.remove()).catch(() => clone.remove());
   }
 }
@@ -779,6 +816,7 @@ function layoutGraph(g, W, H){
 }
 function borderPoint(it, tx, ty){ const dx = tx - it.x, dy = ty - it.y, t = Math.min((it.w / 2 + 3) / Math.abs(dx || 1e-6), (it.h / 2 + 3) / Math.abs(dy || 1e-6)); return [it.x + dx * t, it.y + dy * t]; }
 function gnodeHTML(n, it){
+  if (n.special) return `<div class="gnode gspecial" data-key="${n.key}" style="left:${(it.x - it.w / 2).toFixed(1)}px;top:${(it.y - it.h / 2).toFixed(1)}px;width:${it.w}px;height:${it.h}px"><div class="gn">The conflict</div><div class="gv"><span class="gnum">${esc(n.name)}</span></div><div class="gs">${n.nNews} headline${n.nNews === 1 ? '' : 's'} in the last 3 days</div></div>`;
   const arrow = n.chg > 0 ? '▲' : n.chg < 0 ? '▼' : '', ext = n.hub && n.zone && n.zone.startsWith('extreme');
   const cls = ext ? 'down' : chgClass({good: n.good}, n.chg);
   const big = n.horizon === 'at an extreme' ? 'At an extreme' : n.horizon ? `${arrow} ${fmtChg({chgKind: n.chgKind, unit: n.unit, dec: n.dec}, n.chg)}` : '';
@@ -789,8 +827,9 @@ function gnodeHTML(n, it){
     <div class="gv ${cls}"><span class="gnum">${esc(big)}</span>${n.horizon && n.horizon !== 'at an extreme' ? ` <span class="gh">${esc(n.horizon)}</span>` : ''}</div><div class="gs">${esc(fmtVal(n, n.value))}</div></div>`;
 }
 let GRAPH_TOP = 0;
-function renderOverview(){
-  const g = GRAPH, root = $('overview'); if (!g) return;
+function renderOverview(){ if (GRAPH) renderGraph($('overview'), GRAPH, {filters: true}); }
+function renderGraph(root, g, opts){
+  opts = opts || {}; if (!g || !root) return;
   const W = Math.max(320, root.clientWidth || innerWidth - 32), mobile = W < 700;
   const H = mobile ? 132 * Math.ceil((g.nodes.length + g.news.length) / 2) + 60 : Math.min(840, Math.max(440, Math.ceil((g.nodes.length + g.news.length) / 4) * 200));
   GRAPH_TOP = [...g.nodes].sort((a, b) => b.rank - a.rank)[Math.min(2, g.nodes.length - 1)]?.rank ?? 0;
@@ -813,25 +852,51 @@ function renderOverview(){
   }
   const nodes = g.nodes.map(n => gnodeHTML(n, by[n.key])).join('');
   const news = g.news.map(n => { const it = by['h:' + n.h]; return `<div class="gnews" data-key="h:${n.h}" onclick="openSummary('${n.h}')" title="Tap for an AI summary of the situation" style="left:${(it.x - it.w / 2).toFixed(1)}px;top:${(it.y - it.h / 2).toFixed(1)}px;width:${it.w}px;height:${it.h}px"><div class="gt">${esc(n.title)}</div><div class="gm">${esc(n.source)} · ${esc(ago(n.ts))} · <span class="aih">✦ AI summary</span></div></div>`; }).join('');
-  root.innerHTML = `${filterBar()}<div class="gcap">The <b>${g.shown}</b> most important of ${g.total} indicators right now, with the links between them and the headlines about them. Everything else is left out on purpose.
+  root.innerHTML = `${opts.filters ? filterBar() : ''}<div class="gcap">${opts.caption || `The <b>${g.shown}</b> most important of ${g.total} indicators right now, with the links between them and the headlines about them. Everything else is left out on purpose.`}
       <span class="lg"><i style="background:#fff"></i>both far out and moving together as usual — each counts for more</span>
       <span class="lg"><i style="background:#5b5b66"></i>usual link</span><span class="lg"><i class="dash"></i>not following — both count for less</span></div>
     <div class="gwrap" style="height:${H}px"><svg class="glines" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">${svg}</svg>${nodes}${news}</div>
-    <div class="gwhyline" id="gwhyline">Point at a box to see why it is shown.</div>
+    <div class="gwhyline">Point at a box to see why it is shown.</div>
     ${g.notes.length ? `<details class="gwhy"><summary>Why some things count more or less</summary><ul>${g.notes.map(x => `<li>${esc(x)}</li>`).join('')}</ul></details>` : ''}`;
   const byKey = Object.fromEntries(g.nodes.map(n => [n.key, n]));
-  root.querySelectorAll('.gnode').forEach(el => { const n = byKey[el.dataset.key]; el.title = n.why; el.onmouseenter = () => { focusNode(el.dataset.key); $('gwhyline').innerHTML = `<b>${esc(n.name)}</b> — ${esc(n.why)}`; }; el.onmouseleave = () => { blurNodes(); $('gwhyline').textContent = 'Point at a box to see why it is shown.'; }; });
+  root.querySelectorAll('.gnode').forEach(el => { const n = byKey[el.dataset.key]; el.title = n.why; el.onmouseenter = () => { focusNode(el.dataset.key, root); root.querySelector('.gwhyline').innerHTML = `<b>${esc(n.name)}</b> — ${esc(n.why)}`; }; el.onmouseleave = () => { blurNodes(root); root.querySelector('.gwhyline').textContent = 'Point at a box to see why it is shown.'; }; });
   if (!REDUCED){
     root.querySelectorAll('.gnode, .gnews').forEach((el, i) => el.animate([{opacity: 0, transform: 'scale(.92)'}, {opacity: 1, transform: 'none'}], {duration: 420, delay: Math.min(i * 40, 600), easing: 'ease-out', fill: 'backwards'}));
     root.querySelectorAll('.mline').forEach((p, i) => p.animate([{strokeDashoffset: 1, opacity: 0}, {strokeDashoffset: 0, opacity: 1}], {duration: 650, delay: 300 + i * 40, fill: 'backwards', easing: 'ease-out'}));
   }
 }
-function focusNode(key){
-  const root = $('overview'), near = new Set([key]);
+function focusNode(key, root){
+  root = root || $('overview'); const near = new Set([key]);
   root.querySelectorAll('.gl').forEach(l => { const hit = l.dataset.a === key || l.dataset.b === key; l.classList.toggle('dim', !hit); if (hit){ near.add(l.dataset.a); near.add(l.dataset.b); } });
   root.querySelectorAll('.gnode, .gnews').forEach(n => n.classList.toggle('dim', !near.has(n.dataset.key)));
 }
-function blurNodes(){ $('overview').querySelectorAll('.dim').forEach(e => e.classList.remove('dim')); }
+function blurNodes(root){ (root || $('overview')).querySelectorAll('.dim').forEach(e => e.classList.remove('dim')); }
+
+// ── Geopolitics ───────────────────────────────────────────────────────────
+let GEO = null, GEO_SEL = 'ua';
+async function loadGeo(){
+  try { GEO = await api('/api/geo?c=' + GEO_SEL); GEO.byKey = {}; GEO.groups.forEach(g => g.items.forEach(s => GEO.byKey[s.key] = s)); if (TAB === 'geo') renderGeo(); }
+  catch (e){ if (e.message !== 'signed out') $('geo').innerHTML = '<div class="card muted">Could not load the geopolitics page: ' + esc(e.message) + '</div>'; }
+}
+function setGeo(c){ GEO_SEL = c; GEO = null; renderGeo(); loadGeo(); }
+function renderGeo(){
+  const root = $('geo'); if (!root) return;
+  const chips = `<div class="chips">${(GEO ? GEO.conflicts : [{id: 'ua', title: 'Russia–Ukraine'}, {id: 'me', title: 'Middle East'}]).map(c => `<button class="${GEO_SEL === c.id ? 'on' : ''}" onclick="setGeo('${c.id}')">${esc(c.title)}</button>`).join('')}</div>`;
+  if (!GEO){ root.innerHTML = chips + '<div class="card muted">Loading…</div>'; return; }
+  const g = GEO;
+  let h = chips + `<div class="card geohead"><div class="geoblurb">${esc(g.blurb)}</div><div class="small" style="margin-top:8px"><b>${g.pulse.day}</b> headline${g.pulse.day === 1 ? '' : 's'} in the last 24 hours · ${g.pulse.week} in the last 7 days</div></div>`;
+  h += `<div id="geomap"></div>`;
+  for (const grp of g.groups){
+    if (!grp.items.length) continue;
+    h += `<h2>${esc(grp.title)}</h2><div class="grid">${grp.items.map(s => cardHTML(s, 'geo')).join('')}</div>`;
+  }
+  if (g.missing && g.missing.length) h += `<p class="small" style="margin-top:14px">No price yet for: ${g.missing.map(esc).join(', ')}.</p>`;
+  const news = g.graph.allNews || [];
+  h += `<h2>Headlines</h2>` + (news.length ? `<div class="newsrow">${news.map(n => `<div class="ncard" onclick="openSummary('${n.h}')"><a class="ntitle" href="${esc(n.link)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">${esc(n.title)}</a>${n.summary ? `<div class="nsum">${esc(n.summary)}</div>` : ''}<div class="nmeta">${esc(n.source)} · ${esc(ago(n.ts))}</div><div class="aihint">✦ AI summary of the situation ›</div></div>`).join('')}</div>` : '<div class="muted">No headlines about this conflict in the last few days yet. The app fetches news every 15 minutes.</div>');
+  root.innerHTML = h;
+  root.querySelectorAll('.ind[data-cid]').forEach(c => c.onclick = () => explain(c.dataset.cid.split('|')[1], c));
+  renderGraph($('geomap'), g.graph, {caption: `How ${esc(g.title)} reaches the markets: the conflict in the middle, the markets around it, the links between them and the headlines about it.`});
+}
 
 // ── Heatmap (S&P 500 / Nasdaq-100) ────────────────────────────────────────
 let HEAT = null, HEAT_IDX = 'sp500';
@@ -877,8 +942,12 @@ function renderHeat(){
       html += `<a class="hm" href="https://finance.yahoo.com/quote/${encodeURIComponent(r.t)}" target="_blank" rel="noopener noreferrer" data-t="${esc(r.t)}" style="left:${t.x.toFixed(1)}px;top:${t.y.toFixed(1)}px;width:${Math.max(0, w - 1).toFixed(1)}px;height:${Math.max(0, h - 1).toFixed(1)}px;background:${heatColor(r.p)}">${label}</a>`;
     }
   }
+  const stat = secs.map(s => ({name: s.name, pct: s.rows.reduce((a, r) => a + r.p * r.c, 0) / s.v, up: s.rows.filter(r => r.p > 0).length, n: s.rows.length}));
+  const total = HEAT.rows.reduce((a, r) => a + r.c, 0), top10 = [...HEAT.rows].sort((a, b) => b.c - a.c).slice(0, 10).reduce((a, r) => a + r.c, 0), exact = !(HEAT.notes || []).some(n => n.includes('built-in'));
+  const stripHTML = `<div class="hmstats"><b>${stat.filter(x => x.pct > 0).length} of ${stat.length}</b> sectors up · <b>${HEAT.rows.filter(r => r.p > 0).length} of ${HEAT.rows.length}</b> stocks up${exact ? ` · the 10 biggest companies are <b>${(top10 / total * 100).toFixed(0)}%</b> of the index` : ''}
+    <div class="hmsecs">${stat.sort((a, b) => b.pct - a.pct).map(x => `<span class="hmchip" style="background:${heatColor(x.pct * 1.6)}">${esc(x.name)} ${x.pct > 0 ? '+' : ''}${x.pct.toFixed(1)}%</span>`).join('')}</div></div>`;
   const st = HEAT.ts ? `Updated ${ago(HEAT.ts)}. ` : '', notes = (HEAT.notes || []).join(' · ');
-  root.innerHTML = `${tabs}<div class="hmbar"><span class="small">Size = market value, colour = change today. ${esc(st)}${esc(notes)}</span>
+  root.innerHTML = `${tabs}${stripHTML}<div class="hmbar"><span class="small">Size = market value, colour = change today. ${esc(st)}${esc(notes)}</span>
     <span class="hmleg"><i style="background:${heatColor(-3)}"></i>−3%<i style="background:${heatColor(0)}"></i>0<i style="background:${heatColor(3)}"></i>+3%</span></div>
     <div class="hmwrap" style="height:${H}px">${html}</div><div id="hmtip" class="hmtip"></div>
     ${(HEAT.errors || []).length ? `<details class="gwhy"><summary>Data source notes</summary><ul>${HEAT.errors.map(e => `<li>${esc(e)}</li>`).join('')}</ul></details>` : ''}`;
@@ -891,7 +960,7 @@ function renderHeat(){
   });
 }
 // ── AI summary of a headline ──────────────────────────────────────────────
-function newsByHash(h){ return ((EXPL && EXPL.news) || []).find(n => n.h === h) || ((GRAPH && GRAPH.news) || []).find(n => n.h === h) || null; }
+function newsByHash(h){ return ((EXPL && EXPL.news) || []).find(n => n.h === h) || ((GRAPH && GRAPH.news) || []).find(n => n.h === h) || ((GEO && GEO.graph && GEO.graph.allNews) || []).find(n => n.h === h) || null; }
 function closeModal(){ document.querySelectorAll('.modal').forEach(m => m.remove()); document.body.style.overflow = ''; }
 function aiBody(d){
   const paras = d.text.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean).map(p => {
@@ -1098,6 +1167,7 @@ function showTab(t){
   if (t === 'extremes') loadExtremes();
   if (t === 'overview') loadOverview();
   if (t === 'heatmap'){ renderHeat(); loadHeat(); }
+  if (t === 'geo'){ renderGeo(); loadGeo(); }
   if (t === 'alerts') loadAlerts();
   window.scrollTo(0, 0);
   track('Opened tab: ' + t);
@@ -1109,7 +1179,8 @@ async function checkVersion(){
   try {
     const r = await fetch('/api/version', {cache: 'no-store'});
     if (!r.ok) return;
-    const v = (await r.json()).version;
+    const j = await r.json(), v = j.version;
+    const vl = $('verLine'); if (vl) vl.textContent = 'Running version ' + v + (j.commit ? ' · deployed commit ' + j.commit : '') + (j.started ? ' · started ' + ago(j.started) : '');
     if (SEEN_VERSION === null){ SEEN_VERSION = v; return; }
     if (v === SEEN_VERSION) return;
     const el = document.activeElement, typing = el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName);
@@ -1132,10 +1203,11 @@ async function load(){
     if (TAB === 'extremes') loadExtremes();
     if (TAB === 'overview') loadOverview();
     if (TAB === 'heatmap') loadHeat();
+    if (TAB === 'geo') loadGeo();
     if (!d.groups.some(g => g.items.length)) $('today').innerHTML = '<div class="card"><div class="answer">Fetching the first data…</div><p class="muted">This takes about a minute after the app starts.</p></div>';
   } catch (e){ if (e.message !== 'signed out') $('upd').textContent = 'Cannot reach the server right now'; }
 }
-let rz; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { if (EXPL) drawLines(false); if (TAB === 'overview') renderOverview(); if (TAB === 'heatmap') renderHeat(); if (TAB === 'today' && OPEN) drawDetail(OPEN); if (TAB === 'extremes'){ if (EXOPEN) drawExDetail(EXOPEN); if (JAPAN_OPEN) renderJapan().catch(() => {}); } }, 250); });
-load(); setInterval(load, 60000);
+let rz; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { if (EXPL) drawLines(false); if (TAB === 'overview') renderOverview(); if (TAB === 'heatmap') renderHeat(); if (TAB === 'geo') renderGeo(); if (TAB === 'today' && OPEN) drawDetail(OPEN); if (TAB === 'extremes'){ if (EXOPEN) drawExDetail(EXOPEN); if (JAPAN_OPEN) renderJapan().catch(() => {}); } }, 250); });
+load(); setInterval(load, 60000); showMotion();
 try { const t = sessionStorage.getItem('macroTab'); if (t && t !== 'today' && document.querySelector(`.tab[data-t="${t}"]`)) showTab(t); } catch (e) {}
 </script></body></html>
