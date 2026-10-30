@@ -1119,7 +1119,7 @@ function renderStocks(){
       ${T.pl !== null && T.pl !== undefined ? cell('Since buying', {cls: T.pl >= 0 ? 'up' : 'down', big: both((x, c) => `${sgn(x.pl)}${money(x.pl, 0, c)}`).join(' <span class="small">≈</span> '), small: `${sgn(T.plPct)}${Math.abs(T.plPct).toFixed(1)}%`}) : ''}</div>`; }
   h += `<h2>My stocks</h2>${STK.hold.length ? `<div class="stgrid">${STK.hold.map(stockTile).join('')}</div>` : '<div class="card muted">You have not entered any holding yet.</div>'}`;
   h += `<h2>Watching</h2>${STK.watch.length ? `<div class="stgrid">${STK.watch.map(stockTile).join('')}</div>` : '<div class="card muted">Nothing on the watch list yet.</div>'}`;
-  h += `<p class="small" style="margin-top:14px">Unusual first. Updated ${STK.ts ? esc(ago(STK.ts)) : 'soon'} (every 5 minutes). Prices from Yahoo Finance, headlines from Yahoo Finance per stock.</p>`;
+  h += `<p class="small" style="margin-top:14px">Unusual first. Updated ${STK.ts ? esc(ago(STK.ts)) : 'soon'} (about every minute). Prices incl. pre-market and after hours from Yahoo Finance, headlines from Yahoo Finance per stock.</p>`;
   root.innerHTML = h;
 }
 

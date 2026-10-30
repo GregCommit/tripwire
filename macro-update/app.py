@@ -62,7 +62,7 @@ app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
                   SESSION_COOKIE_SECURE=PUBLIC_URL.startswith("https://"))
 
 # How often each source is fetched (seconds); a failed fetch is retried after 10 minutes
-EVERY = {"yahoo": 3 * 60, "fred": 30 * 60, "bis": 6 * 3600, "boj": 6 * 3600, "hub": 3600, "geo": 3 * 60, "earn": 10 * 60}
+EVERY = {"yahoo": 60, "fred": 10 * 60, "bis": 6 * 3600, "boj": 6 * 3600, "hub": 3600, "geo": 60, "earn": 5 * 60}
 SOURCE_NAMES = {"yahoo": "Yahoo Finance", "fred": "FRED (St. Louis Fed)", "bis": "BIS (Japan CPI)",
                 "boj": "Bank of Japan forecasts", "hub": "Extremes (long histories)", "geo": "Geopolitics markets", "earn": "Earnings reactions"}
 
@@ -75,13 +75,15 @@ DEFAULT_RULES = [
 
 # ── Database ────────────────────────────────────────────────────────────────
 def get_db():
-    conn = sqlite3.connect(DB_PATH, timeout=10)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout=30000")
     return conn
 
 
 def init_db():
     with get_db() as conn:
+        conn.execute("PRAGMA journal_mode=WAL")           # several refresh threads write at the same time
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
             CREATE TABLE IF NOT EXISTS access_log (id INTEGER PRIMARY KEY, ts INTEGER, role TEXT,
@@ -174,28 +176,44 @@ init_db()
 
 
 # ── Refreshing the data ─────────────────────────────────────────────────────
+def yahoo_merge(pairs, full_period, tag):
+    """Fetches prices for [(key, symbol)]: the whole history every 12 hours (or when a series is missing), otherwise only the last 5 days,
+    merged into what is stored. That keeps a refresh every minute fast. Returns (what Yahoo gave, how many series were saved)."""
+    full = time.time() - float(get_setting("full_" + tag, "0") or 0) > 12 * 3600 or any(not load_series(k) for k, _ in pairs)
+    got = S.fetch_yahoo(list(dict.fromkeys(s for _, s in pairs)), period=full_period if full else "5d")
+    saved = 0
+    for k, sym in pairs:
+        new = got.get(sym)
+        if new:
+            save_series(k, new if full else _merge_recent(load_series(k), new))
+            saved += 1
+    if full and saved:
+        set_setting("full_" + tag, str(time.time()))
+    return got, saved
+
+
 def refresh_source(source):
     try:
         if source == "yahoo":
             inds = [i for i in S.INDICATORS if i["source"] == "yahoo"]
-            got = S.fetch_yahoo([i["sym"] for i in inds])
+            got, saved = yahoo_merge([(i["key"], i["sym"]) for i in inds], "5y", "yahoo")
             if not got:
                 raise RuntimeError("Yahoo returned no prices")
-            for i in inds:
-                save_series(i["key"], got.get(i["sym"]))
             missing = [i["name"] for i in inds if i["sym"] not in got]
             if missing:
                 log.warning("Yahoo missing: %s (keeping their previous data)", missing)
         elif source == "fred":
             errors = []
-            for i in S.INDICATORS:
-                if i["source"] != "fred":
-                    continue
+            from concurrent.futures import ThreadPoolExecutor
+            def one(i):
                 try:
                     pts = S.fetch_fred(i["sym"])
                     save_series(i["key"], S.yoy(pts) if i.get("yoy") else pts)
+                    return None
                 except Exception as e:
-                    errors.append(f"{i['name']}: {e}")
+                    return f"{i['name']}: {e}"
+            with ThreadPoolExecutor(max_workers=6) as ex:
+                errors = [e for e in ex.map(one, [i for i in S.INDICATORS if i["source"] == "fred"]) if e]
             if errors:
                 raise RuntimeError("; ".join(errors))
         elif source == "bis":
@@ -265,17 +283,13 @@ def hub_summaries():
 
 def refresh_geo():
     """Prices for the geopolitics tab: defense, energy, shipping, airlines and so on (Yahoo), jet fuel (FRED), plus the averages."""
-    syms = S.geo_symbols()
-    got = S.fetch_yahoo(syms, period="2y")
-    saved = 0
-    for k, v in S.GEO_ITEMS.items():
-        if v.get("sym") and v["sym"] in got:
-            save_series(k, got[v["sym"]])
-            saved += 1
-    try:
-        save_series("G_JETFUEL", S.fetch_fred("DJFUELUSGULF", "2023-01-01"))
-    except Exception as e:
-        log.warning("Jet fuel series failed: %s", e)
+    got, saved = yahoo_merge([(k, v["sym"]) for k, v in S.GEO_ITEMS.items() if v.get("sym")], "2y", "geo")
+    if time.time() - float(get_setting("jet_ts", "0") or 0) > 1800:
+        try:
+            save_series("G_JETFUEL", S.fetch_fred("DJFUELUSGULF", "2023-01-01"))
+            set_setting("jet_ts", str(time.time()))
+        except Exception as e:
+            log.warning("Jet fuel series failed: %s", e)
     for bk, members in S.GEO_BASKETS.items():
         pts = S.build_basket([load_series(m) for m in members if load_series(m)])
         if len(pts) > 30:
@@ -417,14 +431,47 @@ def refresh_cycle(force=False):
         return todo
 
 
-def background_loop():
-    time.sleep(3)
+_derived_lock = threading.Lock()
+
+
+def run_derived():
+    """Everything calculated from the fresh prices: mood, market internals, alerts."""
+    with _derived_lock:
+        for fn, label in ((compute_mood, "Mood calculation"), (compute_internals, "Market internals"), (check_alerts, "Alert check")):
+            try:
+                fn()
+            except Exception as e:
+                log.warning("%s failed: %s", label, e)
+
+
+def source_loop(src, first_delay):
+    """Every source refreshes on its own clock, so a slow one (Extremes, FRED) can never hold up prices."""
+    time.sleep(first_delay)
+    while True:
+        t0 = time.time()
+        try:
+            refresh_source(src)
+            if src in ("yahoo", "fred", "geo"):
+                run_derived()
+        except Exception as e:
+            log.exception("Refresh loop %s failed: %s", src, e)
+        ok = (fetch_status().get(src) or {}).get("error") in (None, "")
+        time.sleep(max(15, (EVERY[src] if ok else min(EVERY[src], 120)) - (time.time() - t0)))
+
+
+def cnn_loop():
+    time.sleep(15)
     while True:
         try:
-            refresh_cycle()
+            refresh_cnn_fng()
         except Exception as e:
-            log.exception("Refresh cycle failed: %s", e)
-        time.sleep(60)
+            log.warning("CNN Fear & Greed not reached: %s", e)
+        time.sleep(120)
+
+
+def background_loop():
+    for n, src in enumerate(EVERY):
+        threading.Thread(target=source_loop, args=(src, 3 + 4 * n), daemon=True, name="src-" + src).start()
 
 
 BROWSER_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36"
@@ -617,10 +664,6 @@ def ais_loop():
 def geo_map_loop():
     time.sleep(60)
     while True:
-        try:
-            refresh_cnn_fng()
-        except Exception as e:
-            log.warning("CNN Fear & Greed not reached: %s", e)
         try:
             refresh_geo_map()
         except Exception as e:
@@ -920,7 +963,7 @@ def heat_loop():
 
 
 # ── Stocks: your holdings and watch list ──────────────────────────────────────
-STOCKS_EVERY = 90
+STOCKS_EVERY = 45
 _stock_lock = threading.Lock()
 STOCK_PTS = {}        # ticker -> daily closes of the last year, kept for the 'what moves with it' calculation
 
@@ -929,8 +972,20 @@ def _stock_names():
     return json.loads(get_setting("stock_names", "{}") or "{}")
 
 
+STOCK_FULL = {}          # ticker -> {"pts": [...], "vol": [...], "ts": when the full year was fetched}
+
+
+def _merge_recent(old, new):
+    """Replaces the tail of an old series by a fresh short download (same dates are overwritten)."""
+    if not old or not new:
+        return new or old
+    cut = new[0][0]
+    return [p for p in old if p[0] < cut] + new
+
+
 def refresh_stocks():
-    """Prices, unusual-move flags, volume, earnings dates and headlines for every stock you hold or watch."""
+    """Quick pass, every 90 seconds: latest prices (incl. pre-market and after hours) and the unusual-move flags of every stock you hold or watch.
+    Names, currencies, earnings dates, headlines and the search for unknown tickers are done by refresh_stock_meta()."""
     with get_db() as conn:
         recs = {r["ticker"]: dict(r) for r in conn.execute("SELECT * FROM stocks")}
     tickers = list(recs)
@@ -938,13 +993,27 @@ def refresh_stocks():
         set_setting("stocks_data", "{}")
         return
     with _stock_lock:
-        import yfinance as yf
         symof = {t: (recs[t].get("sym") or t) for t in tickers}
+        now, today = int(time.time()), datetime.now().date()
         got = {}
         yah = [t for t in tickers if (recs[t].get("src") or "yahoo") == "yahoo"]
         if yah:
-            raw = S.fetch_yahoo_vol(list(dict.fromkeys(symof[t] for t in yah)), "1y")
-            got.update({t: raw[symof[t]] for t in yah if symof[t] in raw})
+            need_full = [t for t in yah if t not in STOCK_FULL or now - STOCK_FULL[t]["ts"] > 6 * 3600]
+            if need_full:
+                raw = S.fetch_yahoo_vol(list(dict.fromkeys(symof[t] for t in need_full)), "1y")
+                for t in need_full:
+                    if symof[t] in raw:
+                        STOCK_FULL[t] = {**raw[symof[t]], "ts": now}
+            quick = [t for t in yah if t in STOCK_FULL and t not in need_full]
+            if quick:
+                raw = S.fetch_yahoo_vol(list(dict.fromkeys(symof[t] for t in quick)), "5d")
+                for t in quick:
+                    r = raw.get(symof[t])
+                    if r:
+                        cut = r["pts"][0][0]
+                        keep = [(p, v) for p, v in zip(STOCK_FULL[t]["pts"], STOCK_FULL[t]["vol"]) if p[0] < cut]
+                        STOCK_FULL[t] = {"pts": [p for p, _ in keep] + r["pts"], "vol": [v for _, v in keep] + r["vol"], "ts": STOCK_FULL[t]["ts"]}
+            got.update({t: STOCK_FULL[t] for t in yah if t in STOCK_FULL})
         for t in tickers:
             if recs[t].get("src") == "stooq":
                 try:
@@ -953,55 +1022,9 @@ def refresh_stocks():
                         got[t] = g
                 except Exception as e:
                     log.warning("Stooq %s: %s", t, e)
-        tried = json.loads(get_setting("stock_resolve", "{}") or "{}")
-        for t in tickers:                        # not found where it was looked for: search for it somewhere else (at most once an hour)
-            if t in got or time.time() - tried.get(t, 0) < 3600:
-                continue
-            tried[t] = time.time()
-            try:
-                hit = S.resolve_symbol(t)
-            except Exception as e:
-                log.warning("Resolve %s: %s", t, e)
-                hit = None
-            if hit:
-                g = S.fetch_stooq(hit["sym"]) if hit["src"] == "stooq" else (S.fetch_yahoo_vol([hit["sym"]], "1y") or {}).get(hit["sym"])
-                if g:
-                    got[t] = g
-                    symof[t] = hit["sym"]
-                    with get_db() as conn:
-                        conn.execute("UPDATE stocks SET sym=?, src=?, note=? WHERE ticker=?", (hit["sym"], hit["src"], hit["name"], t))
-                    recs[t].update(sym=hit["sym"], src=hit["src"], note=hit["name"])
-        set_setting("stock_resolve", json.dumps(tried))
         STOCK_PTS.update({t: g["pts"] for t, g in got.items()})
         names, earn = _stock_names(), json.loads(get_setting("stock_earn", "{}") or "{}")
         news_all = json.loads(get_setting("stock_news", "{}") or "{}")
-        now, today = int(time.time()), datetime.now().date()
-        heat = {}
-        with get_db() as conn:
-            for r in conn.execute("SELECT data FROM heat"):
-                for x in json.loads(r["data"])["rows"]:
-                    heat[x["t"]] = x["n"]
-        for t in tickers:
-            if t not in names:
-                names[t] = heat.get(t) or ""
-                if not names[t]:
-                    try:
-                        names[t] = recs[t].get("note") or yf.Ticker(symof[t]).info.get("shortName") or t
-                    except Exception:
-                        names[t] = t
-            if now - earn.get(t, {}).get("ts", 0) > 6 * 3600:
-                try:
-                    ed = _earnings_date(yf.Ticker(symof[t])) if recs[t].get("src") != "stooq" else None
-                except Exception:
-                    ed = None
-                earn[t] = {"ts": now, "d": ed.isoformat() if ed else None}
-            if now - news_all.get(t, {}).get("ts", 0) > 600:
-                try:
-                    items = S.parse_feed(S.http_get(f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={symof[t]}&region=US&lang=en-US", timeout=15, ua=BROWSER_UA), "Yahoo Finance") if recs[t].get("src") != "stooq" else []
-                    news_all[t] = {"ts": now, "items": [{"title": i["title"], "link": i["link"], "source": i["source"], "ts": i["ts"] or now} for i in items if not S.is_noise(i["title"])][:8]}
-                except Exception as e:
-                    log.warning("Stock news %s: %s", t, e)
-                    news_all.setdefault(t, {"ts": now - 300, "items": []})
         try:
             usable = [symof[t] for t in tickers if t in got and (recs[t].get("src") or "yahoo") == "yahoo" and re.fullmatch(r"[A-Z]{1,5}(-[A-Z])?", symof[t])]
             extm = S.extended_moves(list(dict.fromkeys(usable)))
@@ -1016,13 +1039,17 @@ def refresh_stocks():
             s = S.stock_summary(t, g["pts"])
             if not s:
                 continue
+            xm = extm.get(symof[t])
+            if xm:        # the latest price at all, also before the opening and after the close
+                s["value"], s["d1"] = xm["px"], xm["p"]
+                if s.get("spark"):
+                    s["spark"][-1] = xm["px"]
             vol = g["vol"]
             vr = (vol[-1] / (sum(vol[-21:-1]) / 20)) if len(vol) > 21 and sum(vol[-21:-1]) else None
             items = news_all.get(t, {}).get("items", [])
             fresh = [i for i in items if now - i["ts"] < 24 * 3600]
             ed = earn.get(t, {}).get("d")
             earn_days = (datetime.strptime(ed, "%Y-%m-%d").date() - today).days if ed else None
-            xm = extm.get(symof[t])
             flags = S.stock_flags(s, vr, len(fresh), earn_days)
             if xm and xm["sess"] != "regular" and xm["ext"] is not None and abs(xm["ext"]) >= 2:
                 flags.append((f"{xm['sess'].capitalize()} {xm['ext']:+.1f}%", 2.0))
@@ -1030,21 +1057,77 @@ def refresh_stocks():
             move = s.get(field) if s.get(field) is not None else s.get("d1")
             out[t] = {"t": t, "name": names.get(t) or t, "price": s["value"], "date": s["date"], "d1": s["d1"], "w1": s.get("w1"), "m1": s["m1"], "y1": s.get("y1"),
                       "hi": s["hi"], "lo": s["lo"], "spark": s["spark"], "flags": [f for f, _ in flags], "score": round(sum(w for _, w in flags), 2),
-                      "move": move, "ext": ({"p": round(xm["p"], 2), "e": None if xm["ext"] is None else round(xm["ext"], 2), "sess": xm["sess"]} if xm else None), "earn": ed, "sym": symof[t], "src": recs[t].get("src") or "yahoo", "note": recs[t].get("note"), "volx": round(vr, 1) if vr else None, "news": items[:3], "freshNews": len(fresh)}
-        ccys = json.loads(get_setting("stock_ccy", "{}") or "{}")
-        for t in tickers:
-            if t not in ccys and t in got:
-                try:
-                    ccys[t] = (yf.Ticker(symof[t]).fast_info.get("currency") if recs[t].get("src") != "stooq" else None) or ""
-                except Exception:
-                    ccys[t] = ""
-        set_setting("stock_ccy", json.dumps(ccys))
-        refresh_fx({native_ccy(symof[t], ccys.get(t))[0] for t in tickers})
-        set_setting("stock_names", json.dumps(names))
-        set_setting("stock_earn", json.dumps(earn))
-        set_setting("stock_news", json.dumps(news_all))
+                      "move": move, "ext": ({"p": round(xm["p"], 2), "e": None if xm["ext"] is None else round(xm["ext"], 2), "sess": xm["sess"]} if xm else None), "earn": ed,
+                      "sym": symof[t], "src": recs[t].get("src") or "yahoo", "note": recs[t].get("note"), "volx": round(vr, 1) if vr else None, "news": items[:3], "freshNews": len(fresh)}
         set_setting("stocks_data", json.dumps({"ts": now, "rows": out}))
     stock_alerts(out)
+
+
+def refresh_stock_meta():
+    """The slow parts, on their own schedule: where an unknown ticker lives, names, currencies, exchange rates, earnings dates and per-stock headlines."""
+    with get_db() as conn:
+        recs = {r["ticker"]: dict(r) for r in conn.execute("SELECT * FROM stocks")}
+    tickers = list(recs)
+    if not tickers:
+        return
+    import yfinance as yf
+    symof = {t: (recs[t].get("sym") or t) for t in tickers}
+    now = int(time.time())
+    tried = json.loads(get_setting("stock_resolve", "{}") or "{}")
+    for t in tickers:                      # no price yet: search for it somewhere else (at most once an hour)
+        if t in STOCK_FULL or t in STOCK_PTS or now - tried.get(t, 0) < 3600:
+            continue
+        tried[t] = now
+        try:
+            hit = S.resolve_symbol(t)
+        except Exception as e:
+            log.warning("Resolve %s: %s", t, e)
+            hit = None
+        if hit:
+            with get_db() as conn:
+                conn.execute("UPDATE stocks SET sym=?, src=?, note=? WHERE ticker=?", (hit["sym"], hit["src"], hit["name"], t))
+            recs[t].update(sym=hit["sym"], src=hit["src"], note=hit["name"])
+            symof[t] = hit["sym"]
+            STOCK_FULL.pop(t, None)
+    set_setting("stock_resolve", json.dumps(tried))
+    names, earn, news_all = _stock_names(), json.loads(get_setting("stock_earn", "{}") or "{}"), json.loads(get_setting("stock_news", "{}") or "{}")
+    ccys = json.loads(get_setting("stock_ccy", "{}") or "{}")
+    heat = {}
+    with get_db() as conn:
+        for r in conn.execute("SELECT data FROM heat"):
+            for x in json.loads(r["data"])["rows"]:
+                heat[x["t"]] = x["n"]
+    for t in tickers:
+        if t not in names or not names[t]:
+            names[t] = heat.get(t) or recs[t].get("note") or ""
+            if not names[t]:
+                try:
+                    names[t] = yf.Ticker(symof[t]).info.get("shortName") or t
+                except Exception:
+                    names[t] = t
+        if t not in ccys:
+            try:
+                ccys[t] = (yf.Ticker(symof[t]).fast_info.get("currency") if recs[t].get("src") != "stooq" else None) or ""
+            except Exception:
+                ccys[t] = ""
+        if now - earn.get(t, {}).get("ts", 0) > 6 * 3600:
+            try:
+                ed = _earnings_date(yf.Ticker(symof[t])) if recs[t].get("src") != "stooq" else None
+            except Exception:
+                ed = None
+            earn[t] = {"ts": now, "d": ed.isoformat() if ed else None}
+        if now - news_all.get(t, {}).get("ts", 0) > 150:
+            try:
+                items = S.parse_feed(S.http_get(f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={symof[t]}&region=US&lang=en-US", timeout=15, ua=BROWSER_UA), "Yahoo Finance") if recs[t].get("src") != "stooq" else []
+                news_all[t] = {"ts": now, "items": [{"title": i["title"], "link": i["link"], "source": i["source"], "ts": i["ts"] or now} for i in items if not S.is_noise(i["title"])][:8]}
+            except Exception as e:
+                log.warning("Stock news %s: %s", t, e)
+                news_all.setdefault(t, {"ts": now - 100, "items": []})
+    set_setting("stock_ccy", json.dumps(ccys))
+    refresh_fx({native_ccy(symof[t], ccys.get(t))[0] for t in tickers})
+    set_setting("stock_names", json.dumps(names))
+    set_setting("stock_earn", json.dumps(earn))
+    set_setting("stock_news", json.dumps(news_all))
 
 
 def stock_alerts(rows):
@@ -1080,6 +1163,16 @@ def stocks_loop():
         time.sleep(STOCKS_EVERY)
 
 
+def stocks_meta_loop():
+    time.sleep(30)
+    while True:
+        try:
+            refresh_stock_meta()
+        except Exception as e:
+            log.exception("Stocks meta refresh failed: %s", e)
+        time.sleep(120)
+
+
 _started = False
 
 
@@ -1087,12 +1180,14 @@ def start_background():
     global _started
     if not _started and os.environ.get("MACRO_NO_BACKGROUND") != "1":
         _started = True
-        threading.Thread(target=background_loop, daemon=True, name="refresh").start()
+        background_loop()
+        threading.Thread(target=cnn_loop, daemon=True, name="cnn").start()
         threading.Thread(target=news_loop, daemon=True, name="news").start()
         threading.Thread(target=heat_loop, daemon=True, name="heat").start()
         threading.Thread(target=geo_news_loop, daemon=True, name="geonews").start()
         threading.Thread(target=geo_map_loop, daemon=True, name="geomap").start()
         threading.Thread(target=stocks_loop, daemon=True, name="stocks").start()
+        threading.Thread(target=stocks_meta_loop, daemon=True, name="stocksmeta").start()
         threading.Thread(target=ais_loop, daemon=True, name="ais").start()
         threading.Thread(target=install_libs, daemon=True, name="libs").start()
 
@@ -1882,7 +1977,7 @@ def api_stocks():
                     conn.execute("UPDATE stocks SET kind=?, shares=?, cost=?, label=?, ccy=?, bdate=? WHERE ticker=?", (kind, sh, co, label, ccy, bdate, t))
                 else:
                     conn.execute("INSERT OR REPLACE INTO stocks (ticker, kind, shares, cost, added, label, ccy, bdate) VALUES (?,?,?,?,?,?,?,?)", (t, kind, sh, co, int(time.time()), label, ccy, bdate))
-        threading.Thread(target=lambda: refresh_stocks() if not _stock_lock.locked() else None, daemon=True).start()
+        threading.Thread(target=lambda: (refresh_stocks(), refresh_stock_meta()), daemon=True).start()
         return jsonify({"success": True})
     if is_guest():
         return jsonify({"private": True, "hold": [], "watch": [], "total": None, "ts": None})
