@@ -1746,6 +1746,16 @@ def build_heatmap(index, wiki=None, screener=None, yahoo=None, caps=None):
     elif yahoo:
         notes.append("prices: Yahoo Finance; market caps: approximate (screener not reachable)")
     rows = [r for r in rows if r["c"] > 0]
+    # a company with two share classes (Alphabet A and C, Fox, News Corp ...) is listed twice with the SAME company value: count it once
+    rows.sort(key=lambda r: -r["c"])
+    seen, deduped = {}, []
+    for r in rows:
+        key = (round(r["c"] / 1e8), (r["n"].lower().replace(".", "").split() or [""])[0])
+        if key in seen:
+            continue
+        seen[key] = r
+        deduped.append(r)
+    rows = deduped
     if not rows:
         raise ValueError("no usable rows")
     return {"rows": rows, "notes": notes}
@@ -2444,7 +2454,50 @@ def news_incidents(cid, rows, now=None):
     return sorted(out.values(), key=lambda e: -e["count"])
 
 
-PORTWATCH_TRIES = [
-    ("by name", "?f=json&outFields=*&orderByFields=date+DESC&resultRecordCount={n}&where={where}"),
-    ("latest days, all straits", "?f=json&outFields=*&orderByFields=date+DESC&resultRecordCount=3000&where=1%3D1"),
-]
+PORTWATCH_ROOT = "https://services9.arcgis.com/weJ1QsnbMYJlCHdG/arcgis/rest/services/Daily_Chokepoints_Data/FeatureServer"
+PORTWATCH_SEARCH = "https://www.arcgis.com/sharing/rest/search?f=json&num=10&q=" + "Daily%20Chokepoints%20Data%20type%3A%22Feature%20Service%22"
+STRAIT_NAMES = {"hormuz": "Strait of Hormuz", "mandeb": "Bab el-Mandeb Strait", "suez": "Suez Canal", "bosp": "Bosporus Strait"}
+
+
+def _pick(fields, *needles):
+    for f in fields:
+        n = f.lower()
+        if all(x in n for x in needles):
+            return f
+    return None
+
+
+def portwatch_series(roots, words, get, days=100):
+    """Daily ship counts for the straits, from whichever IMF PortWatch layer answers. Looks at the layer's own field list first
+    so a changed field name does not break it. Returns ({word: [[day, ships, tankers]]}, [what went wrong])."""
+    why = []
+    since = (datetime.utcnow() - timedelta(days=days)).strftime("%Y-%m-%d")
+    for root in roots:
+        try:
+            meta = json.loads(get(root + "/0?f=json"))
+            if meta.get("error"):
+                raise ValueError(str(meta["error"])[:100])
+            fields = [f["name"] for f in meta.get("fields", [])]
+            fdate, fname = _pick(fields, "date") or "date", _pick(fields, "portname") or _pick(fields, "name")
+            ftot, ftan = _pick(fields, "n_total") or _pick(fields, "total"), _pick(fields, "tanker")
+            if not (fname and ftot):
+                raise ValueError("layer has fields " + ", ".join(fields)[:140])
+            names = ",".join("'" + STRAIT_NAMES[w] + "'" for w in words)
+            wheres = [f"{fname} IN ({names}) AND {fdate} >= timestamp '{since} 00:00:00'",
+                      "(" + " OR ".join(f"{fname} LIKE '%{w.capitalize()}%'" for w in words) + f") AND {fdate} >= timestamp '{since} 00:00:00'",
+                      f"{fname} IN ({names})"]
+            from urllib.parse import quote
+            for w_ in wheres:
+                try:
+                    q = f"{root}/0/query?f=json&returnGeometry=false&outFields=*&resultRecordCount=2000&orderByFields={fdate}%20DESC&where={quote(w_)}"
+                    got = parse_portwatch(get(q))
+                    if got:
+                        return got, why
+                    why.append("query answered but had no rows")
+                except Exception as e:
+                    why.append(f"{type(e).__name__}: {e}"[:150])
+        except Exception as e:
+            why.append(f"{root.split('/services/')[-1][:40]}: {type(e).__name__}: {e}"[:170])
+    return {}, why
+
+

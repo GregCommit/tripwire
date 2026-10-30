@@ -497,28 +497,30 @@ def refresh_geo_map():
             time.sleep(6)       # GDELT asks for one request every few seconds
         else:
             st["errors"]["points"] = "GDELT: " + " | ".join(tried)
-        ships, why = [], []
         words = [w for _, w in S.PORTWATCH_STRAITS[cid]]
-        where = " OR ".join(f"UPPER(portname) LIKE '%{w[:6].upper()}%'" for w in words)
-        for label_try, tpl in S.PORTWATCH_TRIES:
-            try:
-                url = S.PORTWATCH_URL + tpl.format(n=80 * len(words), where=quote(where))
-                got = S.parse_portwatch(S.http_get(url, timeout=40, ua=BROWSER_UA).decode("utf-8", "replace"))
-                for label, w in S.PORTWATCH_STRAITS[cid]:
-                    ser = next((v for k, v in got.items() if w in k.lower()), None)
-                    sm = ser and S.ship_summary(ser, label)
-                    if sm:
-                        ships.append(sm)
-                if ships:
-                    break
-                why.append(f"{label_try}: answer had {sum(len(v) for v in got.values())} rows, none usable")
-            except Exception as e:
-                why.append(f"{label_try}: {type(e).__name__}: {e}"[:130])
+        get = lambda u: S.http_get(u, timeout=40, ua=BROWSER_UA).decode("utf-8", "replace")
+        roots = [S.PORTWATCH_ROOT]
+        try:        # the layer's address can change: ask ArcGIS for it as well
+            for it in json.loads(get(S.PORTWATCH_SEARCH)).get("results", []):
+                u = (it.get("url") or "").rstrip("/")
+                if u.endswith("FeatureServer") and "hokepoint" in u and u not in roots:
+                    roots.append(u)
+        except Exception:
+            pass
+        got, why = S.portwatch_series(roots, [w for _, w in S.PORTWATCH_STRAITS[cid]], get)
+        ships = []
+        for label, w in S.PORTWATCH_STRAITS[cid]:
+            ser = next((v for k, v in got.items() if w in k.lower()), None)
+            sm = ser and S.ship_summary(ser, label)
+            if sm:
+                ships.append(sm)
+        if got and not ships:
+            why.append("rows found for: " + ", ".join(list(got)[:4]) + " but too few days")
         if ships:
             st["ships"] = ships
             st["errors"].pop("ships", None)
         else:
-            st["errors"]["ships"] = "IMF PortWatch: " + " | ".join(why)
+            st["errors"]["ships"] = "IMF PortWatch: " + " | ".join(dict.fromkeys(why))[:420]
             st["ships"] = (prev or {}).get("ships", [])
         set_setting("geomap_" + cid, json.dumps(st))
         log.info("War map %s: front %s, %d incident points, errors %s", cid, len(st["front"] or []), len(st["points"]), st["errors"])
@@ -722,7 +724,7 @@ def ai_summarize(h):
 
 
 # ── Heatmap ────────────────────────────────────────────────────────────────────────────────
-HEAT_EVERY = 15 * 60
+HEAT_EVERY = 3 * 60
 
 
 def refresh_heat():
@@ -733,10 +735,17 @@ def refresh_heat():
         errors.append(f"Nasdaq screener: {type(e).__name__}: {e}"[:160])
     for idx, (title, url) in S.HEAT_INDEXES.items():
         wiki, errs = None, list(errors)
-        try:
-            wiki = S.parse_wiki_constituents(S.http_get(url, timeout=30, ua=BROWSER_UA).decode("utf-8", "replace"))
-        except Exception as e:
-            errs.append(f"Wikipedia {title}: {type(e).__name__}: {e}"[:160])
+        cached = json.loads(get_setting("heat_wiki_" + idx, "null") or "null")      # the index lists change rarely: ask Wikipedia every 6 hours
+        if cached and time.time() - cached["ts"] < 6 * 3600:
+            wiki = [tuple(x) for x in cached["rows"]]
+        else:
+            try:
+                wiki = S.parse_wiki_constituents(S.http_get(url, timeout=30, ua=BROWSER_UA).decode("utf-8", "replace"))
+                set_setting("heat_wiki_" + idx, json.dumps({"ts": int(time.time()), "rows": wiki}))
+            except Exception as e:
+                errs.append(f"Wikipedia {title}: {type(e).__name__}: {e}"[:160])
+                if cached:
+                    wiki = [tuple(x) for x in cached["rows"]]
         with get_db() as conn:
             prev = conn.execute("SELECT data FROM heat WHERE idx=?", (idx,)).fetchone()
         caps = {r["t"]: r["c"] for r in json.loads(prev["data"])["rows"]} if prev else {}
@@ -1477,7 +1486,7 @@ def geo_headlines(cid, items, limit=60):
         out.append({"h": link_hash(r["link"]), "title": r["title"], "summary": r["summary"], "link": r["link"], "source": r["source"], "ts": r["ts"],
                     "category": S.geo_category(r["title"], r["summary"]), "impact": impact, "urgency": S.geo_urgency(age, impact),
                     "markets": markets, "moved": [S.item_name(k) for k in moved][:2], "rank": S.geo_rank(impact, age, 0.35 * min(2, len(moved)))})
-    out.sort(key=lambda x: -x["rank"])
+    out.sort(key=lambda x: (-x["ts"], -x["rank"]))       # newest first; importance only breaks ties (the page can re-sort by importance)
     return out[:limit]
 
 
