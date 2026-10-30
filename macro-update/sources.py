@@ -2208,25 +2208,25 @@ def heat_stats(rows):
 def build_tomorrow(chg, vix, vixts, sect_up, heat, earn, vix3=None, fng=None):
     """Turn the short-term numbers into warning signs. A sign 'hits' past a fixed, simple threshold. Gauge, not forecast."""
     signs = []
-    def add(name, val, txt, hit, rule):
-        signs.append({"name": name, "value": txt, "hit": bool(hit), "v": val, "rule": rule})
+    def add(name, val, txt, hit, rule, key=None):
+        signs.append({"name": name, "value": txt, "hit": bool(hit), "v": val, "rule": rule, "key": key})
     for k, name, lim in [("FUT_ES", "S&P 500 futures", -0.7), ("FUT_NQ", "Nasdaq futures", -1.0), ("FUT_RTY", "Small-cap futures", -1.0)]:
         v = chg.get(k)
         if v is not None:
             add(name, v, f"{v:+.1f}%", v <= lim, f"Where traders price it now vs the last close. Red at {lim:g}% or worse.")
     if vix:
-        add("VIX", vix[1], f"{vix[0]:.1f} ({vix[1]:+.0f}%)", vix[1] >= 10 or vix[0] >= 25, "The fear gauge. Red when it jumps 10% in a day or sits above 25.")
+        add("VIX", vix[1], f"{vix[0]:.1f} ({vix[1]:+.0f}%)", vix[1] >= 10 or vix[0] >= 25, "The fear gauge. Red when it jumps 10% in a day or sits above 25.", "VIX")
     if vixts is not None:
         calc = f"VIX {vix[0]:.1f} ÷ 3-month VIX {vix3:.1f} = {vixts:.2f}. " if vix and vix3 else ""
         add("Fear now ÷ fear in 3 months", vixts, f"{vixts:.2f}", vixts >= 1.0,
-            calc + "Normally below 1: traders expect more swings later than now. Above 1.00 they pay more for protection today than for the next 3 months, which marks acute stress.")
+            calc + "Normally below 1: traders expect more swings later than now. Above 1.00 they pay more for protection today than for the next 3 months, which marks acute stress.", "VIXTS")
     if fng and fng.get("score") is not None:
         sc = fng["score"]
         word = (fng.get("rating") or "").replace("_", " ") or ("fear" if sc < 45 else "greed" if sc > 55 else "neutral")
         add("Fear & Greed" + (" (estimate)" if fng.get("estimate") else ""), sc, f"{sc:.0f} · {word}", sc <= 25,
-            "0 = extreme fear, 100 = extreme greed" + (" (CNN's index)." if not fng.get("estimate") else " (our own estimate; CNN's was not reachable).") + " Red at 25 or below.")
+            "0 = extreme fear, 100 = extreme greed" + (" (CNN's index)." if not fng.get("estimate") else " (our own estimate; CNN's was not reachable).") + " Red at 25 or below.", "MOOD")
     if sect_up is not None:
-        add("Sectors up", sect_up, f"{sect_up:.0f} of 11", sect_up <= 3, "How many of the 11 sectors rose today. Red at 3 or fewer: a broad sell-off.")
+        add("Sectors up", sect_up, f"{sect_up:.0f} of 11", sect_up <= 3, "How many of the 11 sectors rose today. Red at 3 or fewer: a broad sell-off.", "SECT_UP")
     if heat and heat.get("mega"):
         m = heat["mega"]; worst = min(m, key=lambda x: x["pct"])
         add("Mega caps ($1 trillion+) average", heat["megaAvg"], f"{heat['megaAvg']:+.1f}%", heat["megaAvg"] <= -2,
@@ -2344,6 +2344,23 @@ def _front_kind(name, props):
                 return "occ"
         except ValueError:
             pass
+    return None
+
+
+def front_date(raw):
+    """The timestamp DeepStateMap gives its snapshot, if it gives one."""
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return None
+    for k in ("datetime", "date", "updated", "updatedAt", "created", "createdAt", "timestamp", "id"):
+        v = data.get(k) if isinstance(data, dict) else None
+        if isinstance(v, str) and re.match(r"\d{4}-\d{2}-\d{2}", v):
+            return v[:16].replace("T", " ")
+        if isinstance(v, (int, float)) and 1.4e9 < v < 2.5e9:
+            return datetime.utcfromtimestamp(v).strftime("%Y-%m-%d %H:%M")
+        if isinstance(v, (int, float)) and 1.4e12 < v < 2.5e12:
+            return datetime.utcfromtimestamp(v / 1000).strftime("%Y-%m-%d %H:%M")
     return None
 
 
@@ -2506,12 +2523,18 @@ def portwatch_roots(get):
     return roots[:14], seen_titles
 
 
+def _norm(s):
+    return re.sub(r"[^a-z0-9]", "", str(s).lower())
+
+
 def portwatch_series(roots, words, get, days=100):
     """Daily ship counts for the straits from whichever IMF PortWatch layer has the right fields (port name, date, total, tankers).
-    Returns ({lower-case name: [[day, ships, tankers]]}, [what went wrong])."""
+    Asks the layer for its own list of names first, so the exact spelling of a strait does not matter, and takes the latest rows
+    by position instead of filtering on the date. Returns ({lower-case name: [[day, ships, tankers]]}, [what went wrong])."""
     from urllib.parse import quote
     why = []
-    since = (datetime.utcnow() - timedelta(days=days)).strftime("%Y-%m-%d")
+    def q(url, **kw):
+        return json.loads(get(url + "/query?f=json&returnGeometry=false&" + "&".join(f"{k}={quote(str(v))}" for k, v in kw.items())))
     for root in roots:
         for layer in range(4):
             url = f"{root}/{layer}"
@@ -2521,152 +2544,40 @@ def portwatch_series(roots, words, get, days=100):
                     break
                 fields = [f["name"] for f in meta.get("fields", [])]
                 fdate, fname = _pick(fields, "date"), _pick(fields, "portname") or _pick(fields, "name")
-                ftot = _pick(fields, "n_total") or _pick(fields, "total")
+                ftot, ftan = _pick(fields, "n_total") or _pick(fields, "total"), _pick(fields, "tanker")
                 if not (fdate and fname and ftot):
-                    why.append(f"{root.split('/services/')[-1].split('/')[0][:34]}/{layer}: {', '.join(fields)[:70]}")
+                    why.append(f"{root.split('/services/')[-1].split('/')[0][:30]}/{layer}: {', '.join(fields)[:60]}")
                     continue
-                names = ",".join("'" + STRAIT_NAMES[w] + "'" for w in words)
-                wheres = [f"{fname} IN ({names}) AND {fdate} >= timestamp '{since} 00:00:00'",
-                          "(" + " OR ".join(f"{fname} LIKE '%{w.capitalize()}%'" for w in words) + f") AND {fdate} >= timestamp '{since} 00:00:00'",
-                          f"{fname} IN ({names})"]
-                for w_ in wheres:
-                    try:
-                        got = parse_portwatch(get(f"{url}/query?f=json&returnGeometry=false&outFields=*&resultRecordCount=2000&orderByFields={fdate}%20DESC&where={quote(w_)}"))
-                        if got:
-                            return got, why
-                    except Exception as e:
-                        why.append(f"query: {type(e).__name__}: {e}"[:120])
+                dn = q(url, where="1=1", outFields=fname, returnDistinctValues="true", resultRecordCount=2000)
+                if dn.get("error"):
+                    why.append("names: " + str(dn["error"].get("details") or dn["error"].get("message"))[:90])
+                    continue
+                names = [f["attributes"][fname] for f in dn.get("features", []) if f.get("attributes", {}).get(fname)]
+                got = {}
+                for w in words:
+                    hit = next((n for n in names if w in _norm(n)), None)
+                    if not hit:
+                        continue
+                    where = f"{fname}='{hit}'".replace("'", "'")
+                    cnt = q(url, where=where, returnCountOnly="true")
+                    n = cnt.get("count") or 0
+                    if not n:
+                        why.append(f"{hit}: no rows")
+                        continue
+                    fields_out = ",".join(x for x in (fdate, fname, ftot, ftan) if x)
+                    rows = q(url, where=where, outFields=fields_out, resultOffset=max(0, n - days), resultRecordCount=days)
+                    if rows.get("error"):
+                        why.append("rows: " + str(rows["error"].get("details") or rows["error"].get("message"))[:90])
+                        continue
+                    one = parse_portwatch(json.dumps(rows))
+                    got.update(one)
+                if got:
+                    return got, why
+                why.append(f"{layer}: names such as {', '.join(map(str, names[:4]))} but none of {', '.join(words)}")
             except Exception as e:
                 why.append(f"{root.split('/services/')[-1][:30]}: {type(e).__name__}: {e}"[:110])
                 break
     return {}, why
-
-
-def parse_portwatch(raw):
-    """ArcGIS JSON -> {matchword: [[YYYY-MM-DD, ships, tankers], ...]} oldest first."""
-    data = json.loads(raw)
-    if data.get("error"):
-        raise ValueError(str(data["error"])[:140])
-    out = {}
-    for f in data.get("features", []):
-        a = {k.lower(): v for k, v in (f.get("attributes") or {}).items()}
-        name = str(a.get("portname") or "").lower()
-        ts = a.get("date")
-        if not name or ts is None:
-            continue
-        tot = next((a[k] for k in a if "total" in k and isinstance(a[k], (int, float))), None)
-        tan = next((a[k] for k in a if "tanker" in k and isinstance(a[k], (int, float))), None)
-        if tot is None:
-            continue
-        day = datetime.utcfromtimestamp(ts / 1000).strftime("%Y-%m-%d")
-        out.setdefault(name, []).append([day, tot, tan or 0])
-    for v in out.values():
-        v.sort()
-    return out
-
-
-def ship_summary(series, label):
-    """Last day, 7-day and 30-day averages from a [[day, ships, tankers]] list."""
-    if len(series) < 10:
-        return None
-    ships = [r[1] for r in series]
-    a7, a30 = sum(ships[-7:]) / 7, sum(ships[-37:-7]) / max(1, len(ships[-37:-7]))
-    return {"name": label, "last": ships[-1], "day": series[-1][0], "a7": round(a7, 1), "a30": round(a30, 1), "chg": round((a7 / a30 - 1) * 100, 1) if a30 else None,
-            "tankers7": round(sum(r[2] for r in series[-7:]) / 7, 1), "spark": ships[-60:]}
-
-
-# Incidents read from the app's own headlines: a place named together with an attack word
-GEO_PLACES = {
-    "ua": [("Kyiv", 50.45, 30.52, ["kyiv", "kiev"]), ("Kharkiv", 49.99, 36.23, ["kharkiv", "kharkov"]), ("Odesa", 46.48, 30.73, ["odesa", "odessa"]),
-           ("Dnipro", 48.46, 35.05, ["dnipro"]), ("Zaporizhzhia", 47.84, 35.14, ["zaporizhzhia", "zaporizhia", "zaporozhye"]), ("Kherson", 46.64, 32.62, ["kherson"]),
-           ("Mykolaiv", 46.97, 32.00, ["mykolaiv", "nikolaev"]), ("Sumy", 50.91, 34.80, ["sumy"]), ("Chernihiv", 51.50, 31.30, ["chernihiv"]), ("Lviv", 49.84, 24.03, ["lviv"]),
-           ("Poltava", 49.59, 34.55, ["poltava"]), ("Kramatorsk", 48.74, 37.58, ["kramatorsk"]), ("Sloviansk", 48.87, 37.62, ["sloviansk"]), ("Pokrovsk", 48.28, 37.18, ["pokrovsk"]),
-           ("Donetsk", 48.00, 37.80, ["donetsk"]), ("Luhansk", 48.57, 39.31, ["luhansk"]), ("Bakhmut", 48.60, 38.00, ["bakhmut"]), ("Kupiansk", 49.71, 37.62, ["kupiansk"]),
-           ("Kursk", 51.73, 36.19, ["kursk"]), ("Belgorod", 50.60, 36.60, ["belgorod"]), ("Bryansk", 53.25, 34.37, ["bryansk"]), ("Rostov", 47.23, 39.72, ["rostov"]),
-           ("Voronezh", 51.67, 39.20, ["voronezh"]), ("Moscow", 55.75, 37.62, ["moscow"]), ("St Petersburg", 59.93, 30.34, ["st petersburg", "st. petersburg", "saint petersburg"]),
-           ("Crimea / Sevastopol", 44.60, 33.50, ["crimea", "sevastopol"]), ("Mariupol", 47.10, 37.55, ["mariupol"]), ("Kryvyi Rih", 47.91, 33.39, ["kryvyi rih"]),
-           ("Vinnytsia", 49.23, 28.47, ["vinnytsia"]), ("Black Sea", 43.5, 34.0, ["black sea"]), ("Donbas", 48.3, 38.0, ["donbas", "donbass"])],
-    "me": [("Tehran", 35.69, 51.39, ["tehran"]), ("Isfahan", 32.65, 51.67, ["isfahan", "esfahan"]), ("Natanz", 33.72, 51.73, ["natanz"]), ("Tabriz", 38.08, 46.29, ["tabriz"]),
-           ("Gaza", 31.50, 34.47, ["gaza"]), ("Rafah", 31.30, 34.25, ["rafah"]), ("Tel Aviv", 32.08, 34.78, ["tel aviv"]), ("Jerusalem", 31.77, 35.21, ["jerusalem"]),
-           ("Beirut", 33.89, 35.50, ["beirut"]), ("Southern Lebanon", 33.30, 35.40, ["south lebanon", "southern lebanon", "hezbollah"]), ("Damascus", 33.50, 36.30, ["damascus"]),
-           ("Aleppo", 36.20, 37.16, ["aleppo"]), ("Baghdad", 33.30, 44.40, ["baghdad"]), ("Erbil", 36.19, 44.01, ["erbil"]), ("Sanaa", 15.37, 44.19, ["sanaa", "sana'a"]),
-           ("Hodeidah", 14.80, 42.95, ["hodeidah", "hudaydah"]), ("Aden", 12.80, 45.00, ["aden"]), ("Marib", 15.46, 45.33, ["marib"]), ("Riyadh", 24.70, 46.70, ["riyadh"]),
-           ("Jeddah", 21.50, 39.20, ["jeddah"]), ("Doha", 25.29, 51.53, ["doha"]), ("Dubai", 25.20, 55.27, ["dubai"]), ("Abu Dhabi", 24.45, 54.38, ["abu dhabi"]),
-           ("Red Sea", 20.00, 38.50, ["red sea"]), ("Gulf of Aden", 12.00, 47.00, ["gulf of aden"]), ("Persian Gulf", 27.00, 51.00, ["persian gulf", "arabian gulf"]),
-           ("Strait of Hormuz", 26.57, 56.25, ["hormuz"]), ("Bab-el-Mandeb", 12.60, 43.30, ["mandeb", "mandab"]), ("Houthi territory", 15.5, 44.0, ["houthi"])],
-}
-
-
-def news_incidents(cid, rows, now=None):
-    """[{lat, lon, n, count, items: [{t, l, s, ts}]}]: headlines of the last 7 days that name a place together with an attack word."""
-    now = now or time.time()
-    places = GEO_PLACES[cid] + [(n, la, lo, w) for n, la, lo, k, w in GEO_SITES[cid]]
-    seen, out = set(), {}
-    for h in rows:
-        if now - h["ts"] > 7 * 86400 or h["title"] in seen:
-            continue
-        t = (h["title"] + " " + (h.get("summary") or "")).lower()
-        if not _ATTACK_RX.search(t):
-            continue
-        seen.add(h["title"])
-        title_l = h["title"].lower()
-        for name, la, lo, words in places:
-            if any(w in title_l for w in words):
-                e = out.setdefault(name, {"lat": la, "lon": lo, "n": name, "count": 0, "items": []})
-                e["count"] += 1
-                e["items"].append({"t": h["title"], "l": h["link"], "s": h["source"], "ts": h["ts"]})
-    for e in out.values():
-        e["items"] = sorted(e["items"], key=lambda x: -x["ts"])[:4]
-    return sorted(out.values(), key=lambda e: -e["count"])
-
-
-PORTWATCH_ROOT = "https://services9.arcgis.com/weJ1QsnbMYJlCHdG/arcgis/rest/services/Daily_Chokepoints_Data/FeatureServer"
-PORTWATCH_SEARCH = "https://www.arcgis.com/sharing/rest/search?f=json&num=10&q=" + "Daily%20Chokepoints%20Data%20type%3A%22Feature%20Service%22"
-STRAIT_NAMES = {"hormuz": "Strait of Hormuz", "mandeb": "Bab el-Mandeb Strait", "suez": "Suez Canal", "bosp": "Bosporus Strait"}
-
-
-def _pick(fields, *needles):
-    for f in fields:
-        n = f.lower()
-        if all(x in n for x in needles):
-            return f
-    return None
-
-
-def portwatch_series(roots, words, get, days=100):
-    """Daily ship counts for the straits, from whichever IMF PortWatch layer answers. Looks at the layer's own field list first
-    so a changed field name does not break it. Returns ({word: [[day, ships, tankers]]}, [what went wrong])."""
-    why = []
-    since = (datetime.utcnow() - timedelta(days=days)).strftime("%Y-%m-%d")
-    for root in roots:
-        try:
-            meta = json.loads(get(root + "/0?f=json"))
-            if meta.get("error"):
-                raise ValueError(str(meta["error"])[:100])
-            fields = [f["name"] for f in meta.get("fields", [])]
-            fdate, fname = _pick(fields, "date") or "date", _pick(fields, "portname") or _pick(fields, "name")
-            ftot, ftan = _pick(fields, "n_total") or _pick(fields, "total"), _pick(fields, "tanker")
-            if not (fname and ftot):
-                raise ValueError("layer has fields " + ", ".join(fields)[:140])
-            names = ",".join("'" + STRAIT_NAMES[w] + "'" for w in words)
-            wheres = [f"{fname} IN ({names}) AND {fdate} >= timestamp '{since} 00:00:00'",
-                      "(" + " OR ".join(f"{fname} LIKE '%{w.capitalize()}%'" for w in words) + f") AND {fdate} >= timestamp '{since} 00:00:00'",
-                      f"{fname} IN ({names})"]
-            from urllib.parse import quote
-            for w_ in wheres:
-                try:
-                    q = f"{root}/0/query?f=json&returnGeometry=false&outFields=*&resultRecordCount=2000&orderByFields={fdate}%20DESC&where={quote(w_)}"
-                    got = parse_portwatch(get(q))
-                    if got:
-                        return got, why
-                    why.append("query answered but had no rows")
-                except Exception as e:
-                    why.append(f"{type(e).__name__}: {e}"[:150])
-        except Exception as e:
-            why.append(f"{root.split('/services/')[-1][:40]}: {type(e).__name__}: {e}"[:170])
-    return {}, why
-
-
 
 
 # ══ Stocks: your own holdings and watch list ═════════════════════════════════════════════════

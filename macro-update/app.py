@@ -101,7 +101,7 @@ def init_db():
             CREATE TABLE IF NOT EXISTS alerts (id INTEGER PRIMARY KEY, ts INTEGER, key TEXT, kind TEXT,
                 title TEXT, detail TEXT, emailed INTEGER DEFAULT 0);
         """)
-        for col in ("sym TEXT", "src TEXT", "note TEXT"):
+        for col in ("sym TEXT", "src TEXT", "note TEXT", "label TEXT", "ccy TEXT", "bdate TEXT"):
             try:
                 conn.execute("ALTER TABLE stocks ADD COLUMN " + col)
             except sqlite3.OperationalError:
@@ -506,7 +506,8 @@ def refresh_geo_map():
         if cid == "ua":
             for url in FRONT_URLS:
                 try:
-                    st["front"] = S.parse_frontline(S.http_get(url, timeout=40, ua=BROWSER_UA).decode("utf-8", "replace"))
+                    raw = S.http_get(url, timeout=40, ua=BROWSER_UA).decode("utf-8", "replace")
+                    st["front"], st["frontDate"] = S.parse_frontline(raw), S.front_date(raw)
                     st["errors"].pop("front", None)
                     break
                 except Exception as e:
@@ -966,6 +967,15 @@ def refresh_stocks():
             out[t] = {"t": t, "name": names.get(t) or t, "price": s["value"], "date": s["date"], "d1": s["d1"], "w1": s.get("w1"), "m1": s["m1"], "y1": s.get("y1"),
                       "hi": s["hi"], "lo": s["lo"], "spark": s["spark"], "flags": [f for f, _ in flags], "score": round(sum(w for _, w in flags), 2),
                       "move": move, "earn": ed, "sym": symof[t], "src": recs[t].get("src") or "yahoo", "note": recs[t].get("note"), "volx": round(vr, 1) if vr else None, "news": items[:3], "freshNews": len(fresh)}
+        ccys = json.loads(get_setting("stock_ccy", "{}") or "{}")
+        for t in tickers:
+            if t not in ccys and t in got:
+                try:
+                    ccys[t] = (yf.Ticker(symof[t]).fast_info.get("currency") if recs[t].get("src") != "stooq" else None) or ""
+                except Exception:
+                    ccys[t] = ""
+        set_setting("stock_ccy", json.dumps(ccys))
+        refresh_fx({native_ccy(symof[t], ccys.get(t))[0] for t in tickers})
         set_setting("stock_names", json.dumps(names))
         set_setting("stock_earn", json.dumps(earn))
         set_setting("stock_news", json.dumps(news_all))
@@ -1725,6 +1735,56 @@ def geo_headlines(cid, items, limit=60):
     return out[:limit]
 
 
+SUFFIX_CCY = {".DE": "EUR", ".F": "EUR", ".PA": "EUR", ".AS": "EUR", ".MI": "EUR", ".MC": "EUR", ".VI": "EUR", ".BR": "EUR", ".HE": "EUR", ".LS": "EUR", ".IR": "EUR",
+              ".L": "GBP", ".UK": "GBP", ".SW": "CHF", ".ST": "SEK", ".CO": "DKK", ".OL": "NOK", ".WA": "PLN", ".PL": "PLN", ".T": "JPY", ".TO": "CAD", ".AX": "AUD"}
+CCY_SYM = {"USD": "$", "EUR": "€", "GBP": "£"}
+
+
+def native_ccy(sym, yahoo_ccy=None):
+    """(currency code, scale) of a quote: Yahoo's own currency when known, else from the exchange suffix. London prices are in pence."""
+    if yahoo_ccy:
+        return ("GBP", 0.01) if yahoo_ccy in ("GBp", "GBX") else (yahoo_ccy.upper(), 1.0)
+    s = sym.upper()
+    for suf, c in SUFFIX_CCY.items():
+        if s.endswith(suf):
+            return c, (0.01 if c == "GBP" else 1.0)
+    return "USD", 1.0
+
+
+def refresh_fx(ccys):
+    fx = json.loads(get_setting("fx", "{}") or "{}")
+    need = [c for c in ccys | {"EUR"} if c != "USD"]
+    if not need or (time.time() - fx.get("_ts", 0) < 6 * 3600 and all(c in fx for c in need)):
+        return fx
+    try:
+        got = S.fetch_yahoo([f"{c}USD=X" for c in need], "5y")
+        for c in need:
+            pts = got.get(f"{c}USD=X")
+            if pts:
+                fx[c] = pts[-1300:]
+        fx["_ts"] = time.time()
+        set_setting("fx", json.dumps(fx))
+    except Exception as e:
+        log.warning("FX rates: %s", e)
+    return fx
+
+
+def fx_rate(fx, c, date=None, avg=False):
+    """US dollars per 1 unit of c: latest, on a date (the last quote on or before it), or the average of the last year."""
+    if c == "USD":
+        return 1.0, "now"
+    pts = fx.get(c) or []
+    if not pts:
+        return None, ""
+    if date:
+        prior = [p for p in pts if p[0] <= date] or pts[:1]
+        return prior[-1][1], prior[-1][0]
+    if avg:
+        yr = pts[-250:]
+        return sum(p[1] for p in yr) / len(yr), "average of the last year"
+    return pts[-1][1], pts[-1][0]
+
+
 @app.route("/api/stocks", methods=["GET", "POST"])
 @login_required
 def api_stocks():
@@ -1739,6 +1799,9 @@ def api_stocks():
                 return float(str(v).replace(",", ".")) if str(v).strip() != "" else None
             except ValueError:
                 return None
+        label = str(d.get("label", "")).strip()[:80] or None
+        ccy = d.get("ccy") if d.get("ccy") in ("EUR", "USD", "NATIVE") else "NATIVE"
+        bdate = str(d.get("bdate", ""))[:10] if re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(d.get("bdate", ""))[:10]) else None
         with get_db() as conn:
             if act == "remove":
                 conn.execute("DELETE FROM stocks WHERE ticker=?", (t,))
@@ -1748,38 +1811,99 @@ def api_stocks():
                 if kind == "hold" and sh is not None and sh <= 0:        # zero shares: it goes back to the watch list
                     kind, sh, co = "watch", None, None
                 if act == "update":
-                    conn.execute("UPDATE stocks SET kind=?, shares=?, cost=? WHERE ticker=?", (kind, sh, co, t))
+                    conn.execute("UPDATE stocks SET kind=?, shares=?, cost=?, label=?, ccy=?, bdate=? WHERE ticker=?", (kind, sh, co, label, ccy, bdate, t))
                 else:
-                    conn.execute("INSERT OR REPLACE INTO stocks (ticker, kind, shares, cost, added) VALUES (?,?,?,?,?)", (t, kind, sh, co, int(time.time())))
+                    conn.execute("INSERT OR REPLACE INTO stocks (ticker, kind, shares, cost, added, label, ccy, bdate) VALUES (?,?,?,?,?,?,?,?)", (t, kind, sh, co, int(time.time()), label, ccy, bdate))
         threading.Thread(target=lambda: refresh_stocks() if not _stock_lock.locked() else None, daemon=True).start()
         return jsonify({"success": True})
     if is_guest():
         return jsonify({"private": True, "hold": [], "watch": [], "total": None, "ts": None})
     data = json.loads(get_setting("stocks_data", "{}") or "{}")
     rows = data.get("rows", {})
+    ccys = json.loads(get_setting("stock_ccy", "{}") or "{}")
     with get_db() as conn:
         mine = [dict(r) for r in conn.execute("SELECT * FROM stocks ORDER BY added")]
+    nat = {m["ticker"]: native_ccy(m.get("sym") or m["ticker"], ccys.get(m["ticker"])) for m in mine}
+    fx = json.loads(get_setting("fx", "{}") or "{}")
     hold, watch = [], []
     for m in mine:
-        r = dict(rows.get(m["ticker"]) or {"t": m["ticker"], "name": _stock_names().get(m["ticker"], m["ticker"]), "price": None, "flags": [], "score": 0, "news": [], "spark": [],
-                                         "notFound": bool(json.loads(get_setting("stock_resolve", "{}") or "{}").get(m["ticker"]))})
-        r.update(kind=m["kind"], shares=m["shares"], cost=m["cost"])
+        t = m["ticker"]
+        r = dict(rows.get(t) or {"t": t, "name": _stock_names().get(t, t), "price": None, "flags": [], "score": 0, "news": [], "spark": [],
+                                 "notFound": bool(json.loads(get_setting("stock_resolve", "{}") or "{}").get(t))})
+        c, sc = nat[t]
+        if m.get("label"):
+            r["name"] = m["label"]
+        r.update(kind=m["kind"], shares=m["shares"], cost=m["cost"], ccy=c, costCcy=m.get("ccy") or "NATIVE", bdate=m.get("bdate"), label=m.get("label"))
+        if r.get("price") is not None and sc != 1.0:
+            for k in ("price", "hi", "lo"):
+                if r.get(k) is not None:
+                    r[k] *= sc
+            r["spark"] = [v * sc for v in r.get("spark", [])]
+        ru = fx_rate(fx, c)[0]
+        if r.get("price") is not None and ru:
+            r["usd"] = r["price"] * ru
+            re_ = fx_rate(fx, "EUR")[0]
+            r["eur"] = r["usd"] / re_ if re_ else None
         if m["kind"] == "hold" and r.get("price") is not None and m["shares"]:
             r["value"] = r["price"] * m["shares"]
             r["dayAmt"] = r["value"] * (r["d1"] or 0) / (100 + (r["d1"] or 0))
             if m["cost"]:
-                r["pl"] = r["value"] - m["cost"] * m["shares"]
-                r["plPct"] = (r["price"] / m["cost"] - 1) * 100
+                cc = c if (m.get("ccy") or "NATIVE") == "NATIVE" else m["ccy"]
+                cost_nat, note = None, ""
+                if cc == c:
+                    cost_nat = m["cost"]
+                else:
+                    rc, when = fx_rate(fx, cc, m.get("bdate"), avg=not m.get("bdate"))
+                    if rc and ru:
+                        cost_nat = m["cost"] * rc / ru
+                        note = f"{m['cost']:,.2f} {cc} = {cost_nat:,.2f} {c} (1 {cc} = {rc:.4f} USD, {'on ' + when if m.get('bdate') else when})"
+                if cost_nat:
+                    r["costNat"], r["costNote"] = cost_nat, note
+                    r["pl"] = r["value"] - cost_nat * m["shares"]
+                    r["plPct"] = (r["price"] / cost_nat - 1) * 100
         (hold if m["kind"] == "hold" else watch).append(r)
     key = lambda r: (-(r.get("score") or 0), -(r.get("value") or 0), r["t"])
     hold.sort(key=key); watch.sort(key=key)
     total = None
     if any(r.get("value") for r in hold):
-        v = sum(r.get("value", 0) for r in hold); day = sum(r.get("dayAmt", 0) for r in hold)
-        cost = sum(r["cost"] * r["shares"] for r in hold if r.get("cost") and r.get("shares") and r.get("price") is not None)
-        pl = sum(r.get("pl", 0) for r in hold if "pl" in r)
-        total = {"value": v, "day": day, "dayPct": day / (v - day) * 100 if v - day else 0, "pl": pl if cost else None, "plPct": pl / cost * 100 if cost else None}
+        def tot(to):
+            rt = fx_rate(fx, to)[0]
+            if not rt:
+                return None
+            conv = lambda r, v: v * (fx_rate(fx, r["ccy"])[0] or 0) / rt
+            v = sum(conv(r, r["value"]) for r in hold if r.get("value")); day = sum(conv(r, r["dayAmt"]) for r in hold if r.get("value"))
+            cost = sum(conv(r, r["costNat"] * r["shares"]) for r in hold if r.get("costNat") and r.get("value"))
+            pl = sum(conv(r, r["pl"]) for r in hold if "pl" in r)
+            return {"value": v, "day": day, "dayPct": day / (v - day) * 100 if v - day else 0, "pl": pl if cost else None, "plPct": pl / cost * 100 if cost else None}
+        total = {"USD": tot("USD"), "EUR": tot("EUR")}
     return jsonify({"hold": hold, "watch": watch, "total": total, "ts": data.get("ts")})
+
+
+@app.route("/api/intraday")
+@login_required
+def api_intraday():
+    """Today's price course in 5-minute steps (for the hover charts)."""
+    t = re.sub(r"[^A-Za-z0-9.\-=^]", "", request.args.get("t", "")).upper()[:12]
+    c = _intraday_cache.get(t)
+    if c and time.time() - c[0] < 120:
+        return jsonify(c[1])
+    try:
+        import yfinance as yf
+        df = yf.download(t, period="2d", interval="5m", progress=False, auto_adjust=False, threads=False)
+        col = df["Close"]
+        col = col[t] if hasattr(col, "columns") else col
+        pts = [(i, float(v)) for i, v in col.items() if v == v]
+        last_day = pts[-1][0].date()
+        today = [[int(i.timestamp()), v] for i, v in pts if i.date() == last_day]
+        prev = [v for i, v in pts if i.date() != last_day]
+        out = {"t": t, "pts": today, "prev": prev[-1] if prev else None}
+    except Exception as e:
+        out = {"t": t, "pts": [], "prev": None, "error": f"{type(e).__name__}: {e}"[:120]}
+    _intraday_cache[t] = (time.time(), out)
+    return jsonify(out)
+
+
+_intraday_cache = {}
 
 
 @app.route("/api/ais", methods=["POST"])
@@ -1948,7 +2072,7 @@ def api_geomap():
     st = json.loads(get_setting("geomap_" + cid, "null") or "null") or {"front": None, "points": [], "errors": {}, "ts": None}
     with get_db() as conn:
         rows = [dict(r) for r in conn.execute("SELECT ts, source, title, summary, link FROM news WHERE ts > ? ORDER BY ts DESC LIMIT 2500", (int(time.time()) - 7 * 86400,))]
-    return jsonify({"view": S.GEO_VIEW[cid], "sites": S.site_status(cid, rows), "front": st.get("front"), "points": st.get("points", []),
+    return jsonify({"view": S.GEO_VIEW[cid], "sites": S.site_status(cid, rows), "front": st.get("front"), "frontDate": st.get("frontDate"), "points": st.get("points", []),
                     "errors": st.get("errors", {}), "ships": st.get("ships", []), "incidents": S.news_incidents(cid, rows), "shipsLive": list(json.loads(get_setting("ships_" + cid, "{}") or "{}").values()),
                     "ais": {"hasKey": bool(get_setting("ais_key", "")), "status": json.loads(get_setting("ais_status", "null") or "null")}, "ts": st.get("ts"), "pointsTs": st.get("pointsTs")})
 
