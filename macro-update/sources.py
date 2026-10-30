@@ -572,12 +572,12 @@ HUB = [
          unit="%", dec=0, freq="quarterly", signed=True,
          why="Share of US banks tightening their standards for credit cards, minus the share loosening (Federal Reserve survey of loan officers, quarterly). Banks see their customers' problems first and react by lending less — which slows spending and often comes before more defaults.",
          high="Many banks are making it harder to borrow on cards: they expect more households to struggle. Spending usually slows afterwards.",
-         low="Banks are loosening card lending. This is a quarterly survey that lags market stress by a few months, so weigh it against the faster signals (junk-bond spreads, jobless claims)."),
+         low="Banks are loosening card lending. This is a quarterly survey that lags market stress by a few months, so read it next to the faster signals (junk-bond spreads, jobless claims)."),
     dict(key="SLOOS_BUS", name="Banks tightening business lending", cat="credit", kind="fred", sym="DRTSCILM", start="1990-01-01",
          unit="%", dec=0, freq="quarterly", signed=True,
          why="Share of US banks tightening their standards for loans to medium and large companies, minus the share loosening (Federal Reserve survey, quarterly). Tighter lending starves companies of money, so it leads slower hiring and investment, and often recessions.",
          high="Banks are clamping down on business loans — historically a reliable warning that a slowdown or recession is coming.",
-         low="Banks are loosening business lending. This is a quarterly survey that lags market stress by a few months, so weigh it against the faster signals (junk-bond spreads, financial stress)."),
+         low="Banks are loosening business lending. This is a quarterly survey that lags market stress by a few months, so read it next to the faster signals (junk-bond spreads, financial stress)."),
     dict(key="STLFSI", name="Financial stress (St. Louis Fed)", cat="credit", kind="fred", sym="STLFSI4", start="1993-01-01", unit="", dec=2,
          freq="weekly", signed=True,
          why="Index of 18 weekly market measures (interest rates, spreads, volatility). Zero is average stress; above zero is more stress than usual.",
@@ -1365,7 +1365,7 @@ def rel_eval(items, driver, affected, mode, why=""):
                f"so a gap now does not mean the market signal is wrong — watch its next release.")
     reason = ""
     if status == "noreact":
-        reason = f"{_names(items, pull_other)} pulls the other way." if pull_other else (lag or "The link is weaker than usual, so treat both signals with less weight.")
+        reason = f"{_names(items, pull_other)} pulls the other way." if pull_other else lag
     elif status in ("against", "other"):
         reason = f"{_names(items, pull_same)} explains it." if pull_same else (lag or ("Something else is driving it; check the news." if status == "against" else "No tracked driver explains it; check the news."))
     if status == "quiet":
@@ -1373,13 +1373,13 @@ def rel_eval(items, driver, affected, mode, why=""):
     elif status == "asusual":
         note = f"{d['name']} {cd}, {a['name']} {ca} {hz}: the usual link is working."
     elif status == "noreact":
-        note = f"{d['name']} moved ({cd} {hz}) but {a['name']} has not followed. {reason}"
+        note = f"{d['name']} moved ({cd} {hz}) but {a['name']} has not followed. {reason}".strip()
     elif status == "against":
         note = f"{d['name']} {cd}, {a['name']} {ca} {hz}: moving against the usual link. {reason}"
     else:
         note = f"{a['name']} moved ({ca} {hz}) without a matching move in {d['name']}. {reason}"
     return {"driver": driver, "affected": affected, "mode": mode, "modeText": _MODE_WORDS[mode], "why": why,
-            "status": status, "note": note, "reason": reason, "cd": cd, "ca": ca, "horizon": hz, "sd": round(sd, 2), "sa": round(sa, 2),
+            "status": status, "note": note.strip(), "reason": reason, "cd": cd, "ca": ca, "horizon": hz, "sd": round(sd, 2), "sa": round(sa, 2),
             "weak": (driver, affected) in WEAK_LINKS}
 
 
@@ -1469,7 +1469,7 @@ def explain(key, items):
     if ag:
         parts.append(f"{_names(items, ag)} moved against the usual link, so something else is also at work.")
     if nr:
-        parts.append(f"{_names(items, nr)} moved but {me['name']} did not follow, so that link counts for less today.")
+        parts.append(f"{_names(items, nr)} moved but {me['name']} did not follow.")
     out = [x["affected"] for x in effects if x["status"] == "asusual"]
     if out:
         parts.append(f"In turn it is moving {_names(items, out)}.")
@@ -1563,6 +1563,10 @@ _NEWS_NEG = {"GOLD": re.compile(r"gold(?:en)?\s+(?:medal|cup|coast|state|rush|gl
 _NEWS_RX = {k: re.compile(r"(?<![a-z0-9])(?:" + "|".join(re.escape(p) for p in v) + r")(?![a-z0-9])", re.I) for k, v in NEWS_TOPICS.items()}
 
 
+_NEWS_CTX = {}      # topic -> (name regex, regex of words that must be in the same text), for names that are also everyday words
+_NEWS_PARENTS = {}  # topic -> topics it also belongs to (a company belongs to its group average and to its conflict)
+
+
 def tag_news(title, summary=""):
     """Indicator keys a headline is about (a match in the title counts, one only in the summary counts less)."""
     hits = []
@@ -1573,6 +1577,17 @@ def tag_news(title, summary=""):
             hits.append((k, 2))
         elif summary and rx.search(summary):
             hits.append((k, 1))
+    text = title + " " + (summary or "")
+    have = {k for k, _ in hits}
+    for k, (name, ctx) in _NEWS_CTX.items():
+        if k not in have and name.search(title) and ctx.search(text):
+            hits.append((k, 2))
+            have.add(k)
+    for k in list(have):
+        for p in _NEWS_PARENTS.get(k, ()):
+            if p not in have:
+                hits.append((p, 1))
+                have.add(p)
     return hits
 
 
@@ -2002,3 +2017,119 @@ def surprise_ratio(move, implied):
     r = abs(move) / implied
     return round(r, 2), ("far bigger than the options market expected" if r >= 1.5 else "bigger than expected" if r >= 1.1 else
                          "about as expected" if r >= 0.7 else "smaller than expected")
+
+
+# ══ Geopolitics headlines: everything that touches the two conflicts, ranked by importance and urgency ═══════════
+_GEO_UA = ["ukraine", "ukrainian", "kyiv", "kiev", "kharkiv", "odesa", "donetsk", "zaporizhzhia", "donbas", "crimea", "zelensky", "zelenskyy", "putin", "kremlin", "moscow",
+           "lavrov", "peskov", "medvedev", "kushner", "witkoff", "kellogg", "merz", "von der leyen", "macron", "starmer", "rutte", "stoltenberg", "nato", "russia", "russian",
+           "ceasefire", "peace talks", "peace plan", "peace deal", "frozen assets", "reparations loan", "sanctions on russia", "russia sanctions", "rearmament", "defense spending",
+           "defence spending", "defense budget", "defence budget", "patriot missile", "patriot system", "taurus", "tomahawk", "storm shadow", "f-35", "f-16", "gripen", "eurofighter",
+           "rafale", "fighter jets", "fighter jet", "air defense", "air defence", "artillery shells", "ammunition", "drone attack", "nord stream", "black sea", "grain corridor",
+           "european defense", "european defence", "defense stocks", "defence stocks", "arms deal", "arms order"]
+_GEO_ME = ["iran", "iranian", "tehran", "khamenei", "pezeshkian", "araghchi", "irgc", "nuclear deal", "uranium enrichment", "houthi", "houthis", "ansar allah", "yemen", "red sea",
+           "bab el-mandeb", "suez canal", "strait of hormuz", "hormuz", "persian gulf", "gulf of oman", "saudi", "riyadh", "aramco", "opec", "oil output", "production cut",
+           "israel", "israeli", "netanyahu", "idf", "gaza", "hamas", "hostages", "hezbollah", "lebanon", "syria", "iraq", "qatar", "tanker attack", "tanker seized", "oil tanker",
+           "shipping attack", "middle east", "jet fuel", "diesel price", "diesel prices", "kerosene", "refinery", "brent crude"]
+_GEO_MEMBERS = {
+    "G_RHM_DE": ["rheinmetall"], "G_BA_L": ["bae systems"], "G_HO_PA": ["thales"], "G_HAG_DE": ["hensoldt"], "G_KOG_OL": ["kongsberg"],
+    "G_LDO_MI": ["leonardo spa", "leonardo shares", "leonardo stock", "leonardo earnings", "leonardo results", "italian defense group leonardo", "italy's leonardo"],
+    "G_SAAB_B_ST": ["saab shares", "saab stock", "saab ab", "saab order", "saab wins", "saab results", "saab earnings", "gripen"],
+    "G_LMT": ["lockheed"], "G_RTX": ["raytheon", "rtx corp"], "G_NOC": ["northrop"], "G_GD": ["general dynamics"], "G_LHX": ["l3harris"],
+    "G_FRO": ["frontline plc", "frontline tanker", "frontline shares"], "G_STNG": ["scorpio tankers"], "G_DHT": ["dht holding"], "G_INSW": ["international seaways"],
+    "G_TNK": ["teekay tankers"], "G_NAT": ["nordic american tankers"], "G_ZIM": ["zim shipping", "zim integrated"], "G_MAERSK_B_CO": ["maersk"],
+    "G_DAL": ["delta air lines"], "G_UAL": ["united airlines"], "G_AAL": ["american airlines"], "G_LUV": ["southwest airlines"],
+}
+_GEO_EXTRA = {"G_TTF_F": ["european gas", "ttf gas", "gas prices in europe"], "G_ZW_F": ["wheat prices", "wheat price", "grain exports"], "G_HO_F": ["diesel price", "diesel prices"],
+              "G_JETFUEL": ["jet fuel", "kerosene"], "G_TANKERS": ["tanker rates", "oil tanker"], "G_KSA": ["saudi stocks", "tadawul"], "G_EIS": ["tel aviv stock", "israeli stocks"],
+              "G_EUDEF": ["european defense stocks", "european defence stocks"], "G_USDEF": ["us defense stocks", "pentagon contract", "pentagon budget", "defense contractors"],
+              "G_AIRLINES": ["airline stocks", "airlines shares"]}
+NEWS_TOPICS.update({"GEO_UA": _GEO_UA, "GEO_ME": _GEO_ME, **_GEO_MEMBERS, **_GEO_EXTRA})
+for _bk, _ms in GEO_BASKETS.items():                                  # a basket is about its members, too
+    NEWS_TOPICS[_bk] = sorted(set(NEWS_TOPICS.get(_bk, []) + [w for m in _ms for w in _GEO_MEMBERS.get(m, [])]))
+for _k in list(NEWS_TOPICS):
+    if _k not in _NEWS_RX or _k.startswith(("GEO_", "G_")):
+        _NEWS_RX[_k] = re.compile(r"(?<![a-z0-9])(?:" + "|".join(re.escape(p) for p in NEWS_TOPICS[_k]) + r")(?![a-z0-9])", re.I)
+
+
+def geo_topic_keys(cid):
+    """Every headline topic that belongs to a conflict: the conflict itself, its baskets, members and the oil/gas prices around it."""
+    G = GEO[cid]
+    keys = {G["topic"]}
+    for g in G["groups"]:
+        if g.get("basket"):
+            keys.add(g["basket"][0])
+        keys |= {geo_key(s) for s, _, _ in g["members"]} | {k for k, _, _ in g.get("extra", [])} | set(g.get("refs", []))
+    keys.discard("GOLD")
+    return {k for k in keys if k in NEWS_TOPICS}
+
+
+GEO_NEWS_QUERIES = [
+    "Ukraine war", "Ukraine ceasefire talks", "Putin Kremlin", "Zelensky", "Kushner Russia", "Witkoff Putin", "Merz Ukraine", "von der Leyen Ukraine", "Macron Ukraine",
+    "NATO summit", "NATO defense spending", "EU sanctions Russia", "Ukraine weapons aid", "fighter jets order", "defense stocks surge", "European defense stocks",
+    "Rheinmetall", "Leonardo defense earnings", "Saab earnings", "BAE Systems", "Thales defence", "Hensoldt", "Kongsberg", "Lockheed Martin", "Northrop Grumman",
+    "RTX Raytheon", "General Dynamics", "Pentagon contract", "European gas prices TTF", "wheat prices Black Sea",
+    "Iran Trump", "Iran nuclear", "Israel Iran", "Houthi Red Sea shipping", "Strait of Hormuz", "Saudi Arabia OPEC", "OPEC+ output", "Gaza ceasefire", "oil price Brent",
+    "oil tanker attack", "tanker rates", "Frontline tankers", "Scorpio Tankers", "Maersk Red Sea", "jet fuel prices", "diesel prices", "airlines fuel costs"]
+GEO_NEWS_FEEDS = [("BBC World", "http://feeds.bbci.co.uk/news/world/rss.xml"), ("Al Jazeera", "https://www.aljazeera.com/xml/rss/all.xml"),
+                  ("The Guardian", "https://www.theguardian.com/world/rss"), ("DW", "https://rss.dw.com/rdf/rss-en-world"),
+                  ("Defense News", "https://www.defensenews.com/arc/outboundfeeds/rss/?outputType=xml"), ("Breaking Defense", "https://breakingdefense.com/feed/"),
+                  ("Kyiv Independent", "https://kyivindependent.com/feed/"), ("Times of Israel", "https://www.timesofisrael.com/feed/"),
+                  ("CNBC World", "https://www.cnbc.com/id/100727362/device/rss/rss.html"), ("CNBC Energy", "https://www.cnbc.com/id/19836768/device/rss/rss.html")]
+
+
+def geo_news_feeds():
+    out = list(GEO_NEWS_FEEDS)
+    for q in GEO_NEWS_QUERIES:
+        out.append(("Google News", "https://news.google.com/rss/search?q=" + q.replace(" ", "+") + "+when:1d&hl=en-US&gl=US&ceid=US:en"))
+    return out
+
+
+_GEO_CATEGORIES = [
+    ("Company results", ["earnings", "results", "profit", "quarterly", "guidance", "revenue", "backlog", "raises outlook", "operating income", "net income", "sales rose", "sales jump", "forecast"]),
+    ("Defense orders & budgets", ["order", "contract", "budget", "spending", "jets", "fighter", "procure", "purchase", "aid package", "weapons package", "deliver", "arms deal"]),
+    ("Sanctions", ["sanction", "frozen assets", "embargo", "tariff", "price cap"]),
+    ("Diplomacy", ["talks", "ceasefire", "peace", "summit", "phone call", "call with", "meets", "meeting", "visit", "negotiat", "envoy", "diplomat", "agreement", "deal", "merz", "von der leyen", "macron", "starmer", "kushner", "witkoff", "kremlin", "says ukraine", "kyiv"]),
+    ("Military", ["attack", "strike", "missile", "drone", "shelling", "troops", "killed", "offensive", "front line", "bombard", "intercept", "explosion", "invasion"]),
+    ("Energy & shipping", ["oil", "crude", "brent", "diesel", "jet fuel", "kerosene", "tanker", "hormuz", "red sea", "shipping", "freight", "refinery", "opec", "gas price", "lng", "pipeline"]),
+    ("Markets", ["shares", "stock", "stocks", "rally", "slump", "jump", "surge", "tumble"]),
+]
+_GEO_HIGH = ["ceasefire", "peace deal", "peace plan", "peace talks", "invasion", "nuclear", "missile", "drone attack", "strike on", "attack on", "sanctions", "blockade", "hormuz", "escalat",
+             "killed", "summit", "merz", "von der leyen", "kyiv", "kremlin", "trump", "putin", "zelensky", "kushner", "witkoff", "netanyahu", "khamenei", "breaking", "troops", "red sea attack"]
+_GEO_MED = ["order", "contract", "jets", "fighter", "aid package", "budget", "spending", "nato", "macron", "starmer", "opec", "output", "tanker", "red sea", "houthi",
+            "oil price", "earnings", "results", "profit", "guidance", "record", "shares jump", "shares surge", "shares fall", "backlog", "raises"]
+
+
+def geo_category(title, summary=""):
+    t = (title + " " + (summary or "")).lower()
+    for name, words in _GEO_CATEGORIES:
+        if any(w in t for w in words):
+            return name
+    return "News"
+
+
+def geo_impact(title, summary=""):
+    t = (title + " " + (summary or "")).lower()
+    return min(12.0, 1.0 + 3 * sum(1 for w in _GEO_HIGH if w in t) + 2 * sum(1 for w in _GEO_MED if w in t))
+
+
+def geo_rank(impact, age_h, market_boost=0.0):
+    """Importance × urgency: big, concrete headlines first, fading with age (half-life about 10 hours)."""
+    return round(impact * (0.15 + 0.85 * 0.5 ** (age_h / 10.0)) * (1 + market_boost), 3)
+
+
+def geo_urgency(age_h, impact):
+    return "BREAKING" if age_h < 3 and impact >= 4 else "TODAY" if age_h < 18 else "EARLIER"
+
+
+_CTX_WORDS = re.compile(r"\b(?:guidance|profit|results|earnings|orders?|defen[cs]e|shares|stock|eurofighter|helicopters?|aerospace|revenue|backlog|raises|outlook|sweden|swedish|italy|italian|quarter(?:ly)?|dividend|contract)\b", re.I)
+_NEWS_CTX.update({"G_LDO_MI": (re.compile(r"\bleonardo\b(?!\s+dicaprio)", re.I), _CTX_WORDS), "G_SAAB_B_ST": (re.compile(r"\bsaab\b", re.I), _CTX_WORDS)})
+for _cid, _G in GEO.items():
+    for _g in _G["groups"]:
+        _parents = [_G["topic"]] + ([_g["basket"][0]] if _g.get("basket") else [])
+        for _s, _n, _u in _g["members"]:
+            _NEWS_PARENTS.setdefault(geo_key(_s), []).extend(_parents)
+        for _k, _n, _u in _g.get("extra", []):
+            _NEWS_PARENTS.setdefault(_k, []).append(_G["topic"])
+        if _g.get("basket"):
+            _NEWS_PARENTS.setdefault(_g["basket"][0], []).append(_G["topic"])
+NEWS_TOPICS.setdefault("G_LDO_MI", []); NEWS_TOPICS.setdefault("G_SAAB_B_ST", [])

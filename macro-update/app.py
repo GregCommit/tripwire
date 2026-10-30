@@ -417,10 +417,10 @@ NEWS_EVERY = 15 * 60
 NEWS_KEEP_DAYS = 7
 
 
-def refresh_news():
-    """Headlines from free RSS feeds, each matched to the indicators it is about. A feed that fails is
-    skipped and reported; the rest still count."""
-    feeds, ok, errors, added = S.news_feeds(), 0, {}, 0
+def ingest_feeds(feeds):
+    """Fetch the feeds, tag each headline with the indicators / conflicts it is about, keep the tagged ones.
+    A feed that fails is skipped and reported; the rest still count. Returns (feeds reached, errors, new headlines)."""
+    ok, errors, added = 0, {}, 0
     now = int(time.time())
     for name, url in feeds:
         label = name.split(" ")[0] if name.startswith(("CNBC", "MarketWatch")) else name
@@ -440,11 +440,35 @@ def refresh_news():
                 cur = conn.execute("INSERT OR IGNORE INTO news (ts, source, title, summary, link, topics) VALUES (?,?,?,?,?,?)",
                                    (it["ts"] or now, it["source"], it["title"], it["summary"], it["link"], json.dumps(topics)))
                 added += cur.rowcount
-        time.sleep(0.3)
+        time.sleep(0.25)
     with get_db() as conn:
         conn.execute("DELETE FROM news WHERE ts < ?", (now - NEWS_KEEP_DAYS * 86400,))
-    set_setting("news_status", json.dumps({"ok": ok, "total": len(feeds), "ts": now, "added": added, "errors": errors}))
+    return ok, errors, added
+
+
+def refresh_news():
+    feeds = S.news_feeds()
+    ok, errors, added = ingest_feeds(feeds)
+    set_setting("news_status", json.dumps({"ok": ok, "total": len(feeds), "ts": int(time.time()), "added": added, "errors": errors}))
     log.info("News: %d of %d feeds reachable, %d new headlines", ok, len(feeds), added)
+
+
+def refresh_geo_news():
+    """The two conflicts get their own, faster and much wider news run (every 5 minutes)."""
+    feeds = S.geo_news_feeds()
+    ok, errors, added = ingest_feeds(feeds)
+    set_setting("geo_news_status", json.dumps({"ok": ok, "total": len(feeds), "ts": int(time.time()), "added": added, "errors": errors}))
+    log.info("Geopolitics news: %d of %d feeds reachable, %d new headlines", ok, len(feeds), added)
+
+
+def geo_news_loop():
+    time.sleep(45)
+    while True:
+        try:
+            refresh_geo_news()
+        except Exception as e:
+            log.exception("Geopolitics news failed: %s", e)
+        time.sleep(300)
 
 
 def news_loop():
@@ -670,6 +694,7 @@ def start_background():
         threading.Thread(target=background_loop, daemon=True, name="refresh").start()
         threading.Thread(target=news_loop, daemon=True, name="news").start()
         threading.Thread(target=heat_loop, daemon=True, name="heat").start()
+        threading.Thread(target=geo_news_loop, daemon=True, name="geonews").start()
 
 
 # ── Summaries and alerts ────────────────────────────────────────────────────
@@ -1106,9 +1131,9 @@ def node_why(k, items, edges, recent):
     boost = [e["affected"] if e["driver"] == k else e["driver"] for e in edges if k in (e["driver"], e["affected"]) and e.get("reinforce")]
     weak = [e["affected"] if e["driver"] == k else e["driver"] for e in edges if k in (e["driver"], e["affected"]) and e["status"] in ("noreact", "against")]
     if boost:
-        parts.append(f"counts for more because {names(boost)} moved the usual way with it")
+        parts.append(f"{names(boost)} moved the usual way with it")
     if weak:
-        parts.append(f"counts for less because {names(weak)} did not follow")
+        parts.append(f"{names(weak)} did not follow")
     n = len(recent.get(k, []))
     parts.append(f"{n} headline{'s' if n != 1 else ''} about it in the last 3 days" if n else "no headline about it right now")
     return "; ".join(parts) + "."
@@ -1147,7 +1172,7 @@ def build_graph(items, edges, n, clusters=None, news_on=True, linked=False, news
     for e in es:
         da, ab = items[e["a"]]["name"], items[e["b"]]["name"]
         if e["reinforce"]:
-            notes.append(f"{da} and {ab} usually move {'together' if e['mode'] == 'same' else 'in opposite directions'} and both are far out — each counts for more.")
+            notes.append(f"{da} and {ab} usually move {'together' if e['mode'] == 'same' else 'in opposite directions'} and both are far out.")
         elif e["status"] in ("noreact", "against"):
             notes.append(e["note"])
     cutoff = int(time.time()) - 72 * 3600
@@ -1285,6 +1310,32 @@ def build_geo_graph(cid, items, edges):
     return {"nodes": nodes, "edges": es, "news": news[:6], "notes": notes, "total": len(keys), "shown": len(keys), "allNews": news[:14]}
 
 
+def geo_headlines(cid, items, limit=60):
+    """Every headline that touches this conflict, ranked by importance × urgency. A company that moved a lot today lifts its headlines."""
+    G, keys = S.GEO[cid], S.geo_topic_keys(cid)
+    cutoff = int(time.time()) - 5 * 86400
+    with get_db() as conn:
+        rows = [dict(r) for r in conn.execute("SELECT * FROM news WHERE ts > ? ORDER BY ts DESC LIMIT 2500", (cutoff,))]
+    now, out = time.time(), []
+    for r in rows:
+        try:
+            topics = json.loads(r["topics"])
+        except ValueError:
+            continue
+        hit = [k for k, w in topics if k in keys]
+        if not hit:
+            continue
+        age = max(0.0, (now - r["ts"]) / 3600)
+        impact = S.geo_impact(r["title"], r["summary"])
+        moved = [k for k in hit if k in items and items[k].get("spec", 0) >= 1.0 and k != G["topic"]]
+        markets = [S.item_name(k) for k in hit if k != G["topic"] and (k in S.GEO_ITEMS or k in S.BY_KEY)][:3]
+        out.append({"h": link_hash(r["link"]), "title": r["title"], "summary": r["summary"], "link": r["link"], "source": r["source"], "ts": r["ts"],
+                    "category": S.geo_category(r["title"], r["summary"]), "impact": impact, "urgency": S.geo_urgency(age, impact),
+                    "markets": markets, "moved": [S.item_name(k) for k in moved][:2], "rank": S.geo_rank(impact, age, 0.35 * min(2, len(moved)))})
+    out.sort(key=lambda x: -x["rank"])
+    return out[:limit]
+
+
 @app.route("/api/geo")
 @login_required
 def api_geo():
@@ -1299,10 +1350,14 @@ def api_geo():
         ks = ([g["basket"][0]] if g.get("basket") else []) + [S.geo_key(s) for s, _, _ in g["members"]] + [k for k, _, _ in g.get("extra", [])] + list(g.get("refs", []))
         groups.append({"id": g["id"], "title": g["title"], "says": g["says"], "items": [items[k] for k in dict.fromkeys(ks) if k in items]})
     graph = build_geo_graph(cid, items, edges)
+    heads = geo_headlines(cid, items)
+    members = [it for k, it in items.items() if S.GEO_ITEMS.get(k, {}).get("conflict") == cid and not S.GEO_ITEMS[k].get("basket") and it.get("d1") is not None]
+    movers = [{"key": it["key"], "name": it["name"], "d1": it["d1"]} for it in sorted(members, key=lambda x: -abs(x["d1"]))[:6]]
     now = time.time()
     rec = news_recent(7 * 24).get(G["topic"], [])
-    pulse = {"day": sum(1 for n in rec if now - n["ts"] < 86400), "week": len(rec)}
-    return jsonify({"id": cid, "title": G["title"], "blurb": G["blurb"], "groups": groups, "graph": graph, "pulse": pulse,
+    pulse = {"day": sum(1 for h in heads if now - h["ts"] < 86400), "week": len(heads)}
+    return jsonify({"id": cid, "title": G["title"], "blurb": G["blurb"], "groups": groups, "graph": graph, "pulse": pulse, "headlines": heads, "movers": movers,
+                    "headStatus": json.loads(get_setting("geo_news_status", "null") or "null"),
                     "missing": json.loads(get_setting("geo_missing", "[]") or "[]"),
                     "conflicts": [{"id": k, "title": v["title"]} for k, v in S.GEO.items()]})
 

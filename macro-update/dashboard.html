@@ -79,6 +79,14 @@ h2.sub{font-size:14px;color:var(--mute);font-weight:500;margin:18px 0 6px}
 .earn{border:1px solid var(--line);border-radius:6px;background:var(--card)}.erow{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:baseline;padding:11px 16px;border-top:1px solid var(--line);font-size:14px}.erow:first-child{border-top:none}.erow b{min-width:52px;font-weight:600}
 .ratio{color:var(--mute);font-size:13px}.ratio.hot{color:var(--watch)}
 .hmstats{margin:10px 0 4px;font-size:13.5px;color:var(--mute)}.hmstats b{color:var(--txt);font-weight:600}.hmsecs{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.hmchip{font-size:11.5px;padding:3px 8px;border-radius:2px;color:#fff;font-variant-numeric:tabular-nums}
+.gheads{border:1px solid var(--line);border-radius:6px;background:var(--card);overflow:hidden}
+.gh{display:grid;grid-template-columns:118px 1fr;gap:14px;padding:14px 16px;border-top:1px solid var(--line);cursor:pointer}.gh:first-child{border-top:none}.gh:hover{background:#0d0d10}
+.ghl{display:flex;flex-direction:column;gap:6px;align-items:flex-start}.urg{font-size:10.5px;font-weight:700;letter-spacing:.07em;padding:2px 7px;border-radius:2px;border:1px solid var(--dim);color:var(--mute)}
+.urg.brk{background:var(--alert);border-color:var(--alert);color:#fff}.urg.tod{border-color:var(--watch);color:var(--watch)}
+.gcat{font-size:11.5px;color:var(--dim)}.gh .ntitle{font-size:16px;font-weight:600}.gh.old .ntitle{font-weight:500;color:var(--mute)}
+.gchip{display:inline-block;font-size:11px;border:1px solid var(--line2);border-radius:2px;padding:0 6px;margin-left:6px;color:var(--mute)}.gchip.hot{border-color:var(--watch);color:var(--watch)}
+.movers{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;margin:14px 2px 6px;font-size:13.5px}.mv{font-variant-numeric:tabular-nums}
+@media (max-width:700px){.gh{grid-template-columns:1fr;gap:6px}.ghl{flex-direction:row;align-items:center}}
 .geohead{margin-top:12px}.geoblurb{font-size:15px;line-height:1.6}
 .gnode.gspecial{border-color:#fff;background:#000;cursor:default}.gnode.gspecial .gn{color:var(--dim);font-size:11px;letter-spacing:.08em;text-transform:uppercase}.gnode.gspecial .gv{font-size:16px;font-weight:600;margin-top:6px}
 .exsum{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:16px 18px;margin-bottom:14px}
@@ -217,9 +225,9 @@ details.quiet{margin-top:18px}details.quiet>summary{cursor:pointer;color:var(--m
 <p>It does not tell you to buy or sell anything. It is context for your own decisions.</p>
 <h3>What — the screens</h3>
 <ul><li><b>Today</b>: the answer first, then <b>groups of indicators that belong together</b> — US bonds, rates &amp; the dollar; gold, silver &amp; Dr. Copper; stocks &amp; investor mood; the yen carry trade; credit, jobs &amp; defaults ahead; oil; valuation. The most special group is at the top, and inside a group the most special indicator comes first. "Special" means a move far larger than usual over the last day, week or month, or a place at the edge of its own history — weighted by how much that indicator matters for stock investing. Every card says in plain words <b>what it says</b>. A group gets a short note under its title <b>only when something in it really moves</b>, explaining the move with the usual links between these markets (for example: gold falls when real yields and the dollar rise). That note is worked out from the numbers, not from news headlines. The small <b>?</b> on a card turns into a red <b>!</b> when there is a headline about it that you have not opened yet. Tap a card for a bigger chart; close it with the ✕ at its top right.</li>
-<li><b>Overview</b>: one map of everything that matters right now. The most important indicators are boxes, the links between them are lines, and the headlines about them hang on those boxes. It ranks on purpose and leaves the rest out. Things that usually move together and both are far out <b>reinforce</b> each other (white line); if one moves and its usual partner does not follow (yellow dashed line), the link is weaker than usual and <b>both count for less</b>. Tap a box to see how it is connected. The filters above the map narrow it to some groups, to linked boxes only, or to boxes that have a headline; point at a box to read why it is shown.</li>
+<li><b>Overview</b>: one map of everything that matters right now. The most important indicators are boxes, the links between them are lines, and the headlines about them hang on those boxes. It ranks on purpose and leaves the rest out. Things that usually move together and both are far out are joined by a white line; if one moves and its usual partner does not follow, the line is yellow and dashed. Tap a box to see how it is connected. The filters above the map narrow it to some groups, to linked boxes only, or to boxes that have a headline; point at a box to read why it is shown.</li>
 <li><b>Heatmap</b>: all companies of the S&amp;P 500 or the Nasdaq-100 as one map — the size of a tile is the company's market value, the colour is today's change (green up, red down), grouped by sector. Point at a tile for details, tap it to open the quote. Data: Nasdaq's public screener and Wikipedia's index lists; if they are unreachable the app falls back to Yahoo prices and a built-in list of the biggest companies, and says so under the map.</li>
-<li><b>Geopolitics</b>: the two conflicts that move markets now, each as a map with the conflict in the middle and the markets around it. <b>Russia–Ukraine</b>: European and US defense stocks (rearmament), European gas, wheat. <b>Middle East</b> (Iran, Houthis, Saudi Arabia): oil, diesel, jet fuel, petrol, oil tankers, container shipping, airlines, the Saudi and Israeli markets, gold. Headlines about each conflict are listed and can be summarised by the AI.</li>
+<li><b>Geopolitics</b>: the headlines come first, ranked by importance and urgency (BREAKING, TODAY, EARLIER): talks and phone calls, statements by Merz, von der Leyen and others, new orders, company results of Leonardo, Saab, Rheinmetall and the like. Click a headline row for an AI summary, its title to open the article. Below: the biggest price moves, then the conflict as a map with the conflict in the middle and the markets around it. <b>Russia–Ukraine</b>: European and US defense stocks (rearmament), European gas, wheat. <b>Middle East</b> (Iran, Houthis, Saudi Arabia): oil, diesel, jet fuel, petrol, oil tankers, container shipping, airlines, the Saudi and Israeli markets, gold. </li>
 <li><b>Market internals</b> (a group on Today): how many of the 11 sectors rise (a falling index with most sectors up is a narrow sell-off in a few giants), the AI builders against the companies that use AI (banks, industrials), banks as a sign for the economy, breadth (equal-weight against size-weight), the volatility curve (VIX against the 3-month VIX) and the VVIX. Under it, big companies' reactions to earnings are set against the move the options market had priced in, where the data allows.</li>
 <li><b>Extremes</b>: indicators that only matter when they are far out on one side of their own history — the yen carry trade (USD/JPY, the US–Japan yield gap, Japan's yields), the Buffett indicator, Shiller P/E, credit spreads, the yield curve, the VIX and more. Each sits on a 0–100 scale (its percentile against all the history we have). The outer 5% on either side is an <b>extreme</b> (red), the outer 10% is <b>stretched</b> (amber); everything else is "normal range" and tucked away. Open "Yen carry trade in detail" at the bottom for USD/JPY, the interest gap and Japan's inflation with the Bank of Japan's forecasts.</li>
 <li><b>Alerts</b>: your levels (e.g. "USD/JPY above 160"), the email setup, the on/off switch for extreme alerts, and the history of every alert.</li></ul>
@@ -821,7 +829,7 @@ function gnodeHTML(n, it){
   const cls = ext ? 'down' : chgClass({good: n.good}, n.chg);
   const big = n.horizon === 'at an extreme' ? 'At an extreme' : n.horizon ? `${arrow} ${fmtChg({chgKind: n.chgKind, unit: n.unit, dec: n.dec}, n.chg)}` : '';
   const border = ext || n.tone === 'alert' ? ' ex' : (n.hub && n.zone && n.zone !== 'quiet') || n.tone === 'watch' ? ' wa' : '';
-  const tag = n.boost >= 3 && n.boost >= 0.9 * (n.rank0 || n.rank) ? '<span class="gtag up">REINFORCED</span>' : n.factor <= 0.85 ? '<span class="gtag low">WEAKER</span>' : '';
+  const tag = n.boost >= 3 && n.boost >= 0.9 * (n.rank0 || n.rank) ? '<span class="gtag up">CONFIRMED</span>' : '';
   return `<div class="gnode${border}${it.rank >= GRAPH_TOP ? ' big' : ''}" data-key="${n.key}" style="left:${(it.x - it.w / 2).toFixed(1)}px;top:${(it.y - it.h / 2).toFixed(1)}px;width:${it.w}px;height:${it.h}px" onclick="explain('${n.key}', this)">
     ${unseenNews(n.key) ? '<span class="gdot" title="New headline"></span>' : ''}<div class="gn">${esc(n.name)}${tag}</div>
     <div class="gv ${cls}"><span class="gnum">${esc(big)}</span>${n.horizon && n.horizon !== 'at an extreme' ? ` <span class="gh">${esc(n.horizon)}</span>` : ''}</div><div class="gs">${esc(fmtVal(n, n.value))}</div></div>`;
@@ -853,11 +861,11 @@ function renderGraph(root, g, opts){
   const nodes = g.nodes.map(n => gnodeHTML(n, by[n.key])).join('');
   const news = g.news.map(n => { const it = by['h:' + n.h]; return `<div class="gnews" data-key="h:${n.h}" onclick="openSummary('${n.h}')" title="Tap for an AI summary of the situation" style="left:${(it.x - it.w / 2).toFixed(1)}px;top:${(it.y - it.h / 2).toFixed(1)}px;width:${it.w}px;height:${it.h}px"><div class="gt">${esc(n.title)}</div><div class="gm">${esc(n.source)} · ${esc(ago(n.ts))} · <span class="aih">✦ AI summary</span></div></div>`; }).join('');
   root.innerHTML = `${opts.filters ? filterBar() : ''}<div class="gcap">${opts.caption || `The <b>${g.shown}</b> most important of ${g.total} indicators right now, with the links between them and the headlines about them. Everything else is left out on purpose.`}
-      <span class="lg"><i style="background:#fff"></i>both far out and moving together as usual — each counts for more</span>
-      <span class="lg"><i style="background:#5b5b66"></i>usual link</span><span class="lg"><i class="dash"></i>not following — both count for less</span></div>
+      <span class="lg"><i style="background:#fff"></i>both far out and moving together as usual</span>
+      <span class="lg"><i style="background:#5b5b66"></i>usual link</span><span class="lg"><i class="dash"></i>not following</span></div>
     <div class="gwrap" style="height:${H}px"><svg class="glines" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">${svg}</svg>${nodes}${news}</div>
     <div class="gwhyline">Point at a box to see why it is shown.</div>
-    ${g.notes.length ? `<details class="gwhy"><summary>Why some things count more or less</summary><ul>${g.notes.map(x => `<li>${esc(x)}</li>`).join('')}</ul></details>` : ''}`;
+    ${g.notes.length ? `<details class="gwhy"><summary>How these are linked</summary><ul>${g.notes.map(x => `<li>${esc(x)}</li>`).join('')}</ul></details>` : ''}`;
   const byKey = Object.fromEntries(g.nodes.map(n => [n.key, n]));
   root.querySelectorAll('.gnode').forEach(el => { const n = byKey[el.dataset.key]; el.title = n.why; el.onmouseenter = () => { focusNode(el.dataset.key, root); root.querySelector('.gwhyline').innerHTML = `<b>${esc(n.name)}</b> — ${esc(n.why)}`; }; el.onmouseleave = () => { blurNodes(root); root.querySelector('.gwhyline').textContent = 'Point at a box to see why it is shown.'; }; });
   if (!REDUCED){
@@ -879,23 +887,34 @@ async function loadGeo(){
   catch (e){ if (e.message !== 'signed out') $('geo').innerHTML = '<div class="card muted">Could not load the geopolitics page: ' + esc(e.message) + '</div>'; }
 }
 function setGeo(c){ GEO_SEL = c; GEO = null; renderGeo(); loadGeo(); }
+let GEO_ALL = false;
+function geoHeadRow(n){
+  const cls = n.urgency === 'BREAKING' ? 'brk' : n.urgency === 'TODAY' ? 'tod' : 'old';
+  const chips = [...n.markets.map(m => `<span class="gchip">${esc(m)}</span>`), ...n.moved.map(m => `<span class="gchip hot">${esc(m)} moved today</span>`)].join('');
+  return `<div class="gh ${cls}" onclick="openSummary('${n.h}')"><div class="ghl"><span class="urg ${cls}">${n.urgency}</span><span class="gcat">${esc(n.category)}</span></div>
+    <div class="ghb"><a class="ntitle" href="${esc(n.link)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">${esc(n.title)}</a>
+    ${n.summary ? `<div class="nsum">${esc(n.summary)}</div>` : ''}<div class="nmeta">${esc(n.source)} · ${esc(ago(n.ts))} ${chips}</div></div></div>`;
+}
+function toggleGeoAll(){ GEO_ALL = !GEO_ALL; renderGeo(); }
 function renderGeo(){
   const root = $('geo'); if (!root) return;
   const chips = `<div class="chips">${(GEO ? GEO.conflicts : [{id: 'ua', title: 'Russia–Ukraine'}, {id: 'me', title: 'Middle East'}]).map(c => `<button class="${GEO_SEL === c.id ? 'on' : ''}" onclick="setGeo('${c.id}')">${esc(c.title)}</button>`).join('')}</div>`;
   if (!GEO){ root.innerHTML = chips + '<div class="card muted">Loading…</div>'; return; }
-  const g = GEO;
-  let h = chips + `<div class="card geohead"><div class="geoblurb">${esc(g.blurb)}</div><div class="small" style="margin-top:8px"><b>${g.pulse.day}</b> headline${g.pulse.day === 1 ? '' : 's'} in the last 24 hours · ${g.pulse.week} in the last 7 days</div></div>`;
-  h += `<div id="geomap"></div>`;
+  const g = GEO, st = g.headStatus, heads = g.headlines || [], shown = GEO_ALL ? heads : heads.slice(0, 12);
+  let h = chips + `<div class="geoblurb" style="margin:6px 2px 14px">${esc(g.blurb)}</div>`;
+  h += `<h2 style="margin-top:6px">Headlines, most important first</h2><div class="small" style="margin:2px 0 8px"><b style="color:var(--txt)">${g.pulse.day}</b> in the last 24 hours · ${g.pulse.week} in the last days${st ? ` · from ${st.ok} of ${st.total} sources, updated ${esc(ago(st.ts))}` : ' · the app fetches them every 5 minutes'}</div>`;
+  h += heads.length ? `<div class="gheads">${shown.map(geoHeadRow).join('')}</div>${heads.length > 12 ? `<p style="margin:10px 0"><button class="btn" onclick="toggleGeoAll()">${GEO_ALL ? 'Show fewer' : `Show all ${heads.length} headlines`}</button></p>` : ''}`
+    : '<div class="card muted">No headlines about this conflict yet. The app fetches them every 5 minutes after it starts.</div>';
+  if (g.movers && g.movers.length) h += `<div class="movers"><span class="small">Biggest moves today</span>${g.movers.map(m => `<span class="mv ${m.d1 > 0 ? 'up' : m.d1 < 0 ? 'down' : 'flat'}">${m.d1 > 0 ? '▲' : '▼'} ${esc(m.name)} ${m.d1 > 0 ? '+' : ''}${m.d1.toFixed(1)}%</span>`).join('')}</div>`;
+  h += `<h2>The markets it moves</h2><div id="geomap"></div>`;
   for (const grp of g.groups){
     if (!grp.items.length) continue;
     h += `<h2>${esc(grp.title)}</h2><div class="grid">${grp.items.map(s => cardHTML(s, 'geo')).join('')}</div>`;
   }
   if (g.missing && g.missing.length) h += `<p class="small" style="margin-top:14px">No price yet for: ${g.missing.map(esc).join(', ')}.</p>`;
-  const news = g.graph.allNews || [];
-  h += `<h2>Headlines</h2>` + (news.length ? `<div class="newsrow">${news.map(n => `<div class="ncard" onclick="openSummary('${n.h}')"><a class="ntitle" href="${esc(n.link)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">${esc(n.title)}</a>${n.summary ? `<div class="nsum">${esc(n.summary)}</div>` : ''}<div class="nmeta">${esc(n.source)} · ${esc(ago(n.ts))}</div><div class="aihint">✦ AI summary of the situation ›</div></div>`).join('')}</div>` : '<div class="muted">No headlines about this conflict in the last few days yet. The app fetches news every 15 minutes.</div>');
   root.innerHTML = h;
   root.querySelectorAll('.ind[data-cid]').forEach(c => c.onclick = () => explain(c.dataset.cid.split('|')[1], c));
-  renderGraph($('geomap'), g.graph, {caption: `How ${esc(g.title)} reaches the markets: the conflict in the middle, the markets around it, the links between them and the headlines about it.`});
+  renderGraph($('geomap'), g.graph, {caption: `How ${esc(g.title)} reaches the markets: the conflict in the middle, the markets around it and the links between them.`});
 }
 
 // ── Heatmap (S&P 500 / Nasdaq-100) ────────────────────────────────────────
@@ -960,7 +979,7 @@ function renderHeat(){
   });
 }
 // ── AI summary of a headline ──────────────────────────────────────────────
-function newsByHash(h){ return ((EXPL && EXPL.news) || []).find(n => n.h === h) || ((GRAPH && GRAPH.news) || []).find(n => n.h === h) || ((GEO && GEO.graph && GEO.graph.allNews) || []).find(n => n.h === h) || null; }
+function newsByHash(h){ return ((EXPL && EXPL.news) || []).find(n => n.h === h) || ((GRAPH && GRAPH.news) || []).find(n => n.h === h) || ((GEO && GEO.headlines) || []).find(n => n.h === h) || null; }
 function closeModal(){ document.querySelectorAll('.modal').forEach(m => m.remove()); document.body.style.overflow = ''; }
 function aiBody(d){
   const paras = d.text.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean).map(p => {
