@@ -458,7 +458,20 @@ def ingest_feeds(feeds):
     return ok, errors, added
 
 
+def retag_news():
+    """After a change in the topic lists, re-read the stored headlines so old ones match the new topics too."""
+    if get_setting("tag_ver", "") == VERSION:
+        return
+    with get_db() as conn:
+        rows = [(r["id"], r["title"], r["summary"]) for r in conn.execute("SELECT id, title, summary FROM news")]
+        for i, t, s in rows:
+            conn.execute("UPDATE news SET topics=? WHERE id=?", (json.dumps(S.tag_news(t, s or "")), i))
+        conn.execute("DELETE FROM news WHERE topics='[]'")
+    set_setting("tag_ver", VERSION)
+
+
 def refresh_news():
+    retag_news()
     feeds = S.news_feeds()
     ok, errors, added = ingest_feeds(feeds)
     set_setting("news_status", json.dumps({"ok": ok, "total": len(feeds), "ts": int(time.time()), "added": added, "errors": errors}))
@@ -1692,6 +1705,8 @@ def api_stocks():
             else:
                 kind = "hold" if d.get("kind") == "hold" else "watch"
                 sh, co = (num(d.get("shares")), num(d.get("cost"))) if kind == "hold" else (None, None)
+                if kind == "hold" and sh is not None and sh <= 0:        # zero shares: it goes back to the watch list
+                    kind, sh, co = "watch", None, None
                 if act == "update":
                     conn.execute("UPDATE stocks SET kind=?, shares=?, cost=? WHERE ticker=?", (kind, sh, co, t))
                 else:

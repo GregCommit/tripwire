@@ -2712,3 +2712,23 @@ def stock_flags(s, vol_ratio, news_n, earn_days):
     if vol_ratio and vol_ratio >= 2:
         flags.append((f"Volume {vol_ratio:.1f}× normal", 1.5))
     return flags
+
+
+# Sell-offs: everything about fear, volatility and big falls belongs to the volatility indicators
+_SELLOFF = ["sell-off", "selloff", "sell off", "plunge", "plunges", "plunged", "tumble", "tumbles", "tumbled", "rout", "crash", "worst day", "worst week", "panic", "slump", "slumps",
+            "rattled", "risk-off", "risk off", "stocks slide", "stocks fall", "stocks drop", "stocks sink", "wall street falls", "wall street drops", "dow drops", "nasdaq drops", "turmoil", "bloodbath"]
+NEWS_TOPICS["VOLRATIO"] = ["volatility", "volatile", "vix", "fear gauge", "swings"] + _SELLOFF
+NEWS_TOPICS["VIX"] = NEWS_TOPICS["VIX"] + ["volatility", "volatile", "panic", "turmoil"] + _SELLOFF
+NEWS_TOPICS["MOOD"] = NEWS_TOPICS["MOOD"] + ["panic", "risk-off", "investor sentiment", "market sentiment", "capitulation"]
+_NEWS_RX.update({k: re.compile(r"(?<![a-z0-9])(?:" + "|".join(re.escape(p) for p in NEWS_TOPICS[k]) + r")(?![a-z0-9])", re.I) for k in ("VOLRATIO", "VIX", "MOOD")})
+RELATIONS.extend([
+    ("VIX", "VOLRATIO", "same", "This indicator is the VIX measured against its own 50-day average: when the VIX jumps, it jumps."),
+    ("SPX", "VOLRATIO", "inverse", "Sharp falls in stocks make options traders nervous, so nervousness rises when the S&P 500 drops."),
+    ("VOLRATIO", "VIX", "same", "Both measure how nervous options traders are; this one compares today's VIX with its own 50-day average, so it shows how unusual the fear is."),
+    ("VOLRATIO", "SPX", "inverse", "Jumps in nervousness come with sharp falls in stocks."),
+    ("VOLRATIO", "MOOD", "inverse", "Volatility is one of the four parts of our fear & greed score: more nervousness lowers it."),
+    ("VOLRATIO", "HYSPREAD", "same", "When stock traders panic, lenders to risky companies usually demand more interest too."),
+    ("VOLRATIO", "SECT_UP", "inverse", "In a real sell-off almost all sectors fall at once, so few sectors rise."),
+    ("VOLRATIO", "VIXTS", "same", "Both rise in a stress phase: fear now exceeds fear later."),
+    ("VOLRATIO", "BREADTH", "inverse", "Falling stocks hit the big, crowded names first; the equal-weight index holds up better or worse depending on how broad the fear is."),
+])

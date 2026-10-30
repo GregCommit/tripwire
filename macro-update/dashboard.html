@@ -236,7 +236,17 @@ details.quiet{margin-top:18px}details.quiet>summary{cursor:pointer;color:var(--m
 <div id="tabs"><button class="tab on" data-t="today">Today</button><button class="tab" data-t="stocks">Stocks</button><button class="tab" data-t="heatmap">Heatmap</button><button class="tab" data-t="geo">Geopolitics</button><button class="tab" data-t="overview">Overview</button><button class="tab" data-t="extremes">Extremes</button><button class="tab" data-t="headlines">Headlines</button><button class="tab" data-t="alerts">Alerts</button><button class="tab" data-t="guide">Guide</button></div>
 <main>
 <section id="pane-today"><div id="today">Loading…</div></section>
-<section id="pane-stocks" hidden><div id="stocks">Loading…</div></section>
+<section id="pane-stocks" hidden>
+<form id="stForm" class="addform" onsubmit="addStock();return false" style="display:block"><b>Add a stock</b>
+ <div style="display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 6px;align-items:center">
+  <input id="stT" placeholder="Ticker, e.g. NVDA" autocapitalize="characters" autocomplete="off" required style="width:190px">
+  <select id="stK" onchange="stockKindChanged()" style="width:200px"><option value="hold">Add to My stocks</option><option value="watch">Add to Watching</option></select>
+  <input id="stS" placeholder="Shares (optional)" inputmode="decimal" autocomplete="off" style="width:150px">
+  <input id="stC" placeholder="Buy price $ (optional)" inputmode="decimal" autocomplete="off" style="width:170px">
+  <button class="btn" type="submit">Add</button></div>
+ <div class="small">Use the Yahoo Finance ticker (NVDA, MSFT, SAP.DE for Frankfurt, ^GSPC for an index). A stock in My stocks is not shown again under Watching. Set the shares to 0 and it moves back to Watching.</div>
+ <div id="stMsg" class="small" style="margin-top:6px"></div></form>
+<div id="stocks">Loading…</div></section>
 <section id="pane-headlines" hidden><div id="headlines">Loading…</div></section>
 <section id="pane-overview" hidden><div id="overview">Loading…</div></section>
 <section id="pane-geo" hidden><div id="geo">Loading…</div></section>
@@ -953,7 +963,7 @@ function setGeo(c){ GEO_SEL = c; GEO = null; renderGeo(); loadGeo(); }
 // ── Stocks ─────────────────────────────────────────────────────────────────
 let STK = null, STK_EDIT = null;
 async function loadStocks(){
-  try { STK = await api('/api/stocks'); if (TAB === 'stocks' && !document.activeElement.closest('#stocks .addform')) renderStocks(); }
+  try { STK = await api('/api/stocks'); if (TAB === 'stocks') renderStocks(); }
   catch (e){ if (e.message !== 'signed out') $('stocks').innerHTML = '<div class="card muted">Could not load the stocks: ' + esc(e.message) + '</div>'; }
 }
 async function stockAct(body){
@@ -962,10 +972,16 @@ async function stockAct(body){
   setTimeout(loadStocks, 400); setTimeout(loadStocks, 6000); setTimeout(loadStocks, 15000); return true;
 }
 async function addStock(){
-  const f = id => document.getElementById(id).value;
-  if (await stockAct({action: 'add', ticker: f('stT'), kind: f('stK'), shares: f('stS'), cost: f('stC')})){ ['stT', 'stS', 'stC'].forEach(i => document.getElementById(i).value = ''); }
+  const f = id => document.getElementById(id).value, t = f('stT').trim().toUpperCase(), msg = document.getElementById('stMsg');
+  if (!t){ msg.textContent = 'Enter a ticker first.'; return; }
+  msg.textContent = 'Adding ' + t + '…';
+  if (await stockAct({action: 'add', ticker: t, kind: f('stK'), shares: f('stS'), cost: f('stC')})){
+    const toWatch = f('stK') === 'watch' || (f('stS') !== '' && parseFloat(String(f('stS')).replace(',', '.')) <= 0);
+    msg.textContent = t + ' added to ' + (toWatch ? 'Watching' : 'My stocks') + '. The price appears within a minute.';
+    ['stT', 'stS', 'stC'].forEach(i => document.getElementById(i).value = '');
+  } else msg.textContent = 'Could not add ' + t + '.';
 }
-function stockKindChanged(){ const h = document.getElementById('stK').value === 'hold'; document.getElementById('stS').hidden = document.getElementById('stC').hidden = !h; }
+function stockKindChanged(){ const h = document.getElementById('stK').value === 'hold'; document.getElementById('stS').style.display = document.getElementById('stC').style.display = h ? '' : 'none'; }
 function removeStock(t){ if (confirm('Remove ' + t + '?')) stockAct({action: 'remove', ticker: t}); }
 function editStock(t){ STK_EDIT = STK_EDIT === t ? null : t; renderStocks(); }
 async function saveStock(t){
@@ -977,8 +993,8 @@ const sgn = v => v > 0 ? '+' : v < 0 ? '−' : '';
 function stockTile(r){
   const up = (r.move || 0) > 0, flagged = r.score >= 2, border = flagged ? (r.move === null || r.move === undefined || Math.abs(r.move) < 0.05 ? ' wa' : up ? ' gain' : ' loss') : '';
   const cls = r.d1 > 0 ? 'up' : r.d1 < 0 ? 'down' : '';
-  const hold = r.kind === 'hold' && r.shares ? `<div class="skp"><span>${r.shares.toLocaleString('en-US')} shares</span><span>value <b>${money(r.value, 0)}</b></span><span class="${r.dayAmt >= 0 ? 'up' : 'down'}">today ${sgn(r.dayAmt)}${money(r.dayAmt, 0)}</span>${r.pl !== undefined ? `<span class="${r.pl >= 0 ? 'up' : 'down'}">since buying ${sgn(r.pl)}${money(r.pl, 0)} (${sgn(r.plPct)}${Math.abs(r.plPct).toFixed(1)}%)</span>` : ''}</div>` : '';
-  const edit = STK_EDIT === r.t ? `<div class="skedit"><select id="eK"><option value="hold" ${r.kind === 'hold' ? 'selected' : ''}>I hold it</option><option value="watch" ${r.kind === 'watch' ? 'selected' : ''}>Only watching</option></select>
+  const hold = r.kind === 'hold' && r.shares && r.value !== undefined ? `<div class="skp"><span>${r.shares.toLocaleString('en-US')} shares</span><span>value <b>${money(r.value, 0)}</b></span><span class="${r.dayAmt >= 0 ? 'up' : 'down'}">today ${sgn(r.dayAmt)}${money(r.dayAmt, 0)}</span>${r.pl !== undefined ? `<span class="${r.pl >= 0 ? 'up' : 'down'}">since buying ${sgn(r.pl)}${money(r.pl, 0)} (${sgn(r.plPct)}${Math.abs(r.plPct).toFixed(1)}%)</span>` : ''}</div>` : '';
+  const edit = STK_EDIT === r.t ? `<div class="skedit"><select id="eK"><option value="hold" ${r.kind === 'hold' ? 'selected' : ''}>My stocks</option><option value="watch" ${r.kind === 'watch' ? 'selected' : ''}>Watching</option></select>
     <input id="eS" placeholder="Shares" value="${r.shares ?? ''}" inputmode="decimal"><input id="eC" placeholder="Buy price $" value="${r.cost ?? ''}" inputmode="decimal"><button class="btn" onclick="saveStock('${r.t}')">Save</button></div>` : '';
   const news = (r.news || []).slice(0, 2).map(n => `<a class="sknews" href="${esc(n.link)}" target="_blank" rel="noopener noreferrer">${esc(n.title)}<span>${esc(n.source)} · ${esc(ago(n.ts))}</span></a>`).join('');
   return `<div class="stk${border}"><div class="skh"><div><b class="skt">${esc(r.t)}</b> <span class="small">${esc(r.name || '')}</span></div><div class="skb"><button class="link" onclick="editStock('${r.t}')">Edit</button><button class="link" onclick="removeStock('${r.t}')" title="Remove">✕</button></div></div>
@@ -992,14 +1008,12 @@ function renderStocks(){
   if (!STK){ root.innerHTML = '<div class="card muted">Loading…</div>'; return; }
   if (STK.private){ root.innerHTML = '<div class="card muted">The stock list is private to the owner.</div>'; return; }
   const t = STK.total;
-  let h = `<div class="addform"><b>Add a stock</b><div class="adrow"><input id="stT" placeholder="Ticker, e.g. NVDA" autocapitalize="characters" onkeydown="if(event.key==='Enter')addStock()"><select id="stK" onchange="stockKindChanged()"><option value="hold">I hold it</option><option value="watch">Only watching</option></select>
-    <input id="stS" placeholder="Shares" inputmode="decimal"><input id="stC" placeholder="Buy price $" inputmode="decimal"><button class="btn" onclick="addStock()">Add</button></div><div class="small">Use the Yahoo Finance ticker (NVDA, MSFT, SAP.DE for Frankfurt, ^GSPC for an index). Shares and buy price are optional.</div></div>`;
+  let h = '';
   if (t) h += `<div class="skt-total"><div><span class="small">Your stocks</span><div class="skv">${money(t.value, 0)}</div></div><div><span class="small">Today</span><div class="skv ${t.day >= 0 ? 'up' : 'down'}">${sgn(t.day)}${money(t.day, 0)} <span style="font-size:15px">${sgn(t.dayPct)}${Math.abs(t.dayPct).toFixed(2)}%</span></div></div>${t.pl !== null && t.pl !== undefined ? `<div><span class="small">Since buying</span><div class="skv ${t.pl >= 0 ? 'up' : 'down'}">${sgn(t.pl)}${money(t.pl, 0)} <span style="font-size:15px">${sgn(t.plPct)}${Math.abs(t.plPct).toFixed(1)}%</span></div></div>` : ''}</div>`;
   h += `<h2>My stocks</h2>${STK.hold.length ? `<div class="stgrid">${STK.hold.map(stockTile).join('')}</div>` : '<div class="card muted">You have not entered any holding yet.</div>'}`;
   h += `<h2>Watching</h2>${STK.watch.length ? `<div class="stgrid">${STK.watch.map(stockTile).join('')}</div>` : '<div class="card muted">Nothing on the watch list yet.</div>'}`;
   h += `<p class="small" style="margin-top:14px">Unusual first. Updated ${STK.ts ? esc(ago(STK.ts)) : 'soon'} (every 5 minutes). Prices from Yahoo Finance, headlines from Yahoo Finance per stock.</p>`;
-  const keep = ['stT', 'stK', 'stS', 'stC'].map(i => { const e = document.getElementById(i); return e ? [i, e.value] : null; }).filter(Boolean);
-  root.innerHTML = h; keep.forEach(([i, v]) => document.getElementById(i).value = v); stockKindChanged();
+  root.innerHTML = h;
 }
 
 // ── Headlines ──────────────────────────────────────────────────────────────
