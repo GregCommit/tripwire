@@ -2208,8 +2208,8 @@ def heat_stats(rows):
 def build_tomorrow(chg, vix, vixts, sect_up, heat, earn, vix3=None, fng=None):
     """Turn the short-term numbers into warning signs. A sign 'hits' past a fixed, simple threshold. Gauge, not forecast."""
     signs = []
-    def add(name, val, txt, hit, rule, key=None, sym=None):
-        signs.append({"name": name, "value": txt, "hit": bool(hit), "v": val, "rule": rule, "key": key, "sym": sym})
+    def add(name, val, txt, hit, rule, key=None, sym=None, go=None, note=None):
+        signs.append({"name": name, "value": txt, "hit": bool(hit), "v": val, "rule": rule, "key": key, "sym": sym, "go": go, "note": note})
     for k, name, lim in [("FUT_ES", "S&P 500 futures", -0.7), ("FUT_NQ", "Nasdaq futures", -1.0), ("FUT_RTY", "Small-cap futures", -1.0)]:
         v = chg.get(k)
         if v is not None:
@@ -2219,7 +2219,7 @@ def build_tomorrow(chg, vix, vixts, sect_up, heat, earn, vix3=None, fng=None):
     if vixts is not None:
         calc = f"VIX {vix[0]:.1f} ÷ 3-month VIX {vix3:.1f} = {vixts:.2f}. " if vix and vix3 else ""
         add("Fear now ÷ fear in 3 months", vixts, f"{vixts:.2f}", vixts >= 1.0,
-            calc + "Normally below 1: traders expect more swings later than now. Above 1.00 they pay more for protection today than for the next 3 months, which marks acute stress.", "VIXTS")
+            calc + "Normally below 1: traders expect more swings later than now. Above 1.00 they pay more for protection today than for the next 3 months, which marks acute stress.", "VIXTS", note=calc.strip() or None)
     if fng and fng.get("score") is not None:
         sc = fng["score"]
         word = (fng.get("rating") or "").replace("_", " ") or ("fear" if sc < 45 else "greed" if sc > 55 else "neutral")
@@ -2230,14 +2230,14 @@ def build_tomorrow(chg, vix, vixts, sect_up, heat, earn, vix3=None, fng=None):
     if heat and heat.get("mega"):
         m = heat["mega"]; worst = min(m, key=lambda x: x["pct"])
         add("Mega caps ($1 trillion+) average", heat["megaAvg"], f"{heat['megaAvg']:+.1f}%", heat["megaAvg"] <= -2,
-            f"The {len(m)} companies worth over $1 trillion are {heat['megaShare']:.0f}% of the S&P 500: when they fall, the index falls. Red at −2% or worse.")
-        add("Biggest mega-cap fall", worst["pct"], f"{worst['t']} {worst['pct']:+.1f}%", worst["pct"] <= -5, "The weakest company over $1 trillion today. Red at −5% or worse.")
+            f"The {len(m)} companies worth over $1 trillion are {heat['megaShare']:.0f}% of the S&P 500: when they fall, the index falls. Red at −2% or worse.", go="heat")
+        add("Biggest mega-cap fall", worst["pct"], f"{worst['t']} {worst['pct']:+.1f}%", worst["pct"] <= -5, "The weakest company over $1 trillion today. Red at −5% or worse.", go="heat")
     if heat:
-        add("S&P 500 stocks falling", heat["down"], f"{heat['down']:.0f}%", heat["down"] >= 70, "Share of the 500 stocks below yesterday's close. Red at 70% or more.")
-        add("Down more than 2%", heat["down2"], f"{heat['down2n']} stocks", heat["down2"] >= 12, "Stocks that lost over 2% today. Red when it is 12% of the index or more.")
+        add("S&P 500 stocks falling", heat["down"], f"{heat['down']:.0f}%", heat["down"] >= 70, "Share of the 500 stocks below yesterday's close. Red at 70% or more.", go="heat")
+        add("Down more than 2%", heat["down2"], f"{heat['down2n']} stocks", heat["down2"] >= 12, "Stocks that lost over 2% today. Red when it is 12% of the index or more.", go="heat")
     if earn is not None:
         ah = [r for r in earn if r.get("when") == "after hours" and r["move"] <= -4]
-        add("Big names after hours", -len(ah), f"{len(ah)} down 4%+" if ah else "none", bool(ah), "Large companies falling 4% or more after the close.")
+        add("Big names after hours", -len(ah), f"{len(ah)} down 4%+" if ah else "none", bool(ah), "Large companies falling 4% or more after the close.", go="earn")
     hits, total = sum(1 for s in signs if s["hit"]), len(signs)
     level = "high" if total and hits >= max(3, total * 0.4) else "elevated" if hits >= 2 else "low"
     return {"level": level, "hits": hits, "total": total, "signs": signs}

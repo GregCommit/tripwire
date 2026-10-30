@@ -608,13 +608,14 @@ function earnHTML(E){
     <span class="small">${r.expected ? 'options expected ±' + r.expected.toFixed(1) + '%' : 'no stored expectation'}</span>${r.ratio ? `<span class="ratio${r.ratio >= 1.5 ? ' hot' : ''}">${r.ratio.toFixed(1)}× — ${esc(r.words)}</span>` : ''}</div>`).join('')}</div>
     <div class="small" style="margin-top:6px">Updated ${ago(E.ts)}. The expected move is read from option prices before the report.</div>`;
 }
+function goHeat(){ if (HEAT_IDX !== 'sp500'){ HEAT_IDX = 'sp500'; HEAT = null; } showTab('heatmap'); }
 function tomorrowHTML(t){
   if (!t || !t.signs.length) return '';
   const w = t.heat && t.heat.worst && t.heat.worst.length ? `<div class="tmr-w"><span>Weakest parts of the S&amp;P 500 today</span>${t.heat.worst.slice(0, 4).map(x => `<span><b>${esc(x.name)}</b> <span class="${x.pct >= 0 ? 'up' : 'down'}">${x.pct > 0 ? '+' : ''}${x.pct.toFixed(1)}%</span></span>`).join('')}</div>`
     + `<div class="tmr-w"><span>Giants vs the average stock</span><span><b class="${t.heat.cap >= 0 ? 'up' : 'down'}">${t.heat.cap > 0 ? '+' : ''}${t.heat.cap.toFixed(1)}%</b> by size</span><span><b class="${t.heat.eq >= 0 ? 'up' : 'down'}">${t.heat.eq > 0 ? '+' : ''}${t.heat.eq.toFixed(1)}%</b> equal weight</span></div>` : '';
   const mg = t.heat && t.heat.mega && t.heat.mega.length ? `<div class="tmr-m"><span class="tmr-t">Mega caps over $1 trillion · ${t.heat.megaShare.toFixed(0)}% of the S&amp;P 500</span><div class="mc">${t.heat.mega.map(x => `<a class="mgc ${x.pct >= 0 ? 'up' : 'down'}" href="https://finance.yahoo.com/quote/${encodeURIComponent(x.t)}" target="_blank" rel="noopener noreferrer" data-tk="${esc(x.t)}" data-tn="${esc(x.n || '')}" data-tp="${x.pct}"><i>${esc(x.t)}</i> ${x.pct > 0 ? '+' : ''}${x.pct.toFixed(1)}%</a>`).join('')}</div></div>` : '';
   return `<div class="tmr"><div class="tmr-h"><span class="tmr-t">Pressure on the market</span><span class="tmr-l ${t.level}">${t.level}</span><span class="small">${t.hits} of ${t.total} warning signs</span></div>
-    ${mg}<div class="tmr-s">${t.signs.map(s => `<div class="sg ${s.hit ? 'hit' : ''}${s.key || s.sym ? ' click' : ''}"${s.key ? ` onclick="explain('${s.key}', this)"` : s.sym ? ` onclick="window.open('https://finance.yahoo.com/quote/${encodeURIComponent(s.sym)}', '_blank', 'noopener')"` : ''}${s.sym && !s.key ? ' title="Opens Yahoo Finance"' : ''}><div class="n">${esc(s.name)}</div><div class="v">${esc(s.value)}</div><div class="r">${esc(s.rule || '')}</div></div>`).join('')}</div>${w}</div>`;
+    ${mg}<div class="tmr-s">${t.signs.map(s => `<div class="sg ${s.hit ? 'hit' : ''}${s.key || s.sym || s.go ? ' click' : ''}"${s.key ? ` onclick="explain('${s.key}', this)"` : s.sym ? ` onclick="window.open('https://finance.yahoo.com/quote/${encodeURIComponent(s.sym)}', '_blank', 'noopener')"` : s.go === 'heat' ? ` onclick="goHeat()"` : s.go === 'earn' ? ` onclick="goCluster('internals')"` : ''} title="${esc(s.rule || '')}"><div class="n">${esc(s.name)}</div><div class="v">${esc(s.value)}</div>${s.note ? `<div class="r">${esc(s.note)}</div>` : ''}</div>`).join('')}</div>${w}</div>`;
 }
 function renderToday(){
   if (!OV) return;
