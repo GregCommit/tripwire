@@ -256,9 +256,14 @@ def due_sources():
     st = fetch_status()
     now = time.time()
     due = []
+    with get_db() as conn:
+        have = {r[0] for r in conn.execute("SELECT key FROM series WHERE key GLOB 'H_*'")}
+    new_items = any("H_" + h["key"] not in have for h in S.HUB)        # a new indicator was added: do not wait three hours
     for src, every in EVERY.items():
         x = st.get(src, {})
         wait = every if x.get("ok_ts") and not x.get("error") else 600
+        if src == "hub" and new_items:
+            wait = min(wait, 600)
         if now - (x.get("try_ts") or 0) >= wait:
             due.append(src)
     return due
@@ -869,7 +874,7 @@ def build_summary(clusters, levels, recent):
         movers.append({"key": x["key"], "name": x["name"], "cluster": c["id"], "clusterTitle": c["title"], "rank": x["rank"],
                        "horizon": x["horizon"], "hub": bool(x.get("hub")), "value": x["value"], "unit": x["unit"], "dec": x["dec"],
                        "signed": bool(x.get("signed")), "chgKind": x["chgKind"], "chg": x.get(field), "good": x.get("good", 0),
-                       "extreme": bool(x.get("hub") and x["zone"].startswith("extreme")), "news": news, "context": x.get("context", "")})
+                       "extreme": bool(x.get("hub") and x["zone"].startswith("extreme")), "news": news, "context": x.get("context", "") if x.get("contextKind") == "diverge" else ""})
     movers.sort(key=lambda m: -m["rank"])
     return {"movers": movers[:3], "calm": not movers and not levels, "levels": levels}
 
@@ -885,7 +890,7 @@ def apply_link_ranking(items):
     for k, v in adj.items():
         items[k]["rank"] = v["adj"]
         items[k]["linkBoost"], items[k]["linkFactor"] = v["boost"], v["factor"]
-        items[k]["context"] = ctx.get(k, "")
+        items[k]["context"], items[k]["contextKind"] = ctx.get(k, ("", ""))
     return adj, edges
 
 

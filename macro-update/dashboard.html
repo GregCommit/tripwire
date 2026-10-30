@@ -52,7 +52,7 @@ h2+.muted{margin-bottom:10px}
 .badge{display:inline-block;margin-left:6px;font-size:11.5px;font-weight:600;padding:1px 8px;border-radius:3px;color:var(--watch);border:1px solid var(--watch);vertical-align:1px}
 .badge.strong{background:var(--watch);color:#000;border-color:var(--watch)}
 .ind.hot{border-color:#3a3a44}
-.drv{background:var(--card2);border:1px solid var(--line2);border-left:3px solid #5b5b66;border-radius:6px;padding:12px 14px;margin:10px 0 12px}
+.drv{background:var(--card2);border:1px solid var(--line2);border-left:3px solid #5b5b66;border-radius:6px;padding:8px 14px;margin:8px 0 12px}
 .drvh{font-weight:600;font-size:14px}.drvt{font-size:14px;color:var(--txt);margin-top:4px}
 .drv ul{padding-left:18px;margin:6px 0}.drv li{font-size:14px;line-height:1.5;color:var(--txt);margin:5px 0}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.74);z-index:100;display:grid;place-items:center;padding:16px}
@@ -101,11 +101,13 @@ h2+.muted{margin-bottom:10px}
 .gtag.up{color:var(--txt);border-color:var(--dim)}.gtag.low{color:var(--watch);border-color:var(--watch)}
 .ctxhead{margin:14px 0 6px}
 .tiles-head{margin:2px 0 10px}.tlabel{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
+.tflag{font-size:14px;font-weight:600;color:var(--alert);margin-top:8px}
+.relmissing .ind.mini{opacity:.7}
 .tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-bottom:8px}
 .tile{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:22px 22px 20px;cursor:pointer;display:flex;flex-direction:column;gap:6px;min-width:0}
 .tile:hover{border-color:#3a3a44}
-.tl{font-size:12px;color:var(--dim)}.tn{font-size:17px;font-weight:600;line-height:1.3}
-.tv{font-size:28px;font-weight:500;letter-spacing:-.01em;font-variant-numeric:tabular-nums;margin-top:8px}
+.tl{font-size:12px;color:var(--dim)}.tn{font-size:20px;font-weight:600;line-height:1.3}
+.tv{font-size:18px;font-weight:500;letter-spacing:-.01em;font-variant-numeric:tabular-nums;margin-top:8px}
 .tw{font-size:13px;color:var(--mute);margin-left:10px;font-weight:400;letter-spacing:0}
 .tnow{font-size:13px;color:var(--mute)}
 .tnews{margin-top:14px;padding-top:14px;border-top:1px solid var(--line);color:var(--txt);text-decoration:none;font-size:14px;line-height:1.45}
@@ -154,7 +156,7 @@ body.wide main{max-width:1320px}
 .sumline{font-size:14px;line-height:1.5;color:var(--txt);margin-top:8px}
 .xbtn{position:absolute;top:8px;right:8px;width:30px;height:30px;border-radius:50%;background:var(--card2);border:1px solid var(--line2);color:var(--mute);font-size:14px;line-height:1;cursor:pointer;display:grid;place-items:center;z-index:2;padding:0}
 .xbtn:hover{color:var(--txt);border-color:#8a8a96}
-.ind.open,.qopen{position:relative}.ind.open .nm{padding-right:38px}.qopen .qrow{padding-right:38px}
+.ind.open,.qopen{position:relative;z-index:3}.ind.open .nm{padding-right:38px}.qopen .qrow{padding-right:38px}
 .close{float:right;background:none;border:none;color:var(--mute);font-size:13px;cursor:pointer;padding:2px 0 8px 10px}
 .parts{display:grid;gap:8px;margin:10px 0}
 .part{display:grid;grid-template-columns:130px 1fr 36px;gap:10px;align-items:center;font-size:13px}
@@ -205,7 +207,7 @@ details.quiet{margin-top:18px}details.quiet>summary{cursor:pointer;color:var(--m
 <p>Macro Watch keeps an eye on the big picture so you don't have to: US stocks, interest rates, commodities, investor mood, the yen and Japan's inflation. It answers one question first — <b>does anything need a look today?</b> — and emails you when something crosses a level you chose or moves far more than usual.</p>
 <p>It does not tell you to buy or sell anything. It is context for your own decisions.</p>
 <h3>What — the screens</h3>
-<ul><li><b>Today</b>: the answer first, then <b>groups of indicators that belong together</b> — US bonds, rates &amp; the dollar; gold, silver &amp; Dr. Copper; stocks &amp; investor mood; the yen carry trade; credit, jobs &amp; defaults ahead; oil; valuation. The most special group is at the top, and inside a group the most special indicator comes first. "Special" means a move far larger than usual over the last day, week or month, or a place at the edge of its own history — weighted by how much that indicator matters for stock investing. Every card says in plain words <b>what it says</b>. Each group has a box <b>"What is moving this group?"</b> that explains the unusual moves with the usual links between these markets (for example: gold falls when real yields and the dollar rise). That box is worked out from the numbers, not from news headlines. The small <b>?</b> on a card turns into a red <b>!</b> when there is a headline about it that you have not opened yet. Tap a card for a bigger chart; close it with the ✕ at its top right.</li>
+<ul><li><b>Today</b>: the answer first, then <b>groups of indicators that belong together</b> — US bonds, rates &amp; the dollar; gold, silver &amp; Dr. Copper; stocks &amp; investor mood; the yen carry trade; credit, jobs &amp; defaults ahead; oil; valuation. The most special group is at the top, and inside a group the most special indicator comes first. "Special" means a move far larger than usual over the last day, week or month, or a place at the edge of its own history — weighted by how much that indicator matters for stock investing. Every card says in plain words <b>what it says</b>. A group gets a short note under its title <b>only when something in it really moves</b>, explaining the move with the usual links between these markets (for example: gold falls when real yields and the dollar rise). That note is worked out from the numbers, not from news headlines. The small <b>?</b> on a card turns into a red <b>!</b> when there is a headline about it that you have not opened yet. Tap a card for a bigger chart; close it with the ✕ at its top right.</li>
 <li><b>Overview</b>: one map of everything that matters right now. The most important indicators are boxes, the links between them are lines, and the headlines about them hang on those boxes. It ranks on purpose and leaves the rest out. Things that usually move together and both are far out <b>reinforce</b> each other (white line); if one moves and its usual partner does not follow (yellow dashed line), the link is weaker than usual and <b>both count for less</b>. Tap a box to see how it is connected. The filters above the map narrow it to some groups, to linked boxes only, or to boxes that have a headline; point at a box to read why it is shown.</li>
 <li><b>Heatmap</b>: all companies of the S&amp;P 500 or the Nasdaq-100 as one map — the size of a tile is the company's market value, the colour is today's change (green up, red down), grouped by sector. Point at a tile for details, tap it to open the quote. Data: Nasdaq's public screener and Wikipedia's index lists; if they are unreachable the app falls back to Yahoo prices and a built-in list of the biggest companies, and says so under the map.</li>
 <li><b>Extremes</b>: indicators that only matter when they are far out on one side of their own history — the yen carry trade (USD/JPY, the US–Japan yield gap, Japan's yields), the Buffett indicator, Shiller P/E, credit spreads, the yield curve, the VIX and more. Each sits on a 0–100 scale (its percentile against all the history we have). The outer 5% on either side is an <b>extreme</b> (red), the outer 10% is <b>stretched</b> (amber); everything else is "normal range" and tucked away. Open "Yen carry trade in detail" at the bottom for USD/JPY, the interest gap and Japan's inflation with the Bank of Japan's forecasts.</li>
@@ -217,6 +219,7 @@ details.quiet{margin-top:18px}details.quiet>summary{cursor:pointer;color:var(--m
 <li>US interest rates and spreads (FRED): every 2 hours. These are official end-of-day figures, so they run one business day behind.</li>
 <li>Monthly figures (inflation, Japan's 10-year yield and overnight rate): checked twice a day; you get an email when a new month's inflation figure appears.</li>
 <li>News: headlines from free RSS feeds, every 15 minutes. Heatmap: every 15 minutes (Nasdaq screener, Wikipedia, Yahoo).</li>
+<li>Prices, spending, jobs, growth and money supply: monthly or weekly figures from FRED (CPI, PCE, retail sales, unemployment, payrolls, job openings, GDP and others).</li>
 <li>Extremes tab: long histories (decades) fetched every 3 hours from FRED, Yahoo Finance and multpl.com (Shiller P/E).</li>
 <li>Bank of Japan forecasts: checked twice a day; the BoJ publishes new ones in January, April, July and October, and you get an email when it does.</li></ul>
 <h3>AI summaries</h3>
@@ -381,7 +384,11 @@ function chgRow(s){
   if (!s.hub && s.y1 !== null && s.y1 !== undefined) p.push(`1 yr ${cc(s.y1)}`);
   return p.map(x => `<span>${x}</span>`).join('');
 }
-function saysHTML(s){ return `<div class="says"><b>What it says.</b> ${esc(s.hub ? (s.side ? s.meaning : (s.reading || s.why)) : s.says)}</div>` + (s.context ? `<div class="says ctxline"><b>In context.</b> ${esc(s.context)} <button class="link" onclick="event.stopPropagation();explain('${s.key}', this)">All links ›</button></div>` : ''); }
+function saysHTML(s, full){
+  const t = s.hub ? (s.side ? s.meaning : (s.reading || s.why)) : s.says;
+  const ctx = full ? s.context : (s.contextKind === 'diverge' ? shortText(s.context, 170) : '');
+  return `<div class="says"><b>What it says.</b> ${esc(full ? t : shortText(t, 125))}</div>` + (ctx ? `<div class="says ctxline"><b>In context.</b> ${esc(ctx)}${full ? '' : ` <button class="link" onclick="event.stopPropagation();explain('${s.key}', this)">All links ›</button>`}</div>` : '');
+}
 function shortText(t, n){ if (!t || t.length <= n) return t || ''; const cut = t.slice(0, n), i = cut.lastIndexOf('. '); return i > 60 ? cut.slice(0, i + 1) : cut.trim() + '…'; }
 function cardHTML(s, cid){
   if (s.hub) return exCardHTML(s, cid);
@@ -392,7 +399,7 @@ function cardHTML(s, cid){
     <div class="nm"><span>${esc(s.name)}</span><span class="nmr"><span class="small">${esc(fdate(s.date, mo))}</span>${qBtn(s)}</span></div>
     <div class="val">${esc(fmtVal(s, s.value))}</div>
     <span class="chip ${toneWord[s.tone]}">${esc(s.reading)}</span>${badge(s)}
-    ${saysHTML(s)}
+    ${saysHTML(s, cid === 'ex')}
     <div class="chg">${chgRow(s)}</div>
     <div class="rng"><i style="left:${(s.pos * 100).toFixed(1)}%;transform:translateX(-${(s.pos * 100).toFixed(1)}%)"></i></div>
     <div class="rngl"><span>1-yr low ${esc(fmtVal(s, s.lo))}</span><span>high ${esc(fmtVal(s, s.hi))}</span></div>
@@ -447,35 +454,57 @@ function drawOpen(){
   const [cid, key] = OPEN.split('|'), s = findAny(key);
   if (s && s.hub) drawExDetail(key, cid); else drawDetail(cid, key);
 }
+// The page glides to its new layout instead of jumping: the opened card grows out of its old place, the closed one shrinks back into it.
+function transitionLayout(root, attr, change, openKey, closeKey){
+  if (REDUCED){ change(); return; }
+  const keyOf = (e, i) => e.getAttribute(attr) || e.id || ('drv' + i), els = () => [...document.querySelectorAll(`${root} [${attr}], ${root} h2[id], ${root} .drv`)];
+  const prev = new Map(els().map((e, i) => [keyOf(e, i), e.getBoundingClientRect()]));
+  const oldEl = closeKey ? document.querySelector(`${root} [${attr}="${closeKey}"]`) : null, oldRect = oldEl ? oldEl.getBoundingClientRect() : null;
+  let clone = null;
+  if (oldEl){ clone = oldEl.cloneNode(true); clone.querySelectorAll('[id]').forEach(e => e.removeAttribute('id')); clone.removeAttribute('id');
+    Object.assign(clone.style, {position: 'fixed', left: oldRect.left + 'px', top: oldRect.top + 'px', width: oldRect.width + 'px', height: oldRect.height + 'px', margin: '0', zIndex: '40', pointerEvents: 'none', gridColumn: 'auto'}); document.body.appendChild(clone); }
+  change();
+  els().forEach((e, i) => { const k = keyOf(e, i), a = prev.get(k); if (!a || k === openKey || k === closeKey) return;
+    const b = e.getBoundingClientRect(), dx = a.left - b.left, dy = a.top - b.top;
+    if (Math.abs(dx) + Math.abs(dy) > 2) e.animate([{opacity: 0.3}, {opacity: 1}], {duration: 550, easing: 'ease-out'}); });      // moved neighbours fade in at their new place: nothing flies across the page
+  const open = openKey ? document.querySelector(`${root} [${attr}="${openKey}"]`) : null, was = openKey ? prev.get(openKey) : null;
+  if (open && was){ const b = open.getBoundingClientRect(), inset = `inset(${Math.max(0, was.top - b.top)}px ${Math.max(0, b.right - was.right)}px ${Math.max(0, b.bottom - was.bottom)}px ${Math.max(0, was.left - b.left)}px)`;
+    open.animate([{clipPath: inset}, {clipPath: 'inset(0px 0px 0px 0px)'}], {duration: 850, easing: 'cubic-bezier(.3,0,.2,1)'}); }
+  if (clone){ const el = document.querySelector(`${root} [${attr}="${closeKey}"]`);
+    if (el){ const b = el.getBoundingClientRect(), s = Math.min(b.width / oldRect.width, b.height / oldRect.height), tr = `translate(${b.left - oldRect.left}px,${b.top - oldRect.top}px) scale(${s})`;
+      clone.style.transformOrigin = '0 0';                                   // the big card shrinks back to its small place
+      clone.animate([{transform: 'none'}, {transform: tr}], {duration: 1000, easing: 'cubic-bezier(.45,0,.2,1)', fill: 'forwards'}).finished
+        .then(() => clone.animate([{opacity: 1}, {opacity: 0}], {duration: 220, fill: 'forwards'}).finished).then(() => clone.remove()).catch(() => clone.remove());
+      el.animate([{opacity: 0}, {opacity: 0, offset: 0.85}, {opacity: 1}], {duration: 1200, easing: 'linear'}); }
+    else clone.remove(); }
+}
 function openCard(id){
-  OPEN = id; renderToday();
+  const prevId = OPEN;
+  transitionLayout('#today', 'data-cid', () => { OPEN = id; renderToday(); }, id || null, prevId && prevId !== id ? prevId : null);
   if (id){ const [cid, key] = id.split('|'); drawOpen(); setTimeout(() => ($('card-' + uid(cid, key)) || $('ex-' + uid(cid, key)))?.scrollIntoView({behavior:'smooth', block:'nearest'}), 50); track('Opened ' + key); }
 }
 function driversHTML(c){
-  const d = c.drivers; if (!d) return '';
-  return `<div class="drv"><div class="drvh">What is moving this group? <span class="small">· looking at ${esc(d.horizon)}</span></div>
-    <div class="drvt">${esc(d.headline)}</div><ul>${d.bullets.map(b => `<li>${esc(b)}</li>`).join('')}</ul>
-    <div class="small">Worked out from these numbers and the usual links between these markets — not from news headlines.</div></div>`;
+  const d = c.drivers; if (!d || !d.signal) return '';          // a note only when something in this group really moves
+  return `<div class="drv"><ul>${d.bullets.slice(0, 2).map(b => `<li>${esc(shortText(b, 190))}</li>`).join('')}</ul></div>`;
 }
 function moverTile(m){
   const arrow = m.chg > 0 ? '▲' : m.chg < 0 ? '▼' : '', cls = m.extreme ? 'down' : chgClass({good: m.good}, m.chg);
-  const big = m.extreme ? 'At an extreme' : `${arrow} ${fmtChg({chgKind: m.chgKind, unit: m.unit, dec: m.dec}, m.chg)}`;
+  const big = `${arrow} ${fmtChg({chgKind: m.chgKind, unit: m.unit, dec: m.dec}, m.chg)}`;
   return `<div class="tile" onclick="goCluster('${m.cluster}')"><div class="tl">${esc(m.clusterTitle)}</div><div class="tn">${esc(m.name)}</div>
-    <div class="tv ${cls}">${big}${m.extreme ? '' : `<span class="tw">${esc(m.horizon)}</span>`}</div>
+    ${m.extreme ? '<div class="tflag">At an extreme of its history</div>' : `<div class="tv ${cls}">${big}<span class="tw">${esc(m.horizon)}</span></div>`}
     <div class="tnow">Now ${esc(fmtVal({unit: m.unit, dec: m.dec, signed: m.signed}, m.value))}</div>
-    ${m.context ? `<div class="tctx">${esc(shortText(m.context, 230))}</div>` : ''}
     ${m.news ? `<a class="tnews" href="${esc(m.news.link)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">${esc(m.news.title)}<span>${esc(m.news.source)} · ${esc(ago(m.news.ts))}</span></a>` : ''}</div>`;
 }
 function renderToday(){
   if (!OV) return;
   if (EXPL){ renderExplain(); return; }
   const S = OV.summary, bad = OV.sources.filter(x => x.stale || x.error);
-  let h = `<div class="tiles-head"><span class="tlabel">What moved</span></div>`;
+  let h = '';
   h += S.movers.length ? `<div class="tiles">${S.movers.map(moverTile).join('')}</div>` : `<div class="calmrow">Quiet — nothing is moving unusually.</div>`;
   if (S.levels.length) h += `<div class="levels"><b>Your levels crossed</b>${S.levels.map(l => `<div>${esc(l.text)} ${l.cluster ? `<button class="link" onclick="goCluster('${l.cluster}')">Show ›</button>` : ''}</div>`).join('')}</div>`;
-  h += `<div class="small" style="margin:10px 0 4px">${bad.length ? '⚠ ' + bad.map(b => esc(b.name) + (b.ok_ts ? ' last updated ' + ago(b.ok_ts) : ' not reached yet')).join(' · ') + ' — showing the last good numbers.' : 'All sources up to date.'} Prices refresh every 15 minutes. Groups below are sorted by what is most unusual and most important for stocks.</div>`;
+  if (bad.length) h += `<div class="small" style="margin:10px 0 4px">⚠ ${bad.map(b => esc(b.name) + (b.ok_ts ? ' last updated ' + ago(b.ok_ts) : ' not reached yet')).join(' · ')} — showing the last good numbers.</div>`;
   for (const c of OV.clusters || []){
-    h += `<h2 id="cl-${c.id}">${esc(c.title)}</h2><div class="muted">${esc(c.intro)}${c.id === 'japan' ? ' <button class="link" onclick="openJapan()">Inflation forecasts ›</button>' : ''}</div>${driversHTML(c)}
+    h += `<h2 id="cl-${c.id}" title="${esc(c.intro)}">${esc(c.title)}${c.id === 'japan' ? ' <button class="link" style="font-size:13px;font-weight:400;margin-left:8px" onclick="openJapan()">Inflation forecasts ›</button>' : ''}</h2>${driversHTML(c)}
       <div class="grid">${c.main.map(s => cardHTML(s, c.id)).join('')}</div>`;
   }
   $('today').innerHTML = h;
@@ -565,7 +594,9 @@ function renderExplain(){
   const E = EXPL, me = E.items[E.key]; if (!me) return;
   OPEN = 'ex|' + E.key; document.body.classList.add('wide');
   const drv = E.drivers.filter(l => E.items[l.driver]), eff = E.effects.filter(l => E.items[l.affected]);
-  const col = (list, key, side) => list.map((l, i) => relNode(l, E.items[l[key]], side, i)).join('') || `<div class="muted emptycol">${side === 'l' ? 'No direct driver is defined.' : 'It does not directly move another indicator here.'}</div>`;
+  const gone = side => (E.missing || []).filter(m => m.side === side).map(m => `<div class="relnode relmissing" data-side="${side}" data-key="${m.key}" data-status="quiet"><div class="relhead"><span class="reltag">NO DATA YET</span><span class="small">${esc(m.modeText)}</span></div>
+    <div class="ind mini"><div class="nm"><span>${esc(m.name)}</span></div><div class="muted" style="font-size:13px;margin-top:6px">The app has not loaded this one yet. It tries again every few minutes.</div></div><div class="reltext">${esc(m.why)}</div></div>`).join('');
+  const col = (list, key, side) => list.map((l, i) => relNode(l, E.items[l[key]], side, i)).join('') + gone(side) || `<div class="muted emptycol">${side === 'l' ? 'No direct driver is defined.' : 'It does not directly move another indicator here.'}</div>`;
   const st = E.newsStatus, shown = E.news.slice(0, 4), more = E.news.slice(4);
   const nNew = E.news.filter(n => EXPL_NEW.has(n.h)).length;
   const head = EXPL_NEW.size ? `${EXPL_NEW.size} new headline${EXPL_NEW.size > 1 ? 's' : ''} about ${me.name}` : `How ${me.name} is connected`;
@@ -627,7 +658,7 @@ function slideOut(src, ms){
 function slideIn(skip){
   const vw = innerWidth, els = [...document.querySelectorAll(SLIDERS)].filter(e => e !== skip);
   els.forEach((e, i) => { const r = e.getBoundingClientRect(), dir = r.left + r.width / 2 < vw / 2 ? -1 : 1;
-    e.animate([{transform: `translateX(${dir * vw * 0.85}px) rotate(${dir * 3}deg)`, opacity: 0}, {transform: 'none', opacity: 1}], {duration: 700, delay: 160 + Math.min(i * 12, 240), easing: 'cubic-bezier(.2,.75,.2,1)', fill: 'backwards'}); });
+    e.animate([{transform: `translateX(${dir * vw * 0.85}px) rotate(${dir * 3}deg)`, opacity: 0}, {transform: 'none', opacity: 1}], {duration: 950, delay: 220 + Math.min(i * 14, 280), easing: 'cubic-bezier(.25,.7,.2,1)', fill: 'backwards'}); });
   document.querySelectorAll('#today h2, #today .muted, #today .drv, #today .tiles-head, #today .levels, #today .calmrow, #overview .gcap, #overview .glines, #overview .gwhy').forEach(e => e.animate([{opacity: 0}, {opacity: 1}], {duration: 500, delay: 300, fill: 'backwards'}));
 }
 function enterScene(from){
@@ -639,12 +670,12 @@ function enterScene(from){
   const sx = Math.max(0.2, from.width / to.width), dx0 = from.left - to.left, dy0 = from.top - to.top;
   const ms = Math.min(0.72, (vh * 0.62) / to.height), mx = vw / 2 - (to.width * ms) / 2 - to.left, my = vh * 0.5 - (to.height * ms) / 2 - to.top;
   card.style.transformOrigin = '0 0'; card.style.zIndex = 5;
-  const a = card.animate([{transform: `translate(${dx0}px,${dy0}px) scale(${sx})`}, {transform: `translate(${mx}px,${my}px) scale(${ms})`, offset: 0.45}, {transform: 'none'}],
-                         {duration: 1250, easing: 'cubic-bezier(.45,.05,.2,1)', fill: 'backwards'});
+  const a = card.animate([{transform: `translate(${dx0}px,${dy0}px) scale(${sx})`}, {transform: 'none'}],
+                         {duration: 1900, easing: 'cubic-bezier(.45,0,.2,1)', fill: 'backwards'});
   a.finished.then(() => { card.style.zIndex = ''; card.style.transformOrigin = '';
     if (svg) svg.style.opacity = 1; drawLines(true);
     document.querySelectorAll('#today .exsum').forEach(e => { e.style.opacity = ''; e.animate([{opacity: 0, transform: 'translateY(-8px)'}, {opacity: 1, transform: 'none'}], {duration: 420, fill: 'backwards'}); });
-    nodes.forEach((n, i) => { n.style.opacity = ''; const side = n.dataset.side; n.animate([{opacity: 0, transform: side ? `translateX(${side === 'l' ? -46 : 46}px) scale(.95)` : 'translateY(24px)'}, {opacity: 1, transform: 'none'}], {duration: 460, delay: i * 90, easing: 'ease-out', fill: 'backwards'}); });
+    nodes.forEach((n, i) => { n.style.opacity = ''; const side = n.dataset.side; n.animate([{opacity: 0, transform: side ? `translateX(${side === 'l' ? -46 : 46}px) scale(.95)` : 'translateY(24px)'}, {opacity: 1, transform: 'none'}], {duration: 700, delay: i * 120, easing: 'ease-out', fill: 'backwards'}); });
     drawOpen(); }).catch(() => {});
 }
 async function explain(key, el){
@@ -688,9 +719,9 @@ async function closeExplain(){
     const target = findOriginEl(origin), dest = target ? target.getBoundingClientRect() : null;
     slideIn(target);
     if (dest){
-      target.animate([{opacity: 0}, {opacity: 0, offset: 0.78}, {opacity: 1}], {duration: 1000, easing: 'linear'});
+      target.animate([{opacity: 0}, {opacity: 0, offset: 0.8}, {opacity: 1}], {duration: 1700, easing: 'linear'});
       const sx = dest.width / from.width, sy = dest.height / from.height, tr = `translate(${dest.left - from.left}px,${dest.top - from.top}px) scale(${sx},${sy})`;
-      clone.animate([{transform: 'none', opacity: 1}, {transform: tr, opacity: 1, offset: 0.78}, {transform: tr, opacity: 0}], {duration: 1000, easing: 'cubic-bezier(.45,.05,.2,1)'}).finished.then(() => clone.remove()).catch(() => clone.remove());
+      clone.animate([{transform: 'none'}, {transform: tr}], {duration: 1500, easing: 'cubic-bezier(.45,0,.2,1)', fill: 'forwards'}).finished.then(() => { clone.animate([{opacity: 1}, {opacity: 0}], {duration: 250, fill: 'forwards'}).finished.then(() => clone.remove()).catch(() => clone.remove()); }).catch(() => clone.remove());
     } else clone.animate([{opacity: 1}, {opacity: 0}], {duration: 300}).finished.then(() => clone.remove()).catch(() => clone.remove());
   }
 }
@@ -918,7 +949,7 @@ function exCardHTML(h, cid){
     <span class="chip ${cls}">${label}</span><span class="small" style="margin-left:6px">${ordinal(h.pct)} percentile</span>${localBadge(h)}${badge(h)}
     ${pbar(h)}<div class="rngl"><span>lowest</span><span>history since ${h.start.slice(0, 4)}</span><span>highest</span></div>
     ${h.side ? `<div class="mean"><b>${esc(sinceText(h))}.</b></div>` : ''}
-    ${saysHTML(h)}
+    ${saysHTML(h, cid === 'ex')}
     <div class="chg">${chgRow(h)}</div>
     ${sparkSVG(h.spark, color)}
     ${open ? exDetailHTML(h, cid) : ''}</div>`;
@@ -960,7 +991,8 @@ function setExRange(cid, key, r){
 function openEx(key){
   const it = EX?.items.find(x => x.key === key);
   if (it && it.zone === 'quiet' && !DEF_KEYS.includes(key)) QUIET_OPEN = true;      // the row lives in the collapsed list
-  EXOPEN = key; renderExtremes();
+  const prevKey = EXOPEN;
+  transitionLayout('#extremes', 'data-ex', () => { EXOPEN = key; renderExtremes(); }, key || null, prevKey && prevKey !== key ? prevKey : null);
   if (key){ drawExDetail(key); setTimeout(() => $('ex-' + uid('', key))?.scrollIntoView({behavior:'smooth', block:'nearest'}), 50); track('Opened extreme ' + key); }
 }
 function goExtreme(key){ EXCAT = 'all'; showTab('extremes'); EXOPEN = key; renderExtremes(); drawExDetail(key); }

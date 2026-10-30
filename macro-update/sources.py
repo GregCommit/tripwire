@@ -456,6 +456,8 @@ HUB_CATS = [
     ("yen", "Yen carry trade", "Traders borrow cheap yen to buy higher-yielding assets. It only matters because a sudden jump in the yen forces them to sell those assets, stocks included."),
     ("value", "Valuation", "How expensive the US stock market is against the economy, its own earnings and its own trend."),
     ("credit", "Credit & economy", "Bond-market and economic warning lights that rarely matter until they are far from normal."),
+    ("consumer", "Consumers & prices", "What households earn, spend and borrow, and how fast prices rise: the demand side of the economy."),
+    ("jobs", "Jobs & growth", "Employment, factories, housing and overall growth: whether the economy is expanding or slowing."),
     ("metals", "Gold, silver & Dr. Copper", "Metals as a mirror of fear, growth and interest rates."),
     ("mood", "Sentiment & risk", "How scared or relaxed investors and consumers are."),
 ]
@@ -551,25 +553,87 @@ HUB = [
          why="Index of 18 weekly market measures (interest rates, spreads, volatility). Zero is average stress; above zero is more stress than usual.",
          high="Financial markets are under unusual stress — typical of crises, when borrowers struggle and lenders pull back.",
          low="Very little stress in the financial system: money is easy and conditions are calm."),
-    dict(key="INCOME", name="Household income after inflation (yearly change)", cat="credit", kind="fred_yoy", sym="DSPIC96", start="1958-01-01",
+    dict(key="INCOME", name="Household income after inflation (yearly change)", cat="consumer", kind="fred_yoy", sym="DSPIC96", start="1958-01-01",
          unit="%", dec=1, freq="monthly", signed=True,
          why="How much more (or less) US households can spend than a year ago, after taxes and inflation (Bureau of Economic Analysis, monthly, published about a month late). This is the money that actually pays the loans, so it is the base under household credit.",
          high="Real incomes are growing fast: households can carry their debts and keep spending, which supports the economy.",
          low="Real incomes are shrinking: budgets are squeezed, so spending slows and loans become harder to pay. Defaults tend to follow with a delay."),
-    dict(key="SAVE", name="Personal saving rate", cat="credit", kind="fred", sym="PSAVERT", start="1959-01-01", unit="%", dec=1, freq="monthly",
+    dict(key="SAVE", name="Personal saving rate", cat="consumer", kind="fred", sym="PSAVERT", start="1959-01-01", unit="%", dec=1, freq="monthly",
          why="Share of their income US households put aside instead of spending (monthly). It is the cushion between a bad month and missed payments.",
          high="Households are saving a lot: a thick cushion for bad times — but they are also spending less, which slows growth.",
          low="The cushion is thin: households spend almost everything they earn, so a job loss or a price jump quickly turns into missed payments."),
-    dict(key="DEBTSERV", name="Household debt payments (share of income)", cat="credit", kind="fred", sym="TDSP", start="1980-01-01", unit="%", dec=1,
+    dict(key="DEBTSERV", name="Household debt payments (share of income)", cat="consumer", kind="fred", sym="TDSP", start="1980-01-01", unit="%", dec=1,
          freq="quarterly",
          why="Share of disposable income that US households spend on debt payments (mortgages, cards, car loans), quarterly. The heavier it is, the less room there is for surprises.",
          high="Debt payments take an unusually large share of income: households have little room, which is when defaults start to rise.",
          low="Debt payments are light compared with income: households can carry their loans comfortably."),
-    dict(key="WAGES", name="Wage growth (average hourly earnings, yearly)", cat="credit", kind="fred_yoy", sym="CES0500000003", start="2006-01-01",
+    dict(key="WAGES", name="Wage growth (average hourly earnings, yearly)", cat="consumer", kind="fred_yoy", sym="CES0500000003", start="2006-01-01",
          unit="%", dec=1, freq="monthly", signed=True,
          why="How much pay per hour grew over the last year (monthly). Wages are the biggest part of household income.",
          high="Pay is rising fast: good for households' budgets, but also a source of inflation, which keeps interest rates high.",
          low="Pay growth is weak: household budgets get no help against rising prices."),
+    dict(key="CORECPI", name="Core inflation (prices without food & energy, yearly)", cat="consumer", kind="fred_yoy", sym="CPILFESL", start="1958-01-01",
+         unit="%", dec=1, freq="monthly", signed=True,
+         why="How much consumer prices rose over a year, leaving out food and energy because they jump around. It shows the stubborn part of inflation that the Fed watches most closely.",
+         high="Underlying inflation is high: the Fed keeps interest rates high for longer, which weighs on stocks and bonds.",
+         low="Underlying inflation is low: the Fed has room to cut interest rates."),
+    dict(key="PCEPI", name="PCE inflation (the Fed's favourite measure, yearly)", cat="consumer", kind="fred_yoy", sym="PCEPI", start="1960-01-01",
+         unit="%", dec=1, freq="monthly", signed=True,
+         why="The price measure the Federal Reserve targets (2%). It tracks what households actually buy, so it moves a little differently from the CPI.",
+         high="Inflation is far above the Fed's 2% target: expect high rates and a hawkish Fed.",
+         low="Inflation is at or below target: the Fed can ease."),
+    dict(key="PPI", name="Producer prices (yearly)", cat="consumer", kind="fred_yoy", sym="PPIACO", start="1958-01-01", unit="%", dec=1, freq="monthly", signed=True,
+         why="What companies pay for materials and goods. Those costs reach shop prices a few months later.",
+         high="Companies face sharply higher costs: either they pass them on (more consumer inflation) or profits shrink.",
+         low="Input costs are falling: it eases pressure on consumer prices and profit margins."),
+    dict(key="INFEXP", name="Inflation expected by the bond market (10 years)", cat="consumer", kind="fred", sym="T10YIE", start="2003-01-01", unit="%", dec=2, freq="daily",
+         why="Bond investors' guess for average yearly inflation over the next 10 years (the gap between normal and inflation-protected Treasury yields).",
+         high="Investors expect lasting inflation: long-term yields tend to rise with it and the Fed gets less room.",
+         low="Investors expect low inflation — or fear weak growth. Falling expectations often come with slowdowns."),
+    dict(key="RETAIL", name="Retail sales (yearly change)", cat="consumer", kind="fred_yoy", sym="RSAFS", start="1993-01-01", unit="%", dec=1, freq="monthly", signed=True,
+         why="What consumers spent in shops and online compared with a year ago (monthly, not adjusted for inflation). Spending is about 70% of the US economy.",
+         high="Consumers are spending strongly: it supports growth and profits, but can keep inflation high.",
+         low="Consumers are pulling back: a typical early sign of a slowdown."),
+    dict(key="PCE_REAL", name="Real consumer spending (yearly change)", cat="consumer", kind="fred_yoy", sym="PCEC96", start="1960-01-01", unit="%", dec=1, freq="monthly", signed=True,
+         why="What households spend on goods and services after inflation, compared with a year ago. It is the biggest driver of US growth.",
+         high="Households are spending solidly more than a year ago: the economy has a strong engine.",
+         low="Real spending is shrinking or flat: the economy loses its main engine."),
+    dict(key="REVOLV", name="Credit-card borrowing (yearly growth)", cat="consumer", kind="fred_yoy", sym="REVOLSL", start="1968-01-01", unit="%", dec=1, freq="monthly", signed=True,
+         why="How fast households' revolving debt (mostly credit cards) is growing. Fast growth together with weak income means households borrow to keep spending.",
+         high="Card debt is growing fast: households are leaning on credit to spend, which makes them fragile if income falls.",
+         low="Card debt is flat or shrinking: households are borrowing less, either carefully or because lenders pulled back."),
+    dict(key="HOUST", name="Housing starts (new homes begun, thousands per year)", cat="consumer", kind="fred", sym="HOUST", start="1959-01-01", unit="", dec=0, freq="monthly",
+         why="How many new homes builders started. Housing reacts first to higher mortgage rates and drives jobs in construction and spending on furniture and appliances.",
+         high="Builders are very active: housing is strong and supports jobs and spending.",
+         low="Building has collapsed: housing is weak, as in past recessions."),
+    dict(key="UNRATE", name="Unemployment rate", cat="jobs", kind="fred", sym="UNRATE", start="1948-01-01", unit="%", dec=1, freq="monthly",
+         why="Share of people who want a job but do not have one (monthly).",
+         high="Unemployment is high: incomes and spending fall, and loans become harder to repay.",
+         low="Unemployment is very low: workers have bargaining power, which pushes wages (and inflation) up."),
+    dict(key="PAYROLL", name="Jobs added per month (thousands)", cat="jobs", kind="fred_diff", sym="PAYEMS", start="1948-01-01", unit="", dec=0, freq="monthly", signed=True,
+         why="How many jobs the US economy added (or lost) in a month — the headline of the monthly jobs report.",
+         high="Job creation is unusually strong: the economy is hot, which can keep the Fed from cutting rates.",
+         low="Job creation has stalled or turned negative: recessions start here."),
+    dict(key="JOBOPEN", name="Job openings (thousands)", cat="jobs", kind="fred", sym="JTSJOL", start="2000-12-01", unit="", dec=0, freq="monthly",
+         why="How many jobs employers are trying to fill (monthly survey). It shows demand for workers before layoffs or hiring show up in the jobs report.",
+         high="Employers are desperate for workers: a tight labour market that pushes wages up.",
+         low="Openings are drying up: employers are no longer hiring, which usually comes before rising unemployment."),
+    dict(key="CCSA", name="Continuing jobless claims (people still on benefits)", cat="jobs", kind="fred", sym="CCSA", start="1967-01-01", unit="", dec=0, freq="weekly", sides="high",
+         why="How many people keep receiving unemployment benefits. New claims show layoffs; continuing claims show how hard it is to find a new job.",
+         high="Laid-off people are not finding new jobs quickly: a labour market that is cooling, with weaker incomes ahead.",
+         low=""),
+    dict(key="INDPRO", name="Industrial production (yearly change)", cat="jobs", kind="fred_yoy", sym="INDPRO", start="1950-01-01", unit="%", dec=1, freq="monthly", signed=True,
+         why="Output of factories, mines and utilities compared with a year ago.",
+         high="Factories are producing much more than a year ago: the goods economy is expanding.",
+         low="Output is falling: manufacturing is in a downturn, which often spreads to jobs."),
+    dict(key="GDPQ", name="Economic growth (real GDP, annualised)", cat="jobs", kind="fred", sym="A191RL1Q225SBEA", start="1947-01-01", unit="%", dec=1, freq="quarterly", signed=True,
+         why="How fast the US economy grew in the latest quarter, converted to a yearly rate (published about a month after the quarter ends, then revised).",
+         high="The economy grew very fast: strong profits, but it can keep rates high.",
+         low="The economy is shrinking: two such quarters in a row is the usual definition of a recession."),
+    dict(key="M2G", name="Money supply growth (M2, yearly)", cat="consumer", kind="fred_yoy", sym="M2SL", start="1960-01-01", unit="%", dec=1, freq="monthly", signed=True,
+         why="How fast the amount of money in bank accounts and cash grows. Fast growth fed the 2021–22 inflation; a shrinking money supply is rare and has come with recessions.",
+         high="The money supply is growing very fast: inflation usually follows, with a lag of 1–2 years.",
+         low="The money supply is shrinking: tight money — rare, and it has come before recessions."),
     dict(key="US10Y_L", name="US 10-year yield", cat="credit", kind="fred", sym="DGS10", start="1962-01-01", unit="%",
          dec=2, freq="daily",
          why="The benchmark long-term borrowing cost.",
@@ -680,6 +744,9 @@ def build_hub(item, hd):
     k = item["kind"]
     if k == "fred_yoy":
         return yoy(hd.fred(item["sym"], item.get("start", "1950-01-01")))
+    if k == "fred_diff":
+        raw = hd.fred(item["sym"], item.get("start", "1950-01-01"))
+        return [[raw[i][0], raw[i][1] - raw[i - 1][1]] for i in range(1, len(raw))]
     if k == "fred":
         pts = hd.fred(item["sym"], item.get("start", "1950-01-01"))
         if item.get("extend"):      # newest days from the regular (Yahoo) series
@@ -798,12 +865,16 @@ WEIGHT = {
     "GOLD": 3, "SILVER": 2, "COPPER": 3.5, "CUAU": 3.5, "GSR": 2, "WTI": 3.5, "BRENT": 3, "NATGAS": 2,
     "USDJPY": 4.5, "GAP": 4, "JP10Y": 3.5, "BOJRATE": 3, "JPCPI": 3, "NIKKEI200": 3,
     "NFCI": 3.5, "SAHM": 4, "UMCSENT": 2.5, "CCC": 4, "ICSA": 3.5, "SLOOS_CARD": 3, "SLOOS_BUS": 3, "STLFSI": 3, "INCOME": 3.5, "SAVE": 2.5, "DEBTSERV": 3, "WAGES": 3,
+    "CORECPI": 4, "PCEPI": 4, "PPI": 2.5, "INFEXP": 3.5, "RETAIL": 3.5, "PCE_REAL": 3.5, "REVOLV": 2.5, "HOUST": 2.5,
+    "UNRATE": 4, "PAYROLL": 4, "JOBOPEN": 3, "CCSA": 3, "INDPRO": 3, "GDPQ": 4, "M2G": 2.5,
     "BUFFETT": 3.5, "CAPE": 3.5, "ERP": 3.5, "SPX200": 3,
 }
 SPECIAL_Z = 2.0
 # Is a rise good (+1) or bad (-1) for stock investors? 0 = no clear good or bad (shown in white, never green/red).
 GOOD = {"SPX": 1, "IXIC": 1, "DJI": 1, "RUT": 1, "VIX": -1, "VOLRATIO": -1, "HYSPREAD": -1, "MORT30": -1, "REAL10": -1, "USCPI": -1,
-        "NFCI": -1, "SAHM": -1, "UMCSENT": 1, "CCC": -1, "ICSA": -1, "SLOOS_CARD": -1, "SLOOS_BUS": -1, "STLFSI": -1, "INCOME": 1, "DEBTSERV": -1}
+        "NFCI": -1, "SAHM": -1, "UMCSENT": 1, "CCC": -1, "ICSA": -1, "SLOOS_CARD": -1, "SLOOS_BUS": -1, "STLFSI": -1, "INCOME": 1, "DEBTSERV": -1,
+        "UNRATE": -1, "PAYROLL": 1, "JOBOPEN": 1, "CCSA": -1, "INDPRO": 1, "GDPQ": 1, "RETAIL": 1, "PCE_REAL": 1, "HOUST": 1,
+        "CORECPI": -1, "PCEPI": -1, "PPI": -1, "INFEXP": -1}
 HORIZON = {"daily": ("today", "this week", "this month"), "weekly": ("this week", "this week", "this month"),
            "monthly": ("this month", None, None), "quarterly": ("this quarter", None, None)}
 STEPS = {"daily": (1, 5, 21), "weekly": (1, 1, 4), "monthly": (1, None, None), "quarterly": (1, None, None)}
@@ -843,7 +914,7 @@ SAYS = {
 CLUSTERS = [
     dict(id="rates", title="US bonds, rates & the dollar",
          intro="Interest rates and the dollar are the weather for every other market: they move together and explain each other.",
-         main=["US10Y", "US2Y", "US1Y", "CURVE", "MORT30", "FEDFUNDS", "DXY", "REAL10", "USCPI"], context=[]),
+         main=["US10Y", "US2Y", "US1Y", "CURVE", "MORT30", "FEDFUNDS", "DXY", "REAL10", "INFEXP"], context=[]),
     dict(id="metals", title="Gold, silver & Dr. Copper",
          intro="Gold, silver and copper move with interest rates and the dollar. Tap the ? on any card to see exactly how.",
          main=["GOLD", "SILVER", "COPPER", "CUAU", "GSR"], context=["REAL10", "US10Y", "DXY"]),
@@ -853,9 +924,15 @@ CLUSTERS = [
     dict(id="japan", title="Yen carry trade",
          intro="Traders borrow cheap yen to buy higher-yielding assets. When the yen jumps, they must buy yen back and sell those assets, stocks included.",
          main=["USDJPY", "GAP", "JP10Y", "BOJRATE", "JPCPI", "NIKKEI200"], context=["US10Y", "US2Y"]),
-    dict(id="credit", title="Credit, jobs & defaults ahead",
-         intro="Will borrowers keep paying their loans? Markets and layoffs react first (junk-bond spreads, jobless claims); household income and savings are the base under the loans; bank surveys follow months later.",
-         main=["HYSPREAD", "CCC", "ICSA", "SLOOS_CARD", "SLOOS_BUS", "STLFSI", "NFCI", "SAHM", "UMCSENT", "INCOME", "WAGES", "SAVE", "DEBTSERV"], context=["US10Y", "CURVE"]),
+    dict(id="consumer", title="Consumers & prices",
+         intro="What households earn, spend and borrow, and how fast prices rise.",
+         main=["USCPI", "CORECPI", "PCEPI", "PPI", "RETAIL", "PCE_REAL", "INCOME", "WAGES", "SAVE", "REVOLV", "DEBTSERV", "UMCSENT", "HOUST", "M2G"], context=[]),
+    dict(id="jobs", title="Jobs & growth",
+         intro="Whether the economy is expanding or slowing.",
+         main=["UNRATE", "PAYROLL", "JOBOPEN", "ICSA", "CCSA", "SAHM", "INDPRO", "GDPQ"], context=[]),
+    dict(id="credit", title="Credit & bank lending",
+         intro="Will loans be repaid? Markets react first, bank surveys follow months later.",
+         main=["HYSPREAD", "CCC", "STLFSI", "NFCI", "SLOOS_CARD", "SLOOS_BUS"], context=["US10Y", "CURVE"]),
     dict(id="energy", title="Oil & energy",
          intro="Oil drives inflation and, through inflation, interest rates; the dollar and oil usually move in opposite directions.",
          main=["WTI", "BRENT", "NATGAS"], context=["DXY", "USCPI"]),
@@ -952,7 +1029,8 @@ def drivers(cid, items, main=None):
         return it["value"] if it else None
 
     out = []
-    big = sorted((k for k in items if abs(z(k)) >= SPECIAL_Z and (main is None or k in main)), key=lambda k: -abs(z(k)))
+    big = sorted((k for k in items if (main is None or k in main) and items[k].get("horizon") and items[k].get("spec", 0) >= 1.0),
+                 key=lambda k: -items[k].get("rank", 0))
     if cid == "rates":
         if sg("US10Y"):
             up = sg("US10Y") > 0
@@ -1068,13 +1146,31 @@ def drivers(cid, items, main=None):
         out.append("Valuation barely changes from day to day. An extreme level describes long-run risk and expected returns over years, not a reason to act this week.")
         if sg("SPX200"):
             out.append("The S&P 500 moved a lot against its trend: that is the quickest-moving valuation signal here.")
+    elif cid == "consumer":
+        infl = sg("CORECPI") or sg("PCEPI") or sg("USCPI")
+        if infl:
+            out.append(("Inflation measures rose: the Fed keeps interest rates high for longer, which weighs on stocks and bonds." if infl > 0 else
+                        "Inflation measures fell: the Fed gets room to cut rates, which supports stocks and bonds."))
+        if sg("RETAIL") or sg("PCE_REAL"):
+            out.append(("Consumers are spending more than usual: good for growth and profits." if (sg("RETAIL") or sg("PCE_REAL")) > 0 else "Consumer spending weakened: the biggest part of the economy is slowing."))
+        if sg("INCOME") < 0 or sg("WAGES") < 0:
+            out.append("Household income or wage growth weakened: spending and loan repayment come under pressure a few months later.")
+        if sg("REVOLV") > 0 and sg("INCOME") <= 0:
+            out.append("Card borrowing is growing while income is not: households are borrowing to keep spending, which is fragile.")
+    elif cid == "jobs":
+        if sg("UNRATE") > 0 or sg("ICSA") > 0 or sg("CCSA") > 0:
+            out.append("Unemployment or layoffs are rising: incomes and spending follow down, and the Fed may have to cut rates.")
+        if sg("PAYROLL") < 0:
+            out.append("Job creation weakened sharply: recessions start with a stall in hiring.")
+        if sg("INDPRO") or sg("GDPQ"):
+            out.append("Output or growth moved a lot: " + ("expansion is picking up." if (sg("INDPRO") or sg("GDPQ")) > 0 else "the economy is slowing."))
     if not out:
         out.append("Nothing unusual in this group: moves are within their normal range.")
     if big:
         head = "Most unusual " + hz + ": " + ", ".join(items[k]["name"] for k in big[:3]) + "."
     else:
         head = "Quiet — no unusual move " + hz + "."
-    return {"headline": head, "horizon": hz, "bullets": out[:6]}
+    return {"headline": head, "horizon": hz, "bullets": out[:6], "signal": bool(big) and not out[0].startswith(("Nothing unusual", "Valuation barely"))}
 
 
 # ══ How the indicators connect ("?" on a card) ═════════════════════════════════════════════════
@@ -1123,6 +1219,30 @@ RELATIONS = [
     ("ICSA", "SLOOS_CARD", "same", "When more people lose their jobs, banks expect more card defaults and tighten card lending months later."),
     ("CCC", "SLOOS_BUS", "same", "The weakest borrowers' spread reacts first; banks tighten their business lending standards a quarter or two later."),
     ("HYSPREAD", "SLOOS_BUS", "same", "Wider spreads show that lenders are afraid; banks follow by tightening their standards, with a delay of a quarter or two."),
+    ("CORECPI", "FEDFUNDS", "same", "The Fed raises or holds rates when underlying inflation stays high, and cuts when it falls."),
+    ("PCEPI", "FEDFUNDS", "same", "PCE is the inflation measure the Fed targets, so it drives its decisions most directly."),
+    ("USCPI", "CORECPI", "same", "Core inflation is the CPI without food and energy: the two usually move together, apart from energy shocks."),
+    ("PPI", "CORECPI", "same", "Higher costs for companies reach shop prices a few months later."),
+    ("INFEXP", "US10Y", "same", "Long-term yields contain what investors expect for inflation, so higher expectations lift them."),
+    ("WTI", "INFEXP", "same", "Oil is the fastest-moving part of inflation, so oil prices move inflation expectations."),
+    ("WAGES", "CORECPI", "same", "Pay is the biggest cost for service companies, so strong wage growth feeds underlying inflation."),
+    ("M2G", "USCPI", "same", "More money chasing the same goods lifts prices, with a delay of one to two years."),
+    ("RETAIL", "PCE_REAL", "same", "Retail sales are part of consumer spending; real spending is the same thing after inflation and including services."),
+    ("PCE_REAL", "GDPQ", "same", "Consumer spending is about 70% of the US economy, so it moves growth."),
+    ("INCOME", "PCE_REAL", "same", "People spend what they earn: income growth carries spending."),
+    ("REVOLV", "DEBTSERV", "same", "More card debt means a bigger share of income goes to payments."),
+    ("UNRATE", "INCOME", "inverse", "Rising unemployment cuts household income."),
+    ("UNRATE", "UMCSENT", "inverse", "People feel worse when unemployment rises."),
+    ("UNRATE", "SAHM", "same", "The Sahm rule is built from the unemployment rate."),
+    ("PAYROLL", "UNRATE", "inverse", "Strong job gains pull unemployment down; weak ones let it rise."),
+    ("PAYROLL", "INCOME", "same", "More jobs mean more paychecks."),
+    ("JOBOPEN", "UNRATE", "inverse", "Fewer openings mean the unemployed find jobs more slowly, so unemployment rises with a delay."),
+    ("ICSA", "CCSA", "same", "New claims feed into continuing claims."),
+    ("CCSA", "UNRATE", "same", "People who stay on benefits show up as unemployed."),
+    ("INDPRO", "GDPQ", "same", "Factory output is a part of growth and a good early read on it."),
+    ("HOUST", "GDPQ", "same", "Home building adds directly to growth and to spending on furniture and appliances."),
+    ("MORT30", "HOUST", "inverse", "Higher mortgage rates make homes less affordable, so builders start fewer."),
+    ("GDPQ", "SPX", "same", "Stocks follow company profits, and profits follow growth."),
     ("UMCSENT", "SPX", "same", "Households' mood drives spending (about 70% of the US economy), and stocks tend to follow confidence."),
     ("NFCI", "SPX", "inverse", "Tighter financial conditions mean harder, costlier credit, which weighs on stocks and growth."),
     ("STLFSI", "VIX", "same", "Both measure market stress; the stress index adds bond and credit stress."),
@@ -1166,6 +1286,12 @@ def stress(item):
 
 def _names(items, keys):
     return ", ".join(items[k]["name"] for k in keys)
+
+
+# Loose links: they hold on average but break all the time, so a gap is not worth a note or a lower ranking.
+WEAK_LINKS = {("VIX", "GOLD"), ("COPPER", "SPX"), ("UMCSENT", "SPX"), ("WTI", "SPX"), ("USDJPY", "SPX"), ("DXY", "COPPER"), ("DXY", "SILVER"),
+              ("DXY", "WTI"), ("GDPQ", "SPX"), ("HYSPREAD", "RUT"), ("NFCI", "SPX"), ("WTI", "USCPI"), ("GOLD", "SILVER"), ("M2G", "USCPI"),
+              ("PPI", "CORECPI"), ("WAGES", "CORECPI"), ("MORT30", "HOUST"), ("ICSA", "SAHM"), ("RETAIL", "PCE_REAL")}
 
 
 def rel_eval(items, driver, affected, mode, why=""):
@@ -1221,7 +1347,8 @@ def rel_eval(items, driver, affected, mode, why=""):
     else:
         note = f"{a['name']} moved ({ca} {hz}) without a matching move in {d['name']}. {reason}"
     return {"driver": driver, "affected": affected, "mode": mode, "modeText": _MODE_WORDS[mode], "why": why,
-            "status": status, "note": note, "reason": reason, "cd": cd, "ca": ca, "horizon": hz, "sd": round(sd, 2), "sa": round(sa, 2)}
+            "status": status, "note": note, "reason": reason, "cd": cd, "ca": ca, "horizon": hz, "sd": round(sd, 2), "sa": round(sa, 2),
+            "weak": (driver, affected) in WEAK_LINKS}
 
 
 def adjusted_scores(items):
@@ -1239,7 +1366,7 @@ def adjusted_scores(items):
             b = 0.5 * min(base[d], base[a])
             boost[d] += b
             boost[a] += b
-        elif e["status"] in ("noreact", "against"):
+        elif e["status"] in ("noreact", "against") and not e["weak"]:
             f = 0.85 if e["status"] == "noreact" else 0.9
             factor[d], factor[a] = max(0.6, factor[d] * f), max(0.6, factor[a] * f)
         e["reinforce"] = reinforce
@@ -1264,6 +1391,8 @@ def context_lines(items, edges):
         for e in es:
             if len(lines) >= 2 or e["status"] == "quiet":
                 break
+            if e["weak"] and e["status"] != "asusual":
+                continue
             is_aff = e["affected"] == k
             o = items[e["driver"] if is_aff else e["affected"]]["name"]
             me = items[k]["name"]
@@ -1275,7 +1404,7 @@ def context_lines(items, edges):
                 lines.append((f"{o} moved ({e['cd']}), yet {me} went the other way. " if is_aff else f"{o} went the other way from what {me} normally implies. ") + e["reason"])
             elif is_aff:
                 lines.append(f"{me} moved without a matching move in {o}. " + e["reason"])
-        out[k] = lines[0][:400] if lines else ""        # the most important link only; the rest is behind the ? on the card
+        out[k] = (lines[0][:400], "confirm" if lines[0].startswith("Confirmed") else "diverge") if lines else ("", "")        # the most important link only
     return out
 
 
@@ -1312,7 +1441,10 @@ def explain(key, items):
     out = [x["affected"] for x in effects if x["status"] == "asusual"]
     if out:
         parts.append(f"In turn it is moving {_names(items, out)}.")
-    return {"key": key, "drivers": drivers, "effects": effects, "summary": " ".join(parts)}
+    nm = lambda k: (BY_KEY.get(k) or HUB_BY_KEY.get(k) or {"name": k})["name"]
+    missing = [{"key": d, "name": nm(d), "side": "l", "why": w, "modeText": _MODE_WORDS[m]} for d, a, m, w in RELATIONS if a == key and d not in items] + \
+              [{"key": a, "name": nm(a), "side": "r", "why": w, "modeText": _MODE_WORDS[m]} for d, a, m, w in RELATIONS if d == key and a not in items]
+    return {"key": key, "drivers": drivers, "effects": effects, "summary": " ".join(parts), "missing": missing}
 
 
 # ══ News ═══════════════════════════════════════════════════════════════════════════════════════
@@ -1368,7 +1500,14 @@ NEWS_TOPICS = {
     "HYSPREAD": ["junk bond", "junk bonds", "high-yield", "high yield bond", "credit spread", "credit spreads", "credit stress"],
     "CCC": ["distressed debt", "ccc-rated", "defaults rise", "default rate", "private credit"],
     "ICSA": ["jobless claims", "unemployment claims", "initial claims", "layoffs"],
-    "SAHM": ["unemployment rate", "jobs report", "nonfarm payrolls", "payrolls", "recession"],
+    "SAHM": ["recession", "sahm rule"],
+    "UNRATE": ["unemployment rate", "jobs report", "jobless rate"], "PAYROLL": ["nonfarm payrolls", "payrolls", "jobs added", "job gains", "hiring"],
+    "RETAIL": ["retail sales"], "PCE_REAL": ["consumer spending", "consumer spend"], "CORECPI": ["core inflation", "core cpi", "core prices"],
+    "PCEPI": ["pce price", "pce inflation", "pce index"], "PPI": ["producer price", "wholesale price"], "INFEXP": ["inflation expectations", "breakeven"],
+    "GDPQ": ["gdp", "economic growth", "economy grew", "economy shrank"], "HOUST": ["housing starts", "homebuilder", "home builders", "housing market"],
+    "INDPRO": ["industrial production", "factory output", "manufacturing"], "JOBOPEN": ["job openings", "jolts"], "CCSA": ["continuing claims"],
+    "INCOME": ["household income", "personal income", "real wages"], "WAGES": ["wage growth", "average hourly earnings", "wages"], "SAVE": ["saving rate", "savings rate"],
+    "REVOLV": ["credit card balances", "credit card borrowing", "revolving credit"], "DEBTSERV": ["debt payments", "household debt"], "M2G": ["money supply", "m2"],
     "UMCSENT": ["consumer sentiment", "consumer confidence"],
     "NFCI": ["financial conditions"], "STLFSI": ["financial stress"],
     "SLOOS_CARD": ["lending standards", "senior loan officer", "credit card delinquencies", "credit card debt"],
