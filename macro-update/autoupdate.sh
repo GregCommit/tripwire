@@ -55,6 +55,7 @@ mkdir -p "$BK"; for f in $FILES; do cp "$APP/$f" "$BK/"; done
 for f in $FILES; do cp "$TMP/$f" "$APP/$f"; chown ubuntu:ubuntu "$APP/$f" 2>/dev/null; done
 # AI summaries need the Anthropic library; install it once into the app's virtual environment
 "$PY" -c "import anthropic" 2>/dev/null || "${PIP:-/opt/macro/venv/bin/pip}" install -q anthropic >/dev/null 2>&1 || echo "note: could not install the anthropic library"
+"$PY" -c "import websocket" 2>/dev/null || "${PIP:-/opt/macro/venv/bin/pip}" install -q websocket-client >/dev/null 2>&1 || echo "note: could not install websocket-client (live ships)"
 systemctl restart macro.service
 healthy=0
 for _ in $(seq 1 "$SETTLE"); do

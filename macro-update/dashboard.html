@@ -94,6 +94,12 @@ h2.sub{font-size:14px;color:var(--mute);font-weight:500;margin:18px 0 6px}
 .wm-hits{margin-top:10px;font-size:13.5px;line-height:1.5}.wm-hits div{padding:4px 0;border-top:1px solid var(--line)}.wm-hits .hn{color:var(--alert);font-weight:600}.wm-hits a{color:var(--txt)}
 @media (max-width:700px){.wmap{height:400px}}
 .parts2{margin-top:12px}.pchips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}.pc{font-size:12.5px;border:1px solid var(--line2);border-radius:3px;padding:2px 8px;font-variant-numeric:tabular-nums}.pc i{font-style:normal;color:var(--mute);margin-right:4px}.pc.up{color:var(--up)}.pc.down{color:var(--down)}
+.addform{border:1px solid var(--line);border-radius:6px;background:var(--card);padding:12px 16px;margin-bottom:16px}.adrow{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}.adrow input,.adrow select,.skedit input,.skedit select{background:#000;color:var(--txt);border:1px solid var(--line2);border-radius:4px;padding:7px 10px;font-size:14px;width:140px}.adrow input:first-child{width:200px}
+.skt-total{display:flex;flex-wrap:wrap;gap:8px 36px;border:1px solid var(--line);border-radius:6px;background:var(--card);padding:12px 16px;margin-bottom:6px}.skv{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums}.skv .up,.skv.up{color:var(--up)}.skv .down,.skv.down{color:var(--down)}
+.stgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:12px}.stk{border:1px solid var(--line);border-radius:6px;background:var(--card);padding:12px 14px}.stk.loss{border-color:var(--alert);background:rgba(255,59,59,.05)}.stk.gain{border-color:var(--up);background:rgba(34,197,94,.05)}.stk.wa{border-color:var(--watch)}
+.skh{display:flex;justify-content:space-between;align-items:flex-start}.skt{font-size:17px}.skb .link{margin-left:10px;font-size:12.5px}.skf{display:flex;flex-wrap:wrap;gap:4px 6px;margin:8px 0}.skf span{font-size:11.5px;border:1px solid var(--line2);border-radius:3px;padding:1px 7px;color:var(--mute)}.stk.loss .skf span{border-color:rgba(255,77,79,.6);color:#ffb4b5}.stk.gain .skf span{border-color:rgba(34,197,94,.6);color:#a7f0c0}
+.skp{display:flex;flex-wrap:wrap;gap:2px 14px;font-size:13px;margin:6px 0;color:var(--mute)}.skp .up{color:var(--up)}.skp .down{color:var(--down)}.skp b{color:var(--txt)}.skedit{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}.skedit input{width:110px}
+.sknews{display:block;font-size:13px;line-height:1.35;color:var(--txt);margin-top:8px;padding-top:8px;border-top:1px solid var(--line);text-decoration:none}.sknews span{display:block;font-size:11.5px;color:var(--dim);margin-top:2px}
 .movers{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;margin:14px 2px 6px;font-size:13.5px}.mv{font-variant-numeric:tabular-nums}
 @media (max-width:700px){.gh{grid-template-columns:1fr;gap:6px}.ghl{flex-direction:row;align-items:center}}
 .geohead{margin-top:12px}.geoblurb{font-size:15px;line-height:1.6}
@@ -227,9 +233,11 @@ details.quiet{margin-top:18px}details.quiet>summary{cursor:pointer;color:var(--m
 </style></head><body>
 <div id="top"><div id="logo"><svg width="26" height="18" viewBox="0 0 26 18"><polyline points="1,10 7,10 10,3 14,15 17,8 19,10 25,10" fill="none" stroke="#4673FF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Macro Watch</div>
 <div id="topRight"><span id="upd"></span><button id="motionBtn" class="link" style="font-size:12px;color:var(--mute)" onclick="cycleMotion()" title="Speed of the animations">Motion</button><a href="/logout">Log out</a></div></div>
-<div id="tabs"><button class="tab on" data-t="today">Today</button><button class="tab" data-t="overview">Overview</button><button class="tab" data-t="heatmap">Heatmap</button><button class="tab" data-t="geo">Geopolitics</button><button class="tab" data-t="extremes">Extremes</button><button class="tab" data-t="alerts">Alerts</button><button class="tab" data-t="guide">Guide</button></div>
+<div id="tabs"><button class="tab on" data-t="today">Today</button><button class="tab" data-t="stocks">Stocks</button><button class="tab" data-t="heatmap">Heatmap</button><button class="tab" data-t="geo">Geopolitics</button><button class="tab" data-t="overview">Overview</button><button class="tab" data-t="extremes">Extremes</button><button class="tab" data-t="headlines">Headlines</button><button class="tab" data-t="alerts">Alerts</button><button class="tab" data-t="guide">Guide</button></div>
 <main>
 <section id="pane-today"><div id="today">Loading…</div></section>
+<section id="pane-stocks" hidden><div id="stocks">Loading…</div></section>
+<section id="pane-headlines" hidden><div id="headlines">Loading…</div></section>
 <section id="pane-overview" hidden><div id="overview">Loading…</div></section>
 <section id="pane-geo" hidden><div id="geo">Loading…</div></section>
 <section id="pane-heatmap" hidden><div id="heatmap">Loading…</div></section>
@@ -244,6 +252,7 @@ details.quiet{margin-top:18px}details.quiet>summary{cursor:pointer;color:var(--m
 <ul><li><b>Today</b>: the answer first, then <b>groups of indicators that belong together</b> — US bonds, rates &amp; the dollar; gold, silver &amp; Dr. Copper; stocks &amp; investor mood; the yen carry trade; credit, jobs &amp; defaults ahead; oil; valuation. The most special group is at the top, and inside a group the most special indicator comes first. "Special" means a move far larger than usual over the last day, week or month, or a place at the edge of its own history — weighted by how much that indicator matters for stock investing. Every card says in plain words <b>what it says</b>. A group gets a short note under its title <b>only when something in it really moves</b>, explaining the move with the usual links between these markets (for example: gold falls when real yields and the dollar rise). That note is worked out from the numbers, not from news headlines. The small <b>?</b> on a card turns into a red <b>!</b> when there is a headline about it that you have not opened yet. Tap a card for a bigger chart; close it with the ✕ at its top right.</li>
 <li><b>Overview</b>: one map of everything that matters right now. The most important indicators are boxes, the links between them are lines, and the headlines about them hang on those boxes. It ranks on purpose and leaves the rest out. Things that usually move together and both are far out are joined by a white line; if one moves and its usual partner does not follow, the line is yellow and dashed. Tap a box to see how it is connected. The filters above the map narrow it to some groups, to linked boxes only, or to boxes that have a headline; point at a box to read why it is shown.</li>
 <li><b>Heatmap</b>: all companies of the S&amp;P 500 or the Nasdaq-100 as one map — the size of a tile is the company's market value, the colour is today's change (green up, red down), grouped by sector. Point at a tile for details, tap it to open the quote. Data: Nasdaq's public screener and Wikipedia's index lists; if they are unreachable the app falls back to Yahoo prices and a built-in list of the biggest companies, and says so under the map.</li>
+<li><b>Stocks</b>: enter the tickers you hold (with shares and buy price) and the ones you only watch. Whatever is unusual comes first, with a red frame when it falls and a green one when it rises: an unusual move, a new headline, results close by, a 52-week high or low, or heavy volume. For held stocks you also get an e-mail once a day when one moves unusually. <b>Headlines</b>: every news item about something this app follows, newest first (or most important first), with filters. Personal-finance advice and stock-picking lists are filtered out.</li>
 <li><b>Geopolitics</b>: the headlines come first, newest at the top (a button sorts them by importance instead; the labels BREAKING, TODAY, EARLIER show urgency): talks and phone calls, statements by Merz, von der Leyen and others, new orders, company results of Leonardo, Saab, Rheinmetall and the like. Click a headline row for an AI summary, its title to open the article. Below: the biggest price moves, then the <b>war map</b> (the Ukraine front line from DeepStateMap, a week of geolocated incident reports from GDELT, refineries, oil terminals and the straits of Hormuz and Bab-el-Mandeb with daily ship counts from IMF PortWatch; an oil site turns red when a headline of the last 7 days names it together with an attack), then the conflict as a market map with the conflict in the middle and the markets around it. <b>Russia–Ukraine</b>: European and US defense stocks (rearmament), European gas, wheat. <b>Middle East</b> (Iran, Houthis, Saudi Arabia): oil, diesel, jet fuel, petrol, oil tankers, container shipping, airlines, the Saudi and Israeli markets, gold. </li>
 <li><b>Pressure on the market</b> (top of Today): a count of short-term warning signs, each with its number and red when it is past a fixed line: S&amp;P 500, Nasdaq and small-cap futures (−0.7% / −1% / −1%), VIX jump of 10% or above 25, fear now above fear in 3 months, 3 or fewer of 11 sectors up, 70% or more of the S&amp;P 500 stocks falling, 12% or more down over 2%, big names down 4% or more after hours. 3 or more warning signs (40% of those with data) = <b>high</b>, 2 = <b>elevated</b>. Below it the weakest industries of the S&amp;P 500 today, calculated from every single stock in the background every 15 minutes. It is a gauge of pressure, not a forecast.</li>
 <li><b>Market internals</b> (a group on Today): how many of the 11 sectors rise (a falling index with most sectors up is a narrow sell-off in a few giants), the AI builders against the companies that use AI (banks, industrials), banks as a sign for the economy, breadth (equal-weight against size-weight), the volatility curve (VIX against the 3-month VIX) and the VVIX. Under it, big companies' reactions to earnings are set against the move the options market had priced in, where the data allows.</li>
@@ -318,6 +327,7 @@ function fmtChg(s, c){
 function chgClass(s, c){ const g = s.good !== undefined && s.good !== null ? s.good : (s.money ? 1 : 0); if (!g || !c) return 'flat'; return (c > 0) === (g > 0) ? 'up' : 'down'; }
 function pdate(d){ return new Date(d + 'T12:00:00'); }
 function fdate(d, monthly){ const x = pdate(d); return monthly ? MONTHS[x.getMonth()] + ' ' + x.getFullYear() : x.getDate() + ' ' + MONTHS[x.getMonth()] + ' ' + x.getFullYear(); }
+function cdate(s, mo){ const base = fdate(s.date, mo); if (!mo || !s.seen) return base; const x = pdate(s.seen); return base + ' · out ' + x.getDate() + ' ' + MONTHS[x.getMonth()]; }
 function ago(ts){ const m = Math.round((Date.now()/1000 - ts)/60); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m/60) + ' h ago' : Math.round(m/1440) + ' days ago'; }
 const toneWord = {calm:'t-calm', watch:'t-watch', alert:'t-alert'};
 
@@ -458,7 +468,7 @@ function cardHTML(s, cid){
   const color = s.tone === 'alert' ? '#FF4D4F' : s.tone === 'watch' ? '#F5C518' : '#8a8a96';
   return `<div class="ind${s.horizon ? ' hot' : ''}${open ? ' open' : ''}" data-cid="${id}" id="card-${uid(cid, s.key)}">
     ${open ? xBtn(cid === 'ex' ? 'closeExplain()' : 'openCard(null)') : ''}
-    <div class="nm"><span>${esc(s.name)}</span><span class="nmr"><span class="small">${esc(fdate(s.date, mo))}</span>${qBtn(s)}</span></div>
+    <div class="nm"><span>${esc(s.name)}</span><span class="nmr"><span class="small">${esc(cdate(s, mo))}</span>${qBtn(s)}</span></div>
     <div class="val">${esc(fmtVal(s, s.value))}</div>${FORMULA[s.key] ? `<div class="formula">${esc(FORMULA[s.key])}</div>` : ''}
     <span class="chip ${toneWord[s.tone]}">${esc(s.reading)}</span>${badge(s)}
     ${saysHTML(s, cid === 'ex')}
@@ -669,7 +679,7 @@ function chipOf(s){ return s.hub ? `<span class="chip ${ZONE[s.zone][1]}">${ZONE
 function sparkColor(s){ return s.hub ? (s.zone.startsWith('extreme') ? '#FF4D4F' : s.zone !== 'quiet' ? '#F5C518' : '#8a8a96') : (s.tone === 'alert' ? '#FF4D4F' : s.tone === 'watch' ? '#F5C518' : '#8a8a96'); }
 function miniHTML(s){
   const mo = s.freq === 'monthly' || s.freq === 'quarterly';
-  return `<div class="ind mini"><div class="nm"><span>${esc(s.name)}</span><span class="nmr"><span class="small">${esc(fdate(s.date, mo))}</span>${qBtn(s)}</span></div>
+  return `<div class="ind mini"><div class="nm"><span>${esc(s.name)}</span><span class="nmr"><span class="small">${esc(cdate(s, mo))}</span>${qBtn(s)}</span></div>
     <div class="val">${esc(fmtVal(s, s.value))}</div>${chipOf(s)}${badge(s)}
     <div class="chg">${chgRow(s)}</div>${sparkSVG(s.spark, sparkColor(s), {fmt: v => fmtVal(s, v), rng: 'all history'})}</div>`;
 }
@@ -940,6 +950,80 @@ async function loadGeo(){
   catch (e){ if (e.message !== 'signed out') $('geo').innerHTML = '<div class="card muted">Could not load the geopolitics page: ' + esc(e.message) + '</div>'; }
 }
 function setGeo(c){ GEO_SEL = c; GEO = null; renderGeo(); loadGeo(); }
+// ── Stocks ─────────────────────────────────────────────────────────────────
+let STK = null, STK_EDIT = null;
+async function loadStocks(){
+  try { STK = await api('/api/stocks'); if (TAB === 'stocks' && !document.activeElement.closest('#stocks .addform')) renderStocks(); }
+  catch (e){ if (e.message !== 'signed out') $('stocks').innerHTML = '<div class="card muted">Could not load the stocks: ' + esc(e.message) + '</div>'; }
+}
+async function stockAct(body){
+  const r = await fetch('/api/stocks', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)}).then(r => r.json());
+  if (!r.success){ alert(r.error || 'Not allowed'); return false; }
+  setTimeout(loadStocks, 400); setTimeout(loadStocks, 6000); setTimeout(loadStocks, 15000); return true;
+}
+async function addStock(){
+  const f = id => document.getElementById(id).value;
+  if (await stockAct({action: 'add', ticker: f('stT'), kind: f('stK'), shares: f('stS'), cost: f('stC')})){ ['stT', 'stS', 'stC'].forEach(i => document.getElementById(i).value = ''); }
+}
+function stockKindChanged(){ const h = document.getElementById('stK').value === 'hold'; document.getElementById('stS').hidden = document.getElementById('stC').hidden = !h; }
+function removeStock(t){ if (confirm('Remove ' + t + '?')) stockAct({action: 'remove', ticker: t}); }
+function editStock(t){ STK_EDIT = STK_EDIT === t ? null : t; renderStocks(); }
+async function saveStock(t){
+  const f = id => document.getElementById(id).value;
+  if (await stockAct({action: 'update', ticker: t, kind: f('eK'), shares: f('eS'), cost: f('eC')})) { STK_EDIT = null; }
+}
+const money = (v, dec = 2) => v === null || v === undefined ? '–' : '$' + Math.abs(v).toLocaleString('en-US', {minimumFractionDigits: dec, maximumFractionDigits: dec});
+const sgn = v => v > 0 ? '+' : v < 0 ? '−' : '';
+function stockTile(r){
+  const up = (r.move || 0) > 0, flagged = r.score >= 2, border = flagged ? (r.move === null || r.move === undefined || Math.abs(r.move) < 0.05 ? ' wa' : up ? ' gain' : ' loss') : '';
+  const cls = r.d1 > 0 ? 'up' : r.d1 < 0 ? 'down' : '';
+  const hold = r.kind === 'hold' && r.shares ? `<div class="skp"><span>${r.shares.toLocaleString('en-US')} shares</span><span>value <b>${money(r.value, 0)}</b></span><span class="${r.dayAmt >= 0 ? 'up' : 'down'}">today ${sgn(r.dayAmt)}${money(r.dayAmt, 0)}</span>${r.pl !== undefined ? `<span class="${r.pl >= 0 ? 'up' : 'down'}">since buying ${sgn(r.pl)}${money(r.pl, 0)} (${sgn(r.plPct)}${Math.abs(r.plPct).toFixed(1)}%)</span>` : ''}</div>` : '';
+  const edit = STK_EDIT === r.t ? `<div class="skedit"><select id="eK"><option value="hold" ${r.kind === 'hold' ? 'selected' : ''}>I hold it</option><option value="watch" ${r.kind === 'watch' ? 'selected' : ''}>Only watching</option></select>
+    <input id="eS" placeholder="Shares" value="${r.shares ?? ''}" inputmode="decimal"><input id="eC" placeholder="Buy price $" value="${r.cost ?? ''}" inputmode="decimal"><button class="btn" onclick="saveStock('${r.t}')">Save</button></div>` : '';
+  const news = (r.news || []).slice(0, 2).map(n => `<a class="sknews" href="${esc(n.link)}" target="_blank" rel="noopener noreferrer">${esc(n.title)}<span>${esc(n.source)} · ${esc(ago(n.ts))}</span></a>`).join('');
+  return `<div class="stk${border}"><div class="skh"><div><b class="skt">${esc(r.t)}</b> <span class="small">${esc(r.name || '')}</span></div><div class="skb"><button class="link" onclick="editStock('${r.t}')">Edit</button><button class="link" onclick="removeStock('${r.t}')" title="Remove">✕</button></div></div>
+    ${r.price === null || r.price === undefined ? '<div class="muted" style="margin:10px 0">Loading the price…</div>' : `<div class="skv">${money(r.price)} <span class="${cls}">${r.d1 > 0 ? '▲' : r.d1 < 0 ? '▼' : ''} ${sgn(r.d1)}${Math.abs(r.d1).toFixed(2)}%</span> <span class="small">${esc(fdate(r.date))}</span></div>
+    <div class="chg">${[['Week', r.w1], ['Month', r.m1], ['1 yr', r.y1]].map(([n, v]) => v === null || v === undefined ? '' : `<span>${n} <b class="${v >= 0 ? 'up' : 'down'}">${sgn(v)}${Math.abs(v).toFixed(1)}%</b></span>`).join('')}</div>`}
+    ${r.flags && r.flags.length ? `<div class="skf">${r.flags.map(f => `<span>${esc(f)}</span>`).join('')}</div>` : ''}${hold}${edit}
+    ${sparkSVG(r.spark, r.d1 < 0 ? '#FF4D4F' : r.d1 > 0 ? '#22C55E' : '#8a8a96', {fmt: v => money(v), rng: '1 yr'})}${news}</div>`;
+}
+function renderStocks(){
+  const root = $('stocks'); if (!root) return;
+  if (!STK){ root.innerHTML = '<div class="card muted">Loading…</div>'; return; }
+  if (STK.private){ root.innerHTML = '<div class="card muted">The stock list is private to the owner.</div>'; return; }
+  const t = STK.total;
+  let h = `<div class="addform"><b>Add a stock</b><div class="adrow"><input id="stT" placeholder="Ticker, e.g. NVDA" autocapitalize="characters" onkeydown="if(event.key==='Enter')addStock()"><select id="stK" onchange="stockKindChanged()"><option value="hold">I hold it</option><option value="watch">Only watching</option></select>
+    <input id="stS" placeholder="Shares" inputmode="decimal"><input id="stC" placeholder="Buy price $" inputmode="decimal"><button class="btn" onclick="addStock()">Add</button></div><div class="small">Use the Yahoo Finance ticker (NVDA, MSFT, SAP.DE for Frankfurt, ^GSPC for an index). Shares and buy price are optional.</div></div>`;
+  if (t) h += `<div class="skt-total"><div><span class="small">Your stocks</span><div class="skv">${money(t.value, 0)}</div></div><div><span class="small">Today</span><div class="skv ${t.day >= 0 ? 'up' : 'down'}">${sgn(t.day)}${money(t.day, 0)} <span style="font-size:15px">${sgn(t.dayPct)}${Math.abs(t.dayPct).toFixed(2)}%</span></div></div>${t.pl !== null && t.pl !== undefined ? `<div><span class="small">Since buying</span><div class="skv ${t.pl >= 0 ? 'up' : 'down'}">${sgn(t.pl)}${money(t.pl, 0)} <span style="font-size:15px">${sgn(t.plPct)}${Math.abs(t.plPct).toFixed(1)}%</span></div></div>` : ''}</div>`;
+  h += `<h2>My stocks</h2>${STK.hold.length ? `<div class="stgrid">${STK.hold.map(stockTile).join('')}</div>` : '<div class="card muted">You have not entered any holding yet.</div>'}`;
+  h += `<h2>Watching</h2>${STK.watch.length ? `<div class="stgrid">${STK.watch.map(stockTile).join('')}</div>` : '<div class="card muted">Nothing on the watch list yet.</div>'}`;
+  h += `<p class="small" style="margin-top:14px">Unusual first. Updated ${STK.ts ? esc(ago(STK.ts)) : 'soon'} (every 5 minutes). Prices from Yahoo Finance, headlines from Yahoo Finance per stock.</p>`;
+  const keep = ['stT', 'stK', 'stS', 'stC'].map(i => { const e = document.getElementById(i); return e ? [i, e.value] : null; }).filter(Boolean);
+  root.innerHTML = h; keep.forEach(([i, v]) => document.getElementById(i).value = v); stockKindChanged();
+}
+
+// ── Headlines ──────────────────────────────────────────────────────────────
+let HEADS = null, HEAD_SORT = 'new', HEAD_CAT = '*', HEAD_ALL = false;
+async function loadHeadlines(){
+  try { HEADS = await api('/api/headlines'); if (TAB === 'headlines') renderHeadlines(); }
+  catch (e){ if (e.message !== 'signed out') $('headlines').innerHTML = '<div class="card muted">Could not load the headlines: ' + esc(e.message) + '</div>'; }
+}
+function headRow(n){
+  const cls = n.urgency === 'BREAKING' ? 'brk' : n.urgency === 'TODAY' ? 'tod' : 'old';
+  return `<div class="gh ${cls}" onclick="openSummary('${n.h}')"><div class="ghl"><span class="urg ${cls}">${n.urgency}</span><span class="gcat">${esc(n.cats[0])}</span></div>
+    <div class="ghb"><a class="ntitle" href="${esc(n.link)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">${esc(n.title)}</a>${n.summary ? `<div class="nsum">${esc(n.summary)}</div>` : ''}
+    <div class="nmeta">${esc(n.source)} · ${esc(ago(n.ts))} ${n.markets.map(m => `<span class="gchip">${esc(m)}</span>`).join('')}</div></div></div>`;
+}
+function renderHeadlines(){
+  const root = $('headlines'); if (!root || !HEADS) return;
+  let rows = HEADS.headlines.filter(n => HEAD_CAT === '*' || n.cats.includes(HEAD_CAT));
+  rows = rows.slice().sort(HEAD_SORT === 'new' ? (a, b) => b.ts - a.ts || b.rank - a.rank : (a, b) => b.rank - a.rank || b.ts - a.ts);
+  const shown = HEAD_ALL ? rows : rows.slice(0, 40);
+  root.innerHTML = `<div class="seg" style="margin:0 0 8px"><button class="${HEAD_SORT === 'new' ? 'on' : ''}" onclick="HEAD_SORT='new';renderHeadlines()">Newest first</button><button class="${HEAD_SORT === 'top' ? 'on' : ''}" onclick="HEAD_SORT='top';renderHeadlines()">Most important first</button></div>
+    <div class="chips"><button class="${HEAD_CAT === '*' ? 'on' : ''}" onclick="HEAD_CAT='*';renderHeadlines()">All</button>${HEADS.cats.map(c => `<button class="${HEAD_CAT === c ? 'on' : ''}" onclick="HEAD_CAT=this.dataset.c;renderHeadlines()" data-c="${esc(c)}">${esc(c)}</button>`).join('')}</div>
+    <div class="small" style="margin:8px 2px">${rows.length} headlines from the last 3 days about what this app follows. Click a row for an AI summary, the title opens the article.</div>
+    ${rows.length ? `<div class="gheads">${shown.map(headRow).join('')}</div>${rows.length > 40 ? `<p style="margin:10px 0"><button class="btn" onclick="HEAD_ALL=!HEAD_ALL;renderHeadlines()">${HEAD_ALL ? 'Show fewer' : 'Show all ' + rows.length}</button></p>` : ''}` : '<div class="card muted">No headlines yet. The app fetches them every 15 minutes.</div>'}`;
+}
 let GEO_ALL = false, GEO_SORT = 'new';
 function setGeoSort(s){ GEO_SORT = s; renderGeo(); }
 function geoHeadRow(n){
@@ -972,25 +1056,30 @@ function shipHTML(s){
     <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><polyline points="${pts}" fill="none" stroke="${down ? '#FF4D4F' : '#4673FF'}" stroke-width="1.5"/></svg>
     <div class="small ${cls}">7-day average ${s.a7} · ${s.chg === null ? '' : (s.chg > 0 ? '+' : '') + s.chg + '% vs the 30 days before'} · ${s.tankers7} tankers a day</div></div>`;
 }
+async function saveAis(){ const k = document.getElementById('aisK').value.trim(); if (!k) return; await fetch('/api/ais', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({key: k})}); loadWarMap(GEO_SEL); }
 function drawWarMap(box, m, cid){
   const hits = m.sites.filter(s => s.hit).sort((a, b) => b.hit.ts - a.hit.ts), errs = Object.entries(m.errors || {});
-  box.innerHTML = `<div class="wm-bar"><label><input type="checkbox" data-l="front" checked> Front line</label><label><input type="checkbox" data-l="points" checked> Reported incidents, 7 days (${(m.incidents || []).length} places from headlines, ${(m.points || []).length} from GDELT)</label>
-    <label><input type="checkbox" data-l="sites" checked> Refineries &amp; terminals</label><label><input type="checkbox" data-l="choke" checked> Straits &amp; bridges</label></div>
+  box.innerHTML = `<div class="wm-bar"><label><input type="checkbox" data-l="front" checked> Front line</label><label><input type="checkbox" data-l="points" checked> Reported incidents, 7 days (${(m.incidents || []).length} places named in headlines)</label>
+    <label><input type="checkbox" data-l="sites" checked> Refineries &amp; terminals</label><label><input type="checkbox" data-l="choke" checked> Straits &amp; bridges</label><label><input type="checkbox" data-l="ships" checked> Ships, live (${(m.shipsLive || []).length})</label></div>
     <div id="wmap" class="wmap"></div>
     ${m.ships && m.ships.length ? `<div class="ships">${m.ships.map(shipHTML).join('')}</div>` : ''}
-    <div class="wm-leg"><span><i style="background:#FF4D4F"></i>${cid === 'ua' ? 'Russian-held area (darker = taken since 2022) / ' : ''}reported hit, last 7 days</span>${cid === 'ua' ? '<span><i style="background:#F5C518"></i>contested (gray) zone</span>' : ''}<span><i style="background:#fff"></i>oil site, no report</span><span><i style="background:#F5C518"></i>incident reported (bigger = more reports)</span><span><i style="background:#4673FF"></i>strait / bridge</span></div>
+    <div class="wm-leg"><span><i style="background:#FF4D4F"></i>${cid === 'ua' ? 'Russian-held area (darker = taken since 2022) / ' : ''}reported hit, last 7 days</span>${cid === 'ua' ? '<span><i style="background:#F5C518"></i>contested (gray) zone</span>' : ''}<span><i style="background:#fff"></i>oil site, no report</span><span><i style="background:#F5C518"></i>incident reported (bigger = more reports)</span><span><i style="background:#4673FF"></i>strait / bridge / tanker</span><span><i style="background:#c4c4cc"></i>other ship</span></div>
     ${hits.length ? `<div class="wm-hits"><b>Oil sites named in an attack report this week</b>${hits.map(s => `<div><span class="hn">${esc(s.name)}</span> <a href="${esc(s.hit.link)}" target="_blank" rel="noopener noreferrer">${esc(s.hit.title)}</a> <span class="small">${esc(s.hit.source)} · ${esc(ago(s.hit.ts))}</span></div>`).join('')}</div>` : `<div class="small" style="margin-top:8px">No refinery or terminal is named in an attack headline this week.</div>`}
+    ${m.ais && !m.ais.hasKey && !(OV && OV.role === 'guest') ? `<div class="aiskey small"><b>Live ships:</b> needs a free key from <a href="https://aisstream.io" target="_blank" rel="noopener noreferrer">aisstream.io</a> (sign in with GitHub, then “API Keys”). Paste it here: <input id="aisK" placeholder="API key" style="width:260px"> <button class="btn" onclick="saveAis()">Save</button></div>` : m.ais && m.ais.status ? `<div class="small ${m.ais.status.ok ? '' : 'warn'}" style="margin-top:8px">Live ships: ${esc(m.ais.status.msg)} · ${esc(ago(m.ais.status.ts))}</div>` : m.ais && m.ais.hasKey ? '<div class="small" style="margin-top:8px">Live ships: key saved, the first picture arrives within a few minutes.</div>' : ''}
     ${errs.length ? `<div class="small warn" style="margin-top:8px">Not reached right now: ${errs.map(([k, v]) => '<b>' + esc(k) + '</b> — ' + esc(v)).join('<br>')}</div>` : ''}
     <div class="small wm-links">Open the live maps: ${(cid === 'ua' ? [['DeepStateMap', 'https://deepstatemap.live/en/'], ['Liveuamap Ukraine', 'https://liveuamap.com/'], ['ISW map', 'https://understandingwar.org/map/'], ['Black Sea ships', 'https://www.marinetraffic.com/en/ais/home/centerx:33/centery:44/zoom:6']]
       : [['Liveuamap Middle East', 'https://middleeast.liveuamap.com/'], ['Hormuz ships', 'https://www.marinetraffic.com/en/ais/home/centerx:56.3/centery:26.5/zoom:8'], ['Red Sea / Bab-el-Mandeb ships', 'https://www.marinetraffic.com/en/ais/home/centerx:43.3/centery:13/zoom:7'], ['Oil &amp; gas infrastructure', 'https://www.globalenergymonitor.org/']]).map(([n, u]) => `<a href="${u}" target="_blank" rel="noopener noreferrer">${n}</a>`).join(' · ')}</div>
-    <div class="small" style="margin-top:8px">Sources: ${cid === 'ua' ? 'DeepStateMap (front line), ' : ''}GDELT (geolocated news reports), this app's own headlines (a place named together with an attack word), IMF PortWatch (ship counts), OpenStreetMap (base map). ${m.ts ? 'Updated ' + esc(ago(m.ts)) + '.' : 'The first update comes a minute after the app starts.'}</div>`;
+    <div class="small" style="margin-top:8px">Sources: ${cid === 'ua' ? 'DeepStateMap (front line), ' : ''}this app's own headlines (a place named together with an attack word), IMF PortWatch (ship counts), OpenStreetMap (base map). ${m.ts ? 'Updated ' + esc(ago(m.ts)) + '.' : 'The first update comes a minute after the app starts.'}</div>`;
   if (LMAP){ LMAP.remove(); LMAP = null; }
   const map = LMAP = L.map('wmap', {zoomControl: true, attributionControl: true, scrollWheelZoom: false}).setView([m.view[0], m.view[1]], m.view[2]);
   // plain OpenStreetMap tiles (no key), darkened with a CSS filter; if they fail, a second free provider takes over
   const osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 10, attribution: '© OpenStreetMap contributors'}).addTo(map);
   let tileErr = 0;
   osm.on('tileerror', () => { if (++tileErr === 4){ map.removeLayer(osm); L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {maxZoom: 10, attribution: 'Tiles © Esri'}).addTo(map); $('wmap').classList.add('nofilter'); } });
-  const layers = {front: L.layerGroup(), points: L.layerGroup(), sites: L.layerGroup(), choke: L.layerGroup()};
+  const layers = {front: L.layerGroup(), points: L.layerGroup(), sites: L.layerGroup(), choke: L.layerGroup(), ships: L.layerGroup()};
+  const SHIPC = {tanker: '#4673FF', cargo: '#c4c4cc', military: '#FF4D4F', passenger: '#8a8a96', other: '#71717a', unknown: '#71717a'};
+  for (const s of m.shipsLive || []) L.circleMarker([s.lat, s.lon], {radius: s.kind === 'tanker' ? 4 : 3, color: SHIPC[s.kind || 'unknown'], weight: 1, fillColor: SHIPC[s.kind || 'unknown'], fillOpacity: 0.9})
+    .bindTooltip(`${s.name || 'ship'} · ${s.kind || 'type unknown'}${s.sog !== undefined && s.sog !== null ? ' · ' + s.sog.toFixed(1) + ' kn' : ''} · ${ago(s.ts)}`, {direction: 'top'}).addTo(layers.ships);
   for (const f of m.front || []){
     if (f.t === 'poly') L.polygon(f.c, f.k === 'gray' ? {color: '#F5C518', weight: 1, fillColor: '#F5C518', fillOpacity: 0.2, interactive: false} : {color: '#FF4D4F', weight: 1, fillColor: '#FF4D4F', fillOpacity: f.k === 'occ0' ? 0.12 : 0.28, interactive: false}).addTo(layers.front);
     else L.polyline(f.c, {color: '#FF4D4F', weight: 2, interactive: false}).addTo(layers.front);
@@ -1096,7 +1185,7 @@ function renderHeat(){
   });
 }
 // ── AI summary of a headline ──────────────────────────────────────────────
-function newsByHash(h){ return ((EXPL && EXPL.news) || []).find(n => n.h === h) || ((GRAPH && GRAPH.news) || []).find(n => n.h === h) || ((GEO && GEO.headlines) || []).find(n => n.h === h) || null; }
+function newsByHash(h){ return ((EXPL && EXPL.news) || []).find(n => n.h === h) || ((GRAPH && GRAPH.news) || []).find(n => n.h === h) || ((GEO && GEO.headlines) || []).concat((HEADS && HEADS.headlines) || []).find(n => n.h === h) || null; }
 function closeModal(){ document.querySelectorAll('.modal').forEach(m => m.remove()); document.body.style.overflow = ''; }
 function aiBody(d){
   const paras = d.text.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean).map(p => {
@@ -1149,7 +1238,7 @@ function exCardHTML(h, cid){
   const color = strong ? '#FF4D4F' : hot ? '#F5C518' : '#8a8a96';
   return `<div class="ind${hot ? ' ext' + (strong ? '' : ' stretched') : ''}${open ? ' open' : ''}" ${today ? `data-cid="${id}"` : `data-ex="${h.key}"`} id="ex-${uid(cid, h.key)}">
     ${open ? xBtn(today ? (cid === 'ex' ? 'closeExplain()' : 'openCard(null)') : 'openEx(null)') : ''}
-    <div class="nm"><span>${esc(h.name)}</span><span class="nmr"><span class="small">${esc(fdate(h.date, hubMo(h)))}</span>${qBtn(h)}</span></div>
+    <div class="nm"><span>${esc(h.name)}</span><span class="nmr"><span class="small">${esc(cdate(h, hubMo(h)))}</span>${qBtn(h)}</span></div>
     <div class="val">${esc(fmtVal(h, h.value))}</div>
     <span class="chip ${cls}">${label}</span><span class="small" style="margin-left:6px">${ordinal(h.pct)} percentile</span>${localBadge(h)}${badge(h)}
     ${pbar(h)}<div class="rngl"><span>lowest</span><span>history since ${h.start.slice(0, 4)}</span><span>highest</span></div>
@@ -1294,6 +1383,7 @@ async function addRule(){
 
 // ── tabs and refresh ──────────────────────────────────────────────────────
 let TAB = 'today';
+function tabIsOpen(t){ return TAB === t; }
 function showTab(t){
   TAB = t;
   try { sessionStorage.setItem('macroTab', t); } catch (e) {}
@@ -1305,6 +1395,8 @@ function showTab(t){
   if (t === 'heatmap'){ renderHeat(); loadHeat(); }
   if (t === 'geo'){ renderGeo(); loadGeo(); }
   if (t === 'alerts') loadAlerts();
+  if (t === 'stocks') loadStocks();
+  if (t === 'headlines') loadHeadlines();
   window.scrollTo(0, 0);
   track('Opened tab: ' + t);
 }
@@ -1339,6 +1431,8 @@ async function load(){
     if (TAB === 'extremes') loadExtremes();
     if (TAB === 'overview') loadOverview();
     if (TAB === 'heatmap') loadHeat();
+    if (TAB === 'stocks') loadStocks();
+    if (TAB === 'headlines') loadHeadlines();
     if (TAB === 'geo') loadGeo();
     if (!d.groups.some(g => g.items.length)) $('today').innerHTML = '<div class="card"><div class="answer">Fetching the first data…</div><p class="muted">This takes about a minute after the app starts.</p></div>';
   } catch (e){ if (e.message !== 'signed out') $('upd').textContent = 'Cannot reach the server right now'; }

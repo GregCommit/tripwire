@@ -1569,8 +1569,20 @@ _NEWS_CTX = {}      # topic -> (name regex, regex of words that must be in the s
 _NEWS_PARENTS = {}  # topic -> topics it also belongs to (a company belongs to its group average and to its conflict)
 
 
+NOISE_RX = re.compile(r"retire|social security|401\(k\)|\bira\b|annuit|mortgage rates?\b|refinanc|\bcd rates?\b|best (?:credit|savings|high-yield|cd)|credit cards?\b|savings account|financial advisor|how to (?:save|invest|budget|retire)"
+                      r"|millionaire|billionaire(?:'s)? (?:advice|says|tips)|net worth|stimulus check|medicare|inherit|sponsored|horoscope|celebrit|lottery|powerball|should you (?:buy|sell)|stocks? to buy|"
+                      r"\bmotley fool\b|zacks|\d+ (?:best|top) (?:stocks|etfs|dividend)|passive income|side hustle|dividend stocks? for|your portfolio|\bwhat to do with\b", re.I)
+
+
+def is_noise(title, summary=""):
+    """Personal-finance advice, ads and stock-picking listicles: not market news."""
+    return bool(NOISE_RX.search(title))
+
+
 def tag_news(title, summary=""):
     """Indicator keys a headline is about (a match in the title counts, one only in the summary counts less)."""
+    if is_noise(title, summary):
+        return []
     hits = []
     for k, rx in _NEWS_RX.items():
         if k in _NEWS_NEG and _NEWS_NEG[k].search(title):
@@ -1746,16 +1758,23 @@ def build_heatmap(index, wiki=None, screener=None, yahoo=None, caps=None):
     elif yahoo:
         notes.append("prices: Yahoo Finance; market caps: approximate (screener not reachable)")
     rows = [r for r in rows if r["c"] > 0]
-    # a company with two share classes (Alphabet A and C, Fox, News Corp ...) is listed twice with the SAME company value: count it once
+    # a company with two share classes is listed twice with the company's full value: show it once (class A) with the larger value
+    DUAL = {"GOOG": "GOOGL", "FOX": "FOXA", "NWS": "NWSA", "UA": "UAA", "BF-A": "BF-B", "LEN-B": "LEN", "BRK-A": "BRK-B"}
+    by_t = {r["t"]: r for r in rows}
+    drop = set()
+    for second, first in DUAL.items():
+        if second in by_t and first in by_t:
+            by_t[first]["c"] = max(by_t[first]["c"], by_t[second]["c"])
+            drop.add(second)
     rows.sort(key=lambda r: -r["c"])
-    seen, deduped = {}, []
-    for r in rows:
-        key = (round(r["c"] / 1e8), (r["n"].lower().replace(".", "").split() or [""])[0])
-        if key in seen:
-            continue
-        seen[key] = r
-        deduped.append(r)
-    rows = deduped
+    seen = []
+    for r in rows:      # any other twin: same first word in the name and a company value within 15%
+        w = (r["n"].lower().replace(".", "").split() or [""])[0]
+        if any(w == x[0] and abs(r["c"] / x[1] - 1) < 0.15 and "class" in (r["n"] + x[2]).lower() for x in seen):
+            drop.add(r["t"])
+        else:
+            seen.append((w, r["c"], r["n"]))
+    rows = [r for r in rows if r["t"] not in drop]
     if not rows:
         raise ValueError("no usable rows")
     return {"rows": rows, "notes": notes}
@@ -2385,6 +2404,153 @@ def parse_portwatch(raw):
     for f in data.get("features", []):
         a = {k.lower(): v for k, v in (f.get("attributes") or {}).items()}
         name = str(a.get("portname") or "").lower()
+        ts = next((a[k] for k in a if k == "date" or k.endswith("date")), None)
+        if not name or ts is None:
+            continue
+        tot = next((a[k] for k in a if "total" in k and isinstance(a[k], (int, float))), None)
+        tan = next((a[k] for k in a if "tanker" in k and isinstance(a[k], (int, float))), None)
+        if tot is None:
+            continue
+        try:
+            day = ts[:10] if isinstance(ts, str) and "-" in ts[:5] + ts[4:6] else datetime.utcfromtimestamp(float(ts) / 1000).strftime("%Y-%m-%d")
+        except (TypeError, ValueError):
+            continue
+        out.setdefault(name, []).append([day, tot, tan or 0])
+    for v in out.values():
+        v.sort()
+    return out
+
+
+def ship_summary(series, label):
+    """Last day, 7-day and 30-day averages from a [[day, ships, tankers]] list."""
+    if len(series) < 10:
+        return None
+    ships = [r[1] for r in series]
+    a7, a30 = sum(ships[-7:]) / 7, sum(ships[-37:-7]) / max(1, len(ships[-37:-7]))
+    return {"name": label, "last": ships[-1], "day": series[-1][0], "a7": round(a7, 1), "a30": round(a30, 1), "chg": round((a7 / a30 - 1) * 100, 1) if a30 else None,
+            "tankers7": round(sum(r[2] for r in series[-7:]) / 7, 1), "spark": ships[-60:]}
+
+
+# Incidents read from the app's own headlines: a place named together with an attack word
+GEO_PLACES = {
+    "ua": [("Kyiv", 50.45, 30.52, ["kyiv", "kiev"]), ("Kharkiv", 49.99, 36.23, ["kharkiv", "kharkov"]), ("Odesa", 46.48, 30.73, ["odesa", "odessa"]),
+           ("Dnipro", 48.46, 35.05, ["dnipro"]), ("Zaporizhzhia", 47.84, 35.14, ["zaporizhzhia", "zaporizhia", "zaporozhye"]), ("Kherson", 46.64, 32.62, ["kherson"]),
+           ("Mykolaiv", 46.97, 32.00, ["mykolaiv", "nikolaev"]), ("Sumy", 50.91, 34.80, ["sumy"]), ("Chernihiv", 51.50, 31.30, ["chernihiv"]), ("Lviv", 49.84, 24.03, ["lviv"]),
+           ("Poltava", 49.59, 34.55, ["poltava"]), ("Kramatorsk", 48.74, 37.58, ["kramatorsk"]), ("Sloviansk", 48.87, 37.62, ["sloviansk"]), ("Pokrovsk", 48.28, 37.18, ["pokrovsk"]),
+           ("Donetsk", 48.00, 37.80, ["donetsk"]), ("Luhansk", 48.57, 39.31, ["luhansk"]), ("Bakhmut", 48.60, 38.00, ["bakhmut"]), ("Kupiansk", 49.71, 37.62, ["kupiansk"]),
+           ("Kursk", 51.73, 36.19, ["kursk"]), ("Belgorod", 50.60, 36.60, ["belgorod"]), ("Bryansk", 53.25, 34.37, ["bryansk"]), ("Rostov", 47.23, 39.72, ["rostov"]),
+           ("Voronezh", 51.67, 39.20, ["voronezh"]), ("Moscow", 55.75, 37.62, ["moscow"]), ("St Petersburg", 59.93, 30.34, ["st petersburg", "st. petersburg", "saint petersburg"]),
+           ("Crimea / Sevastopol", 44.60, 33.50, ["crimea", "sevastopol"]), ("Mariupol", 47.10, 37.55, ["mariupol"]), ("Kryvyi Rih", 47.91, 33.39, ["kryvyi rih"]),
+           ("Vinnytsia", 49.23, 28.47, ["vinnytsia"]), ("Black Sea", 43.5, 34.0, ["black sea"]), ("Donbas", 48.3, 38.0, ["donbas", "donbass"])],
+    "me": [("Tehran", 35.69, 51.39, ["tehran"]), ("Isfahan", 32.65, 51.67, ["isfahan", "esfahan"]), ("Natanz", 33.72, 51.73, ["natanz"]), ("Tabriz", 38.08, 46.29, ["tabriz"]),
+           ("Gaza", 31.50, 34.47, ["gaza"]), ("Rafah", 31.30, 34.25, ["rafah"]), ("Tel Aviv", 32.08, 34.78, ["tel aviv"]), ("Jerusalem", 31.77, 35.21, ["jerusalem"]),
+           ("Beirut", 33.89, 35.50, ["beirut"]), ("Southern Lebanon", 33.30, 35.40, ["south lebanon", "southern lebanon", "hezbollah"]), ("Damascus", 33.50, 36.30, ["damascus"]),
+           ("Aleppo", 36.20, 37.16, ["aleppo"]), ("Baghdad", 33.30, 44.40, ["baghdad"]), ("Erbil", 36.19, 44.01, ["erbil"]), ("Sanaa", 15.37, 44.19, ["sanaa", "sana'a"]),
+           ("Hodeidah", 14.80, 42.95, ["hodeidah", "hudaydah"]), ("Aden", 12.80, 45.00, ["aden"]), ("Marib", 15.46, 45.33, ["marib"]), ("Riyadh", 24.70, 46.70, ["riyadh"]),
+           ("Jeddah", 21.50, 39.20, ["jeddah"]), ("Doha", 25.29, 51.53, ["doha"]), ("Dubai", 25.20, 55.27, ["dubai"]), ("Abu Dhabi", 24.45, 54.38, ["abu dhabi"]),
+           ("Red Sea", 20.00, 38.50, ["red sea"]), ("Gulf of Aden", 12.00, 47.00, ["gulf of aden"]), ("Persian Gulf", 27.00, 51.00, ["persian gulf", "arabian gulf"]),
+           ("Strait of Hormuz", 26.57, 56.25, ["hormuz"]), ("Bab-el-Mandeb", 12.60, 43.30, ["mandeb", "mandab"]), ("Houthi territory", 15.5, 44.0, ["houthi"])],
+}
+
+
+def news_incidents(cid, rows, now=None):
+    """[{lat, lon, n, count, items: [{t, l, s, ts}]}]: headlines of the last 7 days that name a place together with an attack word."""
+    now = now or time.time()
+    places = GEO_PLACES[cid] + [(n, la, lo, w) for n, la, lo, k, w in GEO_SITES[cid]]
+    seen, out = set(), {}
+    for h in rows:
+        if now - h["ts"] > 7 * 86400 or h["title"] in seen:
+            continue
+        t = (h["title"] + " " + (h.get("summary") or "")).lower()
+        if not _ATTACK_RX.search(t):
+            continue
+        seen.add(h["title"])
+        title_l = h["title"].lower()
+        for name, la, lo, words in places:
+            if any(w in title_l for w in words):
+                e = out.setdefault(name, {"lat": la, "lon": lo, "n": name, "count": 0, "items": []})
+                e["count"] += 1
+                e["items"].append({"t": h["title"], "l": h["link"], "s": h["source"], "ts": h["ts"]})
+    for e in out.values():
+        e["items"] = sorted(e["items"], key=lambda x: -x["ts"])[:4]
+    return sorted(out.values(), key=lambda e: -e["count"])
+
+
+PORTWATCH_ROOT = "https://services9.arcgis.com/weJ1QsnbMYJlCHdG/arcgis/rest/services/Daily_Chokepoints_Data/FeatureServer"
+PORTWATCH_QUERIES = ["PortWatch chokepoints daily", "Daily Chokepoints Data", "chokepoint transit calls daily", "PortWatch daily ports"]
+STRAIT_NAMES = {"hormuz": "Strait of Hormuz", "mandeb": "Bab el-Mandeb Strait", "suez": "Suez Canal", "bosp": "Bosporus Strait"}
+
+
+def _pick(fields, *needles):
+    for f in fields:
+        n = f.lower()
+        if all(x in n for x in needles):
+            return f
+    return None
+
+
+def portwatch_roots(get):
+    """Known address first, then whatever ArcGIS Online lists under the PortWatch search terms."""
+    from urllib.parse import quote
+    roots, seen_titles = [PORTWATCH_ROOT], []
+    for q in PORTWATCH_QUERIES:
+        try:
+            res = json.loads(get("https://www.arcgis.com/sharing/rest/search?f=json&num=15&q=" + quote(q + ' type:"Feature Service"'))).get("results", [])
+        except Exception:
+            continue
+        for it in res:
+            u = (it.get("url") or "").rstrip("/")
+            if u.endswith("FeatureServer") and u not in roots:
+                roots.append(u)
+                seen_titles.append(it.get("title", "?"))
+    return roots[:14], seen_titles
+
+
+def portwatch_series(roots, words, get, days=100):
+    """Daily ship counts for the straits from whichever IMF PortWatch layer has the right fields (port name, date, total, tankers).
+    Returns ({lower-case name: [[day, ships, tankers]]}, [what went wrong])."""
+    from urllib.parse import quote
+    why = []
+    since = (datetime.utcnow() - timedelta(days=days)).strftime("%Y-%m-%d")
+    for root in roots:
+        for layer in range(4):
+            url = f"{root}/{layer}"
+            try:
+                meta = json.loads(get(url + "?f=json"))
+                if meta.get("error"):
+                    break
+                fields = [f["name"] for f in meta.get("fields", [])]
+                fdate, fname = _pick(fields, "date"), _pick(fields, "portname") or _pick(fields, "name")
+                ftot = _pick(fields, "n_total") or _pick(fields, "total")
+                if not (fdate and fname and ftot):
+                    why.append(f"{root.split('/services/')[-1].split('/')[0][:34]}/{layer}: {', '.join(fields)[:70]}")
+                    continue
+                names = ",".join("'" + STRAIT_NAMES[w] + "'" for w in words)
+                wheres = [f"{fname} IN ({names}) AND {fdate} >= timestamp '{since} 00:00:00'",
+                          "(" + " OR ".join(f"{fname} LIKE '%{w.capitalize()}%'" for w in words) + f") AND {fdate} >= timestamp '{since} 00:00:00'",
+                          f"{fname} IN ({names})"]
+                for w_ in wheres:
+                    try:
+                        got = parse_portwatch(get(f"{url}/query?f=json&returnGeometry=false&outFields=*&resultRecordCount=2000&orderByFields={fdate}%20DESC&where={quote(w_)}"))
+                        if got:
+                            return got, why
+                    except Exception as e:
+                        why.append(f"query: {type(e).__name__}: {e}"[:120])
+            except Exception as e:
+                why.append(f"{root.split('/services/')[-1][:30]}: {type(e).__name__}: {e}"[:110])
+                break
+    return {}, why
+
+
+def parse_portwatch(raw):
+    """ArcGIS JSON -> {matchword: [[YYYY-MM-DD, ships, tankers], ...]} oldest first."""
+    data = json.loads(raw)
+    if data.get("error"):
+        raise ValueError(str(data["error"])[:140])
+    out = {}
+    for f in data.get("features", []):
+        a = {k.lower(): v for k, v in (f.get("attributes") or {}).items()}
+        name = str(a.get("portname") or "").lower()
         ts = a.get("date")
         if not name or ts is None:
             continue
@@ -2501,3 +2667,48 @@ def portwatch_series(roots, words, get, days=100):
     return {}, why
 
 
+
+
+# ══ Stocks: your own holdings and watch list ═════════════════════════════════════════════════
+def fetch_yahoo_vol(symbols, period="1y"):
+    """{symbol: {"pts": daily closes, "vol": [volumes, same days]}}"""
+    import yfinance as yf
+    df = yf.download(symbols, period=period, interval="1d", auto_adjust=False, progress=False, group_by="ticker", threads=False)
+    out = {}
+    for s in symbols:
+        try:
+            col, vol = df[s]["Close"], df[s]["Volume"]
+            pts, vs = [], []
+            for (i, v), (_, vv) in zip(col.items(), vol.items()):
+                if v == v and v:
+                    pts.append([i.strftime("%Y-%m-%d"), float(v)])
+                    vs.append(float(vv) if vv == vv else 0.0)
+            if pts:
+                out[s] = {"pts": pts, "vol": vs}
+        except Exception as e:
+            log.warning("Yahoo %s: %s", s, e)
+    return out
+
+
+def stock_summary(ticker, pts):
+    ind = dict(key=ticker, name=ticker, group="stocks", source="yahoo", sym=ticker, unit="$", dec=2, kind="range", chg="pct", freq="daily", money=True, explain="")
+    return summarize(ind, pts)
+
+
+def stock_flags(s, vol_ratio, news_n, earn_days):
+    """What makes a stock unusual right now: [(label, weight)]. Score is the sum; 2 or more counts as unusual."""
+    flags = []
+    if s.get("horizon") and s["horizon"] != "at an extreme":
+        z = max(abs(s.get("z1") or 0), abs(s.get("zw") or 0), abs(s.get("zm") or 0))
+        flags.append((f"Unusual move {s['horizon']} ({z:.1f}× a typical move)", min(5.0, 1.0 + z / 2)))
+    if news_n:
+        flags.append((f"{news_n} new headline{'s' if news_n > 1 else ''}", 2.0))
+    if earn_days is not None and -1 <= earn_days <= 2:
+        flags.append(("Reports today" if earn_days == 0 else "Reported yesterday" if earn_days == -1 else f"Reports in {earn_days} day{'s' if earn_days > 1 else ''}", 2.0))
+    if s.get("pos") is not None and s.get("hi") and s["value"] >= s["hi"] * 0.995:
+        flags.append(("At its 52-week high", 1.5))
+    elif s.get("lo") and s["value"] <= s["lo"] * 1.005:
+        flags.append(("At its 52-week low", 1.5))
+    if vol_ratio and vol_ratio >= 2:
+        flags.append((f"Volume {vol_ratio:.1f}× normal", 1.5))
+    return flags

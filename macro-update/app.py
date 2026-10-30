@@ -15,6 +15,7 @@ import os
 import smtplib
 import sys
 import sqlite3
+import re
 import threading
 import time
 from datetime import datetime, timedelta
@@ -95,6 +96,7 @@ def init_db():
                 summary TEXT, link TEXT UNIQUE, topics TEXT);
             CREATE INDEX IF NOT EXISTS news_ts ON news(ts);
             CREATE TABLE IF NOT EXISTS heat (idx TEXT PRIMARY KEY, ts INTEGER, data TEXT);
+            CREATE TABLE IF NOT EXISTS stocks (ticker TEXT PRIMARY KEY, kind TEXT, shares REAL, cost REAL, added INTEGER);
             CREATE TABLE IF NOT EXISTS ai_cache (k TEXT PRIMARY KEY, ts INTEGER, model TEXT, text TEXT);
             CREATE TABLE IF NOT EXISTS alerts (id INTEGER PRIMARY KEY, ts INTEGER, key TEXT, kind TEXT,
                 title TEXT, detail TEXT, emailed INTEGER DEFAULT 0);
@@ -126,6 +128,14 @@ def save_series(key, pts):
     if not pts:
         return
     with get_db() as conn:
+        old = conn.execute("SELECT points FROM series WHERE key=?", (key,)).fetchone()
+        if old:
+            try:        # remember the day the app first saw a new reading: for monthly data that is (about) the day it was published
+                op = json.loads(old["points"])
+                if op and pts[-1][0] > op[-1][0]:
+                    conn.execute("INSERT OR REPLACE INTO settings VALUES (?,?)", ("seen:" + key, json.dumps({"d": pts[-1][0], "s": datetime.now().strftime("%Y-%m-%d")})))
+            except (ValueError, KeyError, IndexError):
+                pass
         conn.execute("INSERT OR REPLACE INTO series VALUES (?,?,?)",
                      (key, json.dumps([[d, round(v, 6)] for d, v in pts]), int(time.time())))
 
@@ -443,6 +453,8 @@ def ingest_feeds(feeds):
         time.sleep(0.25)
     with get_db() as conn:
         conn.execute("DELETE FROM news WHERE ts < ?", (now - NEWS_KEEP_DAYS * 86400,))
+        junk = [r["id"] for r in conn.execute("SELECT id, title FROM news") if S.is_noise(r["title"])]
+        conn.executemany("DELETE FROM news WHERE id=?", [(i,) for i in junk])
     return ok, errors, added
 
 
@@ -481,32 +493,9 @@ def refresh_geo_map():
                     break
                 except Exception as e:
                     st["errors"]["front"] = f"{type(e).__name__}: {e}"[:140]
-        from urllib.parse import quote
-        tried = []
-        for q in S.GEO_INCIDENT_Q[cid]:
-            try:
-                url = "https://api.gdeltproject.org/api/v2/geo/geo?query=" + quote(q) + "&format=GeoJSON&timespan=7d&maxpoints=1000"
-                pts = S.parse_gdelt_points(S.http_get(url, timeout=40, ua=BROWSER_UA).decode("utf-8", "replace"))
-                tried.append(f"{len(pts)} points")
-                if pts:
-                    st["points"], st["pointsTs"] = pts, int(time.time())
-                    st["errors"].pop("points", None)
-                    break
-            except Exception as e:
-                tried.append(f"{type(e).__name__}: {e}"[:110])
-            time.sleep(6)       # GDELT asks for one request every few seconds
-        else:
-            st["errors"]["points"] = "GDELT: " + " | ".join(tried)
         words = [w for _, w in S.PORTWATCH_STRAITS[cid]]
         get = lambda u: S.http_get(u, timeout=40, ua=BROWSER_UA).decode("utf-8", "replace")
-        roots = [S.PORTWATCH_ROOT]
-        try:        # the layer's address can change: ask ArcGIS for it as well
-            for it in json.loads(get(S.PORTWATCH_SEARCH)).get("results", []):
-                u = (it.get("url") or "").rstrip("/")
-                if u.endswith("FeatureServer") and "hokepoint" in u and u not in roots:
-                    roots.append(u)
-        except Exception:
-            pass
+        roots, titles = S.portwatch_roots(get)
         got, why = S.portwatch_series(roots, [w for _, w in S.PORTWATCH_STRAITS[cid]], get)
         ships = []
         for label, w in S.PORTWATCH_STRAITS[cid]:
@@ -516,11 +505,13 @@ def refresh_geo_map():
                 ships.append(sm)
         if got and not ships:
             why.append("rows found for: " + ", ".join(list(got)[:4]) + " but too few days")
+        if not got:
+            why.append("layers looked at: " + ", ".join(titles[:6]))
         if ships:
             st["ships"] = ships
             st["errors"].pop("ships", None)
         else:
-            st["errors"]["ships"] = "IMF PortWatch: " + " | ".join(dict.fromkeys(why))[:420]
+            st["errors"]["ships"] = "IMF PortWatch: " + " | ".join(dict.fromkeys(why))[:560]
             st["ships"] = (prev or {}).get("ships", [])
         set_setting("geomap_" + cid, json.dumps(st))
         log.info("War map %s: front %s, %d incident points, errors %s", cid, len(st["front"] or []), len(st["points"]), st["errors"])
@@ -532,6 +523,74 @@ def refresh_cnn_fng():
     fg = json.loads(raw)["fear_and_greed"]
     set_setting("cnn_fng", json.dumps({"score": round(float(fg["score"])), "rating": str(fg.get("rating", "")), "prev": fg.get("previous_close"),
                                        "week": fg.get("previous_1_week"), "ts": int(time.time())}))
+
+
+# ── Live ships (AIS) from aisstream.io: needs the owner's free key ──────────────
+AIS_BOXES = {"me": [[[23.5, 54.0], [28.0, 58.5]], [[24.0, 48.0], [30.2, 54.0]], [[10.5, 41.5], [14.8, 45.8]], [[27.5, 31.8], [31.5, 33.2]], [[12.0, 36.0], [27.5, 43.5]]],
+             "ua": [[[41.0, 27.5], [46.8, 41.8]]]}
+
+
+def _ship_kind(t):
+    t = int(t or 0)
+    return "tanker" if 80 <= t <= 89 else "cargo" if 70 <= t <= 79 else "military" if t in (35, 55) else "passenger" if 60 <= t <= 69 else "other" if t else "unknown"
+
+
+def collect_ais(cid, seconds=40):
+    """Listens to the AIS stream for a short time and merges what it hears into the stored picture of the area."""
+    import websocket
+    key = get_setting("ais_key", "")
+    ws = websocket.create_connection("wss://stream.aisstream.io/v0/stream", timeout=12)
+    try:
+        ws.send(json.dumps({"APIKey": key, "BoundingBoxes": AIS_BOXES[cid], "FilterMessageTypes": ["PositionReport", "ShipStaticData"]}))
+        ws.settimeout(6)
+        ships = json.loads(get_setting("ships_" + cid, "{}") or "{}")
+        end, n = time.time() + seconds, 0
+        while time.time() < end:
+            try:
+                raw = ws.recv()
+            except websocket.WebSocketTimeoutException:
+                continue
+            except websocket.WebSocketConnectionClosedException:
+                break
+            if not raw:
+                break
+            m = json.loads(raw)
+            if m.get("error"):
+                raise RuntimeError(str(m["error"])[:120])
+            meta, body, mt = m.get("MetaData", {}), m.get("Message", {}), m.get("MessageType")
+            mmsi = str(meta.get("MMSI") or "")
+            if not mmsi:
+                continue
+            s = ships.setdefault(mmsi, {})
+            s["name"] = (meta.get("ShipName") or s.get("name") or "").strip()
+            if mt == "PositionReport":
+                pr = body.get("PositionReport", {})
+                s.update(lat=round(pr.get("Latitude", meta.get("latitude")), 4), lon=round(pr.get("Longitude", meta.get("longitude")), 4), sog=pr.get("Sog"), cog=pr.get("Cog"), ts=int(time.time()))
+                n += 1
+            elif mt == "ShipStaticData":
+                s["kind"] = _ship_kind(body.get("ShipStaticData", {}).get("Type"))
+        cutoff = int(time.time()) - 40 * 60
+        ships = {k: v for k, v in ships.items() if v.get("ts", 0) > cutoff and "lat" in v}
+        ships = dict(sorted(ships.items(), key=lambda kv: -kv[1]["ts"])[:900])
+        set_setting("ships_" + cid, json.dumps(ships))
+        return n, len(ships)
+    finally:
+        ws.close()
+
+
+def ais_loop():
+    time.sleep(90)
+    while True:
+        key = get_setting("ais_key", "")
+        if key:
+            for cid in AIS_BOXES:
+                try:
+                    n, tot = collect_ais(cid)
+                    set_setting("ais_status", json.dumps({"ok": True, "ts": int(time.time()), "msg": f"{cid}: {n} position reports, {tot} ships"}))
+                except Exception as e:
+                    set_setting("ais_status", json.dumps({"ok": False, "ts": int(time.time()), "msg": f"{type(e).__name__}: {e}"[:200]}))
+                    log.warning("AIS %s: %s", cid, e)
+        time.sleep(60 if key else 300)
 
 
 def geo_map_loop():
@@ -786,6 +845,114 @@ def heat_loop():
         time.sleep(HEAT_EVERY)
 
 
+# ── Stocks: your holdings and watch list ──────────────────────────────────────
+STOCKS_EVERY = 300
+_stock_lock = threading.Lock()
+
+
+def _stock_names():
+    return json.loads(get_setting("stock_names", "{}") or "{}")
+
+
+def refresh_stocks():
+    """Prices, unusual-move flags, volume, earnings dates and headlines for every stock you hold or watch."""
+    with get_db() as conn:
+        tickers = [r["ticker"] for r in conn.execute("SELECT ticker FROM stocks")]
+    if not tickers:
+        set_setting("stocks_data", "{}")
+        return
+    with _stock_lock:
+        import yfinance as yf
+        got = S.fetch_yahoo_vol(tickers, "1y")
+        names, earn = _stock_names(), json.loads(get_setting("stock_earn", "{}") or "{}")
+        news_all = json.loads(get_setting("stock_news", "{}") or "{}")
+        now, today = int(time.time()), datetime.now().date()
+        heat = {}
+        with get_db() as conn:
+            for r in conn.execute("SELECT data FROM heat"):
+                for x in json.loads(r["data"])["rows"]:
+                    heat[x["t"]] = x["n"]
+        for t in tickers:
+            if t not in names:
+                names[t] = heat.get(t) or ""
+                if not names[t]:
+                    try:
+                        names[t] = yf.Ticker(t).info.get("shortName") or t
+                    except Exception:
+                        names[t] = t
+            if now - earn.get(t, {}).get("ts", 0) > 6 * 3600:
+                try:
+                    ed = _earnings_date(yf.Ticker(t))
+                except Exception:
+                    ed = None
+                earn[t] = {"ts": now, "d": ed.isoformat() if ed else None}
+            if now - news_all.get(t, {}).get("ts", 0) > 600:
+                try:
+                    items = S.parse_feed(S.http_get(f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={t}&region=US&lang=en-US", timeout=15, ua=BROWSER_UA), "Yahoo Finance")
+                    news_all[t] = {"ts": now, "items": [{"title": i["title"], "link": i["link"], "source": i["source"], "ts": i["ts"] or now} for i in items if not S.is_noise(i["title"])][:8]}
+                except Exception as e:
+                    log.warning("Stock news %s: %s", t, e)
+                    news_all.setdefault(t, {"ts": now - 300, "items": []})
+        out = {}
+        for t in tickers:
+            g = got.get(t)
+            if not g:
+                continue
+            s = S.stock_summary(t, g["pts"])
+            if not s:
+                continue
+            vol = g["vol"]
+            vr = (vol[-1] / (sum(vol[-21:-1]) / 20)) if len(vol) > 21 and sum(vol[-21:-1]) else None
+            items = news_all.get(t, {}).get("items", [])
+            fresh = [i for i in items if now - i["ts"] < 24 * 3600]
+            ed = earn.get(t, {}).get("d")
+            earn_days = (datetime.strptime(ed, "%Y-%m-%d").date() - today).days if ed else None
+            flags = S.stock_flags(s, vr, len(fresh), earn_days)
+            field = {"today": "d1", "this week": "w1", "this month": "m1"}.get(s.get("horizon"), "d1")
+            move = s.get(field) if s.get(field) is not None else s.get("d1")
+            out[t] = {"t": t, "name": names.get(t) or t, "price": s["value"], "date": s["date"], "d1": s["d1"], "w1": s.get("w1"), "m1": s["m1"], "y1": s.get("y1"),
+                      "hi": s["hi"], "lo": s["lo"], "spark": s["spark"], "flags": [f for f, _ in flags], "score": round(sum(w for _, w in flags), 2),
+                      "move": move, "earn": ed, "volx": round(vr, 1) if vr else None, "news": items[:3], "freshNews": len(fresh)}
+        set_setting("stock_names", json.dumps(names))
+        set_setting("stock_earn", json.dumps(earn))
+        set_setting("stock_news", json.dumps(news_all))
+        set_setting("stocks_data", json.dumps({"ts": now, "rows": out}))
+    stock_alerts(out)
+
+
+def stock_alerts(rows):
+    """One alert (and e-mail) a day per HELD stock that moves unusually or has a headline together with a real move."""
+    with get_db() as conn:
+        held = {r["ticker"]: dict(r) for r in conn.execute("SELECT * FROM stocks WHERE kind='hold'")}
+    for t, r in rows.items():
+        if t not in held:
+            continue
+        big = r["score"] >= 3 and (abs(r["move"] or 0) >= 3 or any(f.startswith("Unusual") for f in r["flags"]))
+        if not big:
+            continue
+        key = f"STK:{t}"
+        with get_db() as conn:
+            if conn.execute("SELECT 1 FROM alerts WHERE key=? AND ts>?", (key, int(time.time()) - 20 * 3600)).fetchone():
+                continue
+            title = f"{t} {'rose' if (r['move'] or 0) > 0 else 'fell'} {abs(r['move'] or 0):.1f}%: " + r["flags"][0]
+            detail = "; ".join(r["flags"]) + (f". Latest headline: {r['news'][0]['title']}" if r["news"] else "")
+            aid = conn.execute("INSERT INTO alerts (ts, key, kind, title, detail) VALUES (?,?,?,?,?)", (int(time.time()), key, "stock", title, detail)).lastrowid
+        ok, _ = email_alerts([(aid, key, title, detail)])
+        if ok:
+            with get_db() as conn:
+                conn.execute("UPDATE alerts SET emailed=1 WHERE id=?", (aid,))
+
+
+def stocks_loop():
+    time.sleep(25)
+    while True:
+        try:
+            refresh_stocks()
+        except Exception as e:
+            log.exception("Stocks refresh failed: %s", e)
+        time.sleep(STOCKS_EVERY)
+
+
 _started = False
 
 
@@ -798,6 +965,8 @@ def start_background():
         threading.Thread(target=heat_loop, daemon=True, name="heat").start()
         threading.Thread(target=geo_news_loop, daemon=True, name="geonews").start()
         threading.Thread(target=geo_map_loop, daemon=True, name="geomap").start()
+        threading.Thread(target=stocks_loop, daemon=True, name="stocks").start()
+        threading.Thread(target=ais_loop, daemon=True, name="ais").start()
 
 
 # ── Summaries and alerts ────────────────────────────────────────────────────
@@ -1215,6 +1384,7 @@ def api_overview():
                "items": [sm[i["key"]] for i in S.INDICATORS if i["group"] == g and i["key"] in sm]}
               for g, t, intro in S.GROUPS]
     hub = hub_summaries()
+    attach_seen({**sm, **{h["key"]: h for h in hub}})
     apply_link_ranking({**sm, **{h["key"]: h for h in hub}})
     clusters = build_clusters(sm, hub)
     recent = news_recent(24)
@@ -1262,8 +1432,20 @@ def api_version():
     return jsonify({"version": VERSION, "commit": deployed_commit(), "started": STARTED})
 
 
+def attach_seen(items):
+    """Adds 'seen' (the day the app first saw the latest reading) to items whose latest date has such a record."""
+    with get_db() as conn:
+        seen = {r["key"][5:]: json.loads(r["value"]) for r in conn.execute("SELECT key, value FROM settings WHERE key LIKE 'seen:%'")}
+    for k, it in items.items():
+        r = seen.get(("H_" + k) if it.get("hub") else k)
+        if r and r["d"] == it.get("date"):
+            it["seen"] = r["s"]
+    return items
+
+
 def all_items():
     items = {**summaries(), **{h["key"]: h for h in hub_summaries()}, **S.geo_summaries(load_series)}
+    attach_seen(items)
     apply_link_ranking(items)
     return items
 
@@ -1490,6 +1672,107 @@ def geo_headlines(cid, items, limit=60):
     return out[:limit]
 
 
+@app.route("/api/stocks", methods=["GET", "POST"])
+@login_required
+def api_stocks():
+    if request.method == "POST":
+        d = request.json or {}
+        t = re.sub(r"[^A-Za-z0-9.\-=^]", "", str(d.get("ticker", ""))).upper()[:12]
+        act = d.get("action")
+        if not t:
+            return jsonify({"success": False, "error": "Enter a ticker, for example NVDA."}), 400
+        def num(v):
+            try:
+                return float(str(v).replace(",", ".")) if str(v).strip() != "" else None
+            except ValueError:
+                return None
+        with get_db() as conn:
+            if act == "remove":
+                conn.execute("DELETE FROM stocks WHERE ticker=?", (t,))
+            else:
+                kind = "hold" if d.get("kind") == "hold" else "watch"
+                sh, co = (num(d.get("shares")), num(d.get("cost"))) if kind == "hold" else (None, None)
+                if act == "update":
+                    conn.execute("UPDATE stocks SET kind=?, shares=?, cost=? WHERE ticker=?", (kind, sh, co, t))
+                else:
+                    conn.execute("INSERT OR REPLACE INTO stocks (ticker, kind, shares, cost, added) VALUES (?,?,?,?,?)", (t, kind, sh, co, int(time.time())))
+        threading.Thread(target=lambda: refresh_stocks() if not _stock_lock.locked() else None, daemon=True).start()
+        return jsonify({"success": True})
+    if is_guest():
+        return jsonify({"private": True, "hold": [], "watch": [], "total": None, "ts": None})
+    data = json.loads(get_setting("stocks_data", "{}") or "{}")
+    rows = data.get("rows", {})
+    with get_db() as conn:
+        mine = [dict(r) for r in conn.execute("SELECT * FROM stocks ORDER BY added")]
+    hold, watch = [], []
+    for m in mine:
+        r = dict(rows.get(m["ticker"]) or {"t": m["ticker"], "name": _stock_names().get(m["ticker"], m["ticker"]), "price": None, "flags": [], "score": 0, "news": [], "spark": []})
+        r.update(kind=m["kind"], shares=m["shares"], cost=m["cost"])
+        if m["kind"] == "hold" and r.get("price") is not None and m["shares"]:
+            r["value"] = r["price"] * m["shares"]
+            r["dayAmt"] = r["value"] * (r["d1"] or 0) / (100 + (r["d1"] or 0))
+            if m["cost"]:
+                r["pl"] = r["value"] - m["cost"] * m["shares"]
+                r["plPct"] = (r["price"] / m["cost"] - 1) * 100
+        (hold if m["kind"] == "hold" else watch).append(r)
+    key = lambda r: (-(r.get("score") or 0), -(r.get("value") or 0), r["t"])
+    hold.sort(key=key); watch.sort(key=key)
+    total = None
+    if any(r.get("value") for r in hold):
+        v = sum(r.get("value", 0) for r in hold); day = sum(r.get("dayAmt", 0) for r in hold)
+        cost = sum(r["cost"] * r["shares"] for r in hold if r.get("cost") and r.get("shares") and r.get("price") is not None)
+        pl = sum(r.get("pl", 0) for r in hold if "pl" in r)
+        total = {"value": v, "day": day, "dayPct": day / (v - day) * 100 if v - day else 0, "pl": pl if cost else None, "plPct": pl / cost * 100 if cost else None}
+    return jsonify({"hold": hold, "watch": watch, "total": total, "ts": data.get("ts")})
+
+
+@app.route("/api/ais", methods=["POST"])
+@login_required
+def api_ais():
+    key = re.sub(r"[^A-Za-z0-9\-_]", "", str((request.json or {}).get("key", "")))[:80]
+    set_setting("ais_key", key)
+    set_setting("ais_status", "null")
+    return jsonify({"success": True, "hasKey": bool(key)})
+
+
+@app.route("/api/headlines")
+@login_required
+def api_headlines():
+    """Every headline of the last 3 days that is about something the app follows, with importance and urgency."""
+    items = all_items()
+    cutoff = int(time.time()) - 72 * 3600
+    with get_db() as conn:
+        rows = [dict(r) for r in conn.execute("SELECT * FROM news WHERE ts > ? ORDER BY ts DESC LIMIT 1500", (cutoff,))]
+    now, out = time.time(), []
+    for r in rows:
+        try:
+            topics = json.loads(r["topics"])
+        except ValueError:
+            continue
+        if not topics or S.is_noise(r["title"]):
+            continue
+        geo = [k for k, _ in topics if k.startswith("GEO_")]
+        real = [(k, w) for k, w in topics if k in items and not k.startswith("G_")]
+        rank = max([items[k]["rank"] for k, _ in real] or [0])
+        impact = min(12.0, S.geo_impact(r["title"], r["summary"]) + 0.6 * min(rank, 8) + (2 if geo else 0))
+        age = (now - r["ts"]) / 3600
+        cats = []
+        for k, _ in real:
+            c = cluster_of(k)
+            t = next((x["title"] for x in S.CLUSTERS if x["id"] == c), None)
+            if t and t not in cats:
+                cats.append(t)
+        if geo:
+            cats.insert(0, "Geopolitics")
+        names = [items[k]["name"] for k, w in sorted(real, key=lambda x: -x[1])[:3]]
+        out.append({"h": link_hash(r["link"]), "title": r["title"], "summary": r["summary"], "link": r["link"], "source": r["source"], "ts": r["ts"],
+                    "cats": cats[:3] or ["Markets"], "markets": names, "impact": round(impact, 1), "urgency": S.geo_urgency(age, impact),
+                    "rank": S.geo_rank(impact, age, 0)})
+    out.sort(key=lambda x: (-x["ts"], -x["rank"]))
+    cats = sorted({c for x in out for c in x["cats"]})
+    return jsonify({"headlines": out[:300], "cats": cats, "status": json.loads(get_setting("news_status", "null") or "null")})
+
+
 @app.route("/api/geomap")
 @login_required
 def api_geomap():
@@ -1500,7 +1783,8 @@ def api_geomap():
     with get_db() as conn:
         rows = [dict(r) for r in conn.execute("SELECT ts, source, title, summary, link FROM news WHERE ts > ? ORDER BY ts DESC LIMIT 2500", (int(time.time()) - 7 * 86400,))]
     return jsonify({"view": S.GEO_VIEW[cid], "sites": S.site_status(cid, rows), "front": st.get("front"), "points": st.get("points", []),
-                    "errors": st.get("errors", {}), "ships": st.get("ships", []), "incidents": S.news_incidents(cid, rows), "ts": st.get("ts"), "pointsTs": st.get("pointsTs")})
+                    "errors": st.get("errors", {}), "ships": st.get("ships", []), "incidents": S.news_incidents(cid, rows), "shipsLive": list(json.loads(get_setting("ships_" + cid, "{}") or "{}").values()),
+                    "ais": {"hasKey": bool(get_setting("ais_key", "")), "status": json.loads(get_setting("ais_status", "null") or "null")}, "ts": st.get("ts"), "pointsTs": st.get("pointsTs")})
 
 
 @app.route("/api/geo")
