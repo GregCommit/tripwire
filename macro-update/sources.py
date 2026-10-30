@@ -2311,3 +2311,41 @@ def parse_gdelt_points(raw, limit=250):
                         "html": re.sub(r"<[^>]+>", " ", str(p.get("html") or ""))[:300].strip()})
     out.sort(key=lambda x: -(x["count"] or 0))
     return out[:limit]
+
+
+# Ship traffic through the straits: IMF PortWatch (satellite AIS), open, no key
+PORTWATCH_URL = "https://services9.arcgis.com/weJ1QsnbMYJlCHdG/arcgis/rest/services/Daily_Chokepoints_Data/FeatureServer/0/query"
+PORTWATCH_STRAITS = {"me": [("Strait of Hormuz", "hormuz"), ("Bab el-Mandeb", "mandeb"), ("Suez Canal", "suez")], "ua": [("Bosporus (Black Sea exit)", "bosp")]}
+
+
+def parse_portwatch(raw):
+    """ArcGIS JSON -> {matchword: [[YYYY-MM-DD, ships, tankers], ...]} oldest first."""
+    data = json.loads(raw)
+    if data.get("error"):
+        raise ValueError(str(data["error"])[:140])
+    out = {}
+    for f in data.get("features", []):
+        a = {k.lower(): v for k, v in (f.get("attributes") or {}).items()}
+        name = str(a.get("portname") or "").lower()
+        ts = a.get("date")
+        if not name or ts is None:
+            continue
+        tot = next((a[k] for k in a if "total" in k and isinstance(a[k], (int, float))), None)
+        tan = next((a[k] for k in a if "tanker" in k and isinstance(a[k], (int, float))), None)
+        if tot is None:
+            continue
+        day = datetime.utcfromtimestamp(ts / 1000).strftime("%Y-%m-%d")
+        out.setdefault(name, []).append([day, tot, tan or 0])
+    for v in out.values():
+        v.sort()
+    return out
+
+
+def ship_summary(series, label):
+    """Last day, 7-day and 30-day averages from a [[day, ships, tankers]] list."""
+    if len(series) < 10:
+        return None
+    ships = [r[1] for r in series]
+    a7, a30 = sum(ships[-7:]) / 7, sum(ships[-37:-7]) / max(1, len(ships[-37:-7]))
+    return {"name": label, "last": ships[-1], "day": series[-1][0], "a7": round(a7, 1), "a30": round(a30, 1), "chg": round((a7 / a30 - 1) * 100, 1) if a30 else None,
+            "tankers7": round(sum(r[2] for r in series[-7:]) / 7, 1), "spark": ships[-60:]}

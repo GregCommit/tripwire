@@ -487,6 +487,26 @@ def refresh_geo_map():
             st["pointsTs"] = int(time.time())
         except Exception as e:
             st["errors"]["points"] = f"{type(e).__name__}: {e}"[:140]
+        try:
+            from urllib.parse import quote
+            words = [w for _, w in S.PORTWATCH_STRAITS[cid]]
+            where = " OR ".join(f"UPPER(portname) LIKE '%{w[:6].upper()}%'" for w in words)
+            url = S.PORTWATCH_URL + "?f=json&outFields=*&orderByFields=date+DESC&resultRecordCount=%d&where=%s" % (80 * len(words), quote(where))
+            got = S.parse_portwatch(S.http_get(url, timeout=40, ua=BROWSER_UA).decode("utf-8", "replace"))
+            ships = []
+            for label, w in S.PORTWATCH_STRAITS[cid]:
+                ser = next((v for k, v in got.items() if w in k.lower()), None)
+                sm = ser and S.ship_summary(ser, label)
+                if sm:
+                    ships.append(sm)
+            if ships:
+                st["ships"] = ships
+                st["errors"].pop("ships", None)
+            else:
+                st["errors"]["ships"] = "no ship counts in the answer"
+        except Exception as e:
+            st["errors"]["ships"] = f"{type(e).__name__}: {e}"[:140]
+            st["ships"] = (prev or {}).get("ships", [])
         set_setting("geomap_" + cid, json.dumps(st))
         log.info("War map %s: front %s, %d incident points, errors %s", cid, len(st["front"] or []), len(st["points"]), st["errors"])
 
@@ -1414,7 +1434,7 @@ def api_geomap():
     with get_db() as conn:
         rows = [dict(r) for r in conn.execute("SELECT ts, source, title, summary, link FROM news WHERE ts > ? ORDER BY ts DESC LIMIT 2500", (int(time.time()) - 7 * 86400,))]
     return jsonify({"view": S.GEO_VIEW[cid], "sites": S.site_status(cid, rows), "front": st.get("front"), "points": st.get("points", []),
-                    "errors": st.get("errors", {}), "ts": st.get("ts"), "pointsTs": st.get("pointsTs")})
+                    "errors": st.get("errors", {}), "ships": st.get("ships", []), "ts": st.get("ts"), "pointsTs": st.get("pointsTs")})
 
 
 @app.route("/api/geo")
