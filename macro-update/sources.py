@@ -364,7 +364,7 @@ def summarize(ind, pts):
     s = {
         "key": ind["key"], "name": ind["name"], "group": ind["group"], "unit": ind["unit"], "dec": ind["dec"],
         "chgKind": ind["chg"], "money": bool(ind.get("money")), "signed": bool(ind.get("signed")),
-        "freq": ind["freq"], "explain": ind["explain"], "source": ind["source"],
+        "freq": ind["freq"], "explain": ind["explain"], "source": ind["source"], "sym": ind["sym"] if ind["source"] == "yahoo" else None,
         "date": last_d, "value": last_v,
         "prevDate": prev[0] if prev else None,
         "d1": _change(ind, last_v, prev[1]) if prev else None,

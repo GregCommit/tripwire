@@ -2197,7 +2197,7 @@ def api_intraday():
         pts = [(i.tz_convert(ny) if i.tzinfo else i, float(v)) for i, v in col.items() if v == v]
         last_day = pts[-1][0].date()
         today = [[int(i.timestamp()), v] for i, v in pts if i.date() == last_day]
-        prev = [v for i, v in pts if i.date() < last_day and 9 * 60 + 30 <= i.hour * 60 + i.minute < 16 * 60]
+        prev = [v for i, v in pts if i.date() < last_day and 9 * 60 + 30 <= i.hour * 60 + i.minute < 16 * 60] or [v for i, v in pts if i.date() < last_day]
         out = {"t": t, "pts": today, "prev": prev[-1] if prev else None}
     except Exception as e:
         out = {"t": t, "pts": [], "prev": None, "error": f"{type(e).__name__}: {e}"[:120]}

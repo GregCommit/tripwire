@@ -498,7 +498,7 @@ function cardHTML(s, cid){
   if (s.hub) return exCardHTML(s, cid);
   const id = cid + '|' + s.key, open = OPEN === id, mo = s.freq === 'monthly';
   const color = s.tone === 'alert' ? '#FF4D4F' : s.tone === 'watch' ? '#F5C518' : '#8a8a96';
-  return `<div class="ind${s.horizon ? ' hot' : ''}${open ? ' open' : ''}" data-cid="${id}" id="card-${uid(cid, s.key)}">
+  return `<div class="ind${s.horizon ? ' hot' : ''}${open ? ' open' : ''}" data-cid="${id}"${s.sym && cid !== 'ex' ? ` data-sym="${esc(s.sym)}"` : ''} id="card-${uid(cid, s.key)}">
     ${open ? xBtn(cid === 'ex' ? 'closeExplain()' : 'openCard(null)') : ''}
     <div class="nm"><span>${esc(s.name)}</span><span class="nmr"><span class="small">${esc(cdate(s, mo))}</span>${qBtn(s)}</span></div>
     <div class="val">${esc(fmtVal(s, s.value))}</div>${FORMULA[s.key] ? `<div class="formula">${esc(FORMULA[s.key])}</div>` : ''}
@@ -599,6 +599,42 @@ function driversHTML(c){
   const d = c.drivers; if (!d || !d.signal) return '';          // a note only when something in this group really moves
   return `<div class="drv"><ul>${d.bullets.slice(0, 2).map(b => `<li>${esc(shortText(b, 190))}</li>`).join('')}</ul></div>`;
 }
+// ── 1-day chart in the free space of a card ───────────────────────────────
+// Cards of one row are as tall as the tallest (long context text). Where a card has room, today's chart goes in first and the 1-year chart
+// slides down below it; where there is room for one chart only, it is today's.
+function intraCardHTML(D, s){
+  if (!D || !D.pts || D.pts.length < 3) return '';
+  const vs = D.pts.map(p => p[1]), lo = Math.min(...vs, D.prev ?? Infinity), hi = Math.max(...vs, D.prev ?? -Infinity), sp = hi - lo || 1, Y = v => 2 + (hi - v) / sp * 31;
+  const t0 = D.pts[0][0], t1 = D.pts[D.pts.length - 1][0], last = vs[vs.length - 1], col = D.prev ? (last >= D.prev ? '#22C55E' : '#FF4D4F') : '#e4e4e7';
+  const pts = D.pts.map(p => `${((p[0] - t0) / ((t1 - t0) || 1) * 100).toFixed(2)},${Y(p[1]).toFixed(2)}`).join(' ');
+  const grid = [2, 18, 34].map(y => `<line x1="0" x2="100" y1="${y}" y2="${y}" stroke="#26262c" stroke-width="1" vector-effect="non-scaling-stroke"/>`).join('');
+  const hm = ts => new Date(ts * 1000).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+  return `<div class="sparkw intra"><svg class="spark" viewBox="0 0 100 36" preserveAspectRatio="none">${grid}<line x1="0" x2="0" y1="0" y2="36" stroke="#52525b" stroke-width="1" vector-effect="non-scaling-stroke"/><line x1="0" x2="100" y1="35" y2="35" stroke="#52525b" stroke-width="1" vector-effect="non-scaling-stroke"/>
+    ${D.prev ? `<line x1="0" x2="100" y1="${Y(D.prev).toFixed(2)}" y2="${Y(D.prev).toFixed(2)}" stroke="#71717a" stroke-width="1" stroke-dasharray="3 3" vector-effect="non-scaling-stroke"/>` : ''}
+    <polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.6" vector-effect="non-scaling-stroke" stroke-linejoin="round"/></svg>
+    <span class="sl h">${esc(fmtVal(s, hi))}</span><span class="sl l">${esc(fmtVal(s, lo))}</span><span class="sl r">1 day · ${esc(hm(t0))}–${esc(hm(t1))}</span></div>`;
+}
+function enhanceCards(){
+  if (EXPL) return;
+  const cards = [...document.querySelectorAll('#today .grid .ind[data-sym]')], plan = [];
+  for (const card of cards){          // measure everything first, then change: inserting a chart into one card must not shift the others' measurements
+    const yr = card.querySelector(':scope > .sparkw'); if (!yr || card.classList.contains('open')) continue;
+    const cr = card.getBoundingClientRect(), yb = yr.getBoundingClientRect(), pad = parseFloat(getComputedStyle(card).paddingBottom) || 0;
+    plan.push({card, yr, free: cr.bottom - pad - yb.bottom, h: yb.height + 8});
+  }
+  for (const x of plan){
+    const sym = x.card.dataset.sym, key = x.card.dataset.cid.split('|')[1], s = findAny(key); if (!s) continue;
+    const apply = D => {
+      if (!x.card.isConnected) return;
+      const html = intraCardHTML(D, s); if (!html) return;
+      const tmp = document.createElement('div'); tmp.innerHTML = html; const ch = tmp.firstElementChild;
+      if (x.free >= x.h - 2){ x.yr.before(ch); } else { x.yr.replaceWith(ch); }
+    };
+    const c = INTRA.get(sym);
+    if (c && Date.now() - c.ts < 120000) apply(c.d);
+    else api('/api/intraday?t=' + encodeURIComponent(sym)).then(d => { INTRA.set(sym, {ts: Date.now(), d}); apply(d); }).catch(() => {});
+  }
+}
 function moverTile(m, rot){
   const arrow = m.chg > 0 ? '▲' : m.chg < 0 ? '▼' : '', cls = m.extreme ? 'down' : chgClass({good: m.good}, m.chg);
   const big = `${arrow} ${fmtChg({chgKind: m.chgKind, unit: m.unit, dec: m.dec}, m.chg)}`;
@@ -658,6 +694,7 @@ function renderToday(){
   }
   $('today').innerHTML = h;
   document.querySelectorAll('#today .ind[data-cid]').forEach(c => c.onclick = () => explain(c.dataset.cid.split('|')[1], c));
+  enhanceCards();
   drawOpen();
 }
 function japanCards(){ const o = OPEN; OPEN = null; const h = (OV.groups.find(g => g.id === 'japan')?.items || []).map(s => cardHTML(s, 'jp')).join(''); OPEN = o; return h; }
