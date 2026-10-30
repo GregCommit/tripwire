@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import smtplib
+import sys
 import sqlite3
 import threading
 import time
@@ -93,6 +94,8 @@ def init_db():
             CREATE TABLE IF NOT EXISTS news (id INTEGER PRIMARY KEY, ts INTEGER, source TEXT, title TEXT,
                 summary TEXT, link TEXT UNIQUE, topics TEXT);
             CREATE INDEX IF NOT EXISTS news_ts ON news(ts);
+            CREATE TABLE IF NOT EXISTS heat (idx TEXT PRIMARY KEY, ts INTEGER, data TEXT);
+            CREATE TABLE IF NOT EXISTS ai_cache (k TEXT PRIMARY KEY, ts INTEGER, model TEXT, text TEXT);
             CREATE TABLE IF NOT EXISTS alerts (id INTEGER PRIMARY KEY, ts INTEGER, key TEXT, kind TEXT,
                 title TEXT, detail TEXT, emailed INTEGER DEFAULT 0);
         """)
@@ -387,6 +390,158 @@ def news_for(primary, drivers, effects, limit=10):
     return out[:limit]
 
 
+
+# ── AI summary of the situation behind a headline (Anthropic SDK) ─────────────────────────────
+AI_MODELS = [("claude-opus-5-5", "Claude Opus 5.5 — best quality, about 2 cents per summary"),
+             ("claude-sonnet-5-5", "Claude Sonnet 5.5 — about 1 cent per summary"),
+             ("claude-haiku-5-5", "Claude Haiku 5.5 — cheapest, a fraction of a cent")]
+AI_SYSTEM = ("You write short, plain-language briefings about the market situation behind a news headline, inside a personal "
+             "investing dashboard. Use ONLY the headlines and numbers you are given; never add facts, figures, dates or causes "
+             "that are not in them. If the headlines and the numbers do not support each other, say so plainly. "
+             "Write exactly three short labelled paragraphs: 'What the news says.' 'What the numbers show.' "
+             "'How solid it is.' — the last one says whether the connected indicators confirm the story or not, how unusual the "
+             "moves really are, and what to watch next. At most 150 words in total. No bullet points, no investment advice, no hype.")
+AI_TTL = 3 * 3600
+
+
+class AiError(Exception):
+    def __init__(self, code, message):
+        super().__init__(message)
+        self.code, self.message = code, message
+
+
+def ai_key():
+    return get_setting("anthropic_key", "") or os.environ.get("ANTHROPIC_API_KEY", "")
+
+
+def ai_model():
+    m = get_setting("ai_model", AI_MODELS[0][0])
+    return m if m in dict(AI_MODELS) else AI_MODELS[0][0]
+
+
+def ai_prompt(h):
+    cutoff = int(time.time()) - 5 * 86400
+    with get_db() as conn:
+        rows = [dict(r) for r in conn.execute("SELECT * FROM news WHERE ts > ? ORDER BY ts DESC LIMIT 800", (cutoff,))]
+    row = next((r for r in rows if link_hash(r["link"]) == h), None)
+    if not row:
+        raise AiError("gone", "That headline is no longer stored (the app keeps four days of news).")
+    items = all_items()
+    topics = json.loads(row["topics"])
+    keys = [k for k, _ in sorted(topics, key=lambda x: -(items[x[0]]["rank"] if x[0] in items else -1)) if k in items][:3]
+    keyset = set(keys)
+    related = [r for r in rows if r is not row and keyset & {t for t, _ in json.loads(r["topics"])}][:5]
+    lines = ["HEADLINE: " + row["title"] + (f" — {row['summary']}" if row["summary"] else "") + f" ({row['source']}, {datetime.fromtimestamp(row['ts']).strftime('%d %b %H:%M')})"]
+    if related:
+        lines.append("OTHER RECENT HEADLINES ON THE SAME TOPIC:")
+        lines += [f"- {r['title']}" + (f" — {r['summary']}" if r["summary"] else "") + f" ({r['source']})" for r in related]
+    lines.append("CURRENT NUMBERS (from the dashboard):")
+    for k in keys:
+        it, ex = items[k], S.explain(k, items)
+        move = f"{S.fchg(it['chgKind'], it.get('d1'))} today, {S.fchg(it['chgKind'], it.get('w1'))} this week, {S.fchg(it['chgKind'], it.get('m1'))} this month"
+        extra = f"; {it['pct']:.0f}th percentile of its own history" if it.get("hub") else ""
+        links = "; ".join(x["note"] for x in ex["drivers"] + ex["effects"] if x["status"] != "quiet")[:700]
+        lines.append(f"- {it['name']}: now {fmt_hub(it, it['value'])}; {move}{extra}. Unusual: {it.get('horizon') or 'no'}. How it connects: {links or 'no connected indicator is moving'}")
+    return "\n".join(lines), [{"title": r["title"], "source": r["source"], "link": r["link"], "ts": r["ts"]} for r in [row] + related]
+
+
+def ai_error(e):
+    import anthropic
+    if isinstance(e, anthropic.AuthenticationError):
+        return AiError("bad_key", "The Anthropic API key was not accepted. Check it on the Alerts tab.")
+    if isinstance(e, anthropic.PermissionDeniedError):
+        return AiError("denied", "This API key may not use that model.")
+    if isinstance(e, anthropic.NotFoundError):
+        return AiError("model", "That model is not available to this key. Pick another model on the Alerts tab.")
+    if isinstance(e, anthropic.RateLimitError):
+        return AiError("rate", "Anthropic says too many requests right now. Try again in a minute.")
+    if isinstance(e, anthropic.APIConnectionError):
+        return AiError("net", "Could not reach Anthropic from the server.")
+    if isinstance(e, anthropic.APIStatusError):
+        return AiError("api", f"Anthropic returned an error ({e.status_code}): {e.message}"[:300])
+    return AiError("api", f"{type(e).__name__}: {e}"[:300])
+
+
+def ai_summarize(h):
+    key = ai_key()
+    if not key:
+        raise AiError("no_key", "AI summaries need an Anthropic API key. Add it on the Alerts tab.")
+    try:
+        import anthropic
+    except ImportError:
+        raise AiError("sdk", "The Anthropic library is not installed on the server yet. The updater installs it within a minute; try again shortly.")
+    prompt, sources = ai_prompt(h)
+    model = ai_model()
+    ck = hashlib.md5((model + prompt).encode()).hexdigest()
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM ai_cache WHERE k=?", (ck,)).fetchone()
+    if row and time.time() - row["ts"] < AI_TTL:
+        return {"text": row["text"], "model": row["model"], "cached": True, "sources": sources}
+    client = anthropic.Anthropic(api_key=key, timeout=60.0, max_retries=1)
+    params = dict(model=model, max_tokens=4000, system=AI_SYSTEM, messages=[{"role": "user", "content": prompt}], output_config={"effort": "low"})
+    try:
+        resp = client.messages.create(**params)
+        if resp.stop_reason == "refusal":      # a safety classifier declined: re-run once with the server-side fallback
+            resp = client.beta.messages.create(betas=["server-side-fallback-2026-06-01"], fallbacks=[{"model": "claude-opus-4-8"}], **params)
+    except anthropic.APIError as e:
+        raise ai_error(e)
+    text = "".join(b.text for b in resp.content if b.type == "text").strip()
+    if not text:
+        raise AiError("empty", "The model returned no text" + (" (it declined to answer)." if resp.stop_reason == "refusal" else "."))
+    with get_db() as conn:
+        conn.execute("INSERT OR REPLACE INTO ai_cache (k, ts, model, text) VALUES (?,?,?,?)", (ck, int(time.time()), model, text))
+        conn.execute("DELETE FROM ai_cache WHERE ts < ?", (int(time.time()) - 7 * 86400,))
+    return {"text": text, "model": model, "cached": False, "sources": sources}
+
+
+# ── Heatmap ────────────────────────────────────────────────────────────────────────────────
+HEAT_EVERY = 15 * 60
+
+
+def refresh_heat():
+    screener, errors = None, []
+    try:
+        screener = S.fetch_screener()
+    except Exception as e:
+        errors.append(f"Nasdaq screener: {type(e).__name__}: {e}"[:160])
+    for idx, (title, url) in S.HEAT_INDEXES.items():
+        wiki, errs = None, list(errors)
+        try:
+            wiki = S.parse_wiki_constituents(S.http_get(url, timeout=30, ua=BROWSER_UA).decode("utf-8", "replace"))
+        except Exception as e:
+            errs.append(f"Wikipedia {title}: {type(e).__name__}: {e}"[:160])
+        with get_db() as conn:
+            prev = conn.execute("SELECT data FROM heat WHERE idx=?", (idx,)).fetchone()
+        caps = {r["t"]: r["c"] for r in json.loads(prev["data"])["rows"]} if prev else {}
+        base = [r["t"] for r in (wiki and [{"t": t} for t, *_ in wiki] or [{"t": r["t"]} for r in S.heat_static(idx)])]
+        caps = {**{r["t"]: r["m"] for r in S.heat_static(idx)}, **caps}
+        yahoo = None
+        if not screener:
+            try:
+                yahoo = S.yahoo_changes(base)
+            except Exception as e:
+                errs.append(f"Yahoo: {type(e).__name__}: {e}"[:160])
+        try:
+            built = S.build_heatmap(idx, wiki, screener, yahoo, caps)
+        except Exception as e:
+            log.warning("Heatmap %s failed: %s", idx, e)
+            continue
+        built["errors"] = errs
+        with get_db() as conn:
+            conn.execute("INSERT OR REPLACE INTO heat (idx, ts, data) VALUES (?,?,?)", (idx, int(time.time()), json.dumps(built)))
+        log.info("Heatmap %s: %d stocks (%s)", idx, len(built["rows"]), "; ".join(built["notes"]))
+
+
+def heat_loop():
+    time.sleep(30)
+    while True:
+        try:
+            refresh_heat()
+        except Exception as e:
+            log.exception("Heatmap refresh failed: %s", e)
+        time.sleep(HEAT_EVERY)
+
+
 _started = False
 
 
@@ -396,6 +551,7 @@ def start_background():
         _started = True
         threading.Thread(target=background_loop, daemon=True, name="refresh").start()
         threading.Thread(target=news_loop, daemon=True, name="news").start()
+        threading.Thread(target=heat_loop, daemon=True, name="heat").start()
 
 
 # ── Summaries and alerts ────────────────────────────────────────────────────
@@ -685,12 +841,26 @@ def crossed_levels(sm, rules):
     return out
 
 
+def solid_signal(x):
+    """Worth a tile at the top: a big move, or an extreme, or a clearly smaller one that its usual partners
+    confirm. Small moves, loose ends and partners that did not follow are left out, however many headlines
+    there are about them."""
+    if not x.get("horizon"):
+        return False
+    spec, boost, factor = x.get("spec", 0), x.get("linkBoost", 0), x.get("linkFactor", 1)
+    if x.get("hub") and str(x.get("zone", "")).startswith("extreme"):
+        return boost > 0 or spec >= 1.6
+    if factor < 0.9 and spec < 2.0:
+        return False
+    return spec >= 1.5 or (spec >= 1.0 and boost >= 1.0)
+
+
 def build_summary(clusters, levels, recent):
     """What moved most: up to three tiles, one per group, each with the move in numbers and, only if
     there is one, a real headline. Nothing is written for things that did not move."""
     movers = []
     for c in clusters:
-        special = [x for x in c["main"] if x.get("horizon") and x.get("spec", 0) >= 1.0]
+        special = [x for x in c["main"] if solid_signal(x)]
         if not special:
             continue
         x = max(special, key=lambda i: i["rank"])
@@ -786,13 +956,48 @@ def all_items():
     return items
 
 
-def build_graph(items, edges, n):
+def node_why(k, items, edges, recent):
+    it = items[k]
+    names = lambda ks: ", ".join(items[x]["name"] for x in ks[:2])
+    parts = []
+    hz = it.get("horizon")
+    if hz == "at an extreme" and it.get("hub"):
+        parts.append(f"sits at the {it['side']} extreme of its own history ({it['pct']:.0f}th percentile)")
+    elif hz:
+        zk = {"today": "z1", "this week": "zw", "this month": "zm"}.get(hz, "z1")
+        field = HZ_FIELD.get(hz, "d1")
+        z = abs(it.get(zk) or 0)
+        parts.append(f"moved {S.fchg(it['chgKind'], it.get(field))} {hz}" + (f", about {z:.1f}× a typical move" if z else ""))
+    else:
+        parts.append("no unusual move; shown because it is connected to indicators that are moving")
+    boost = [e["affected"] if e["driver"] == k else e["driver"] for e in edges if k in (e["driver"], e["affected"]) and e.get("reinforce")]
+    weak = [e["affected"] if e["driver"] == k else e["driver"] for e in edges if k in (e["driver"], e["affected"]) and e["status"] in ("noreact", "against")]
+    if boost:
+        parts.append(f"counts for more because {names(boost)} moved the usual way with it")
+    if weak:
+        parts.append(f"counts for less because {names(weak)} did not follow")
+    n = len(recent.get(k, []))
+    parts.append(f"{n} headline{'s' if n != 1 else ''} about it in the last 3 days" if n else "no headline about it right now")
+    return "; ".join(parts) + "."
+
+
+def build_graph(items, edges, n, clusters=None, news_on=True, linked=False, news_only=False):
     """The overview map: the most important indicators (after the link adjustment), the links between
     them and the headlines about them. Everything else is left out on purpose."""
-    ranked = sorted(items, key=lambda k: -items[k]["rank"])
+    recent = news_recent(72)
+    pool = list(items)
+    if clusters:
+        allowed = {k for c in S.CLUSTERS if c["id"] in clusters for k in c["main"]}
+        pool = [k for k in pool if k in allowed]
+    if news_only:
+        pool = [k for k in pool if recent.get(k)]
+    ranked = sorted(pool, key=lambda k: -items[k]["rank"])
     sel = [k for k in ranked if items[k]["rank"] >= 0.5][:n]
-    if len(sel) < 6:
-        sel = ranked[:6]
+    if len(sel) < min(6, len(ranked)):
+        sel = ranked[:min(6, len(ranked))]
+    if linked:
+        linked_keys = {e["driver"] for e in edges if e["driver"] in sel and e["affected"] in sel} | {e["affected"] for e in edges if e["driver"] in sel and e["affected"] in sel}
+        sel = [k for k in sel if k in linked_keys]
     keyset = set(sel)
     nodes = []
     for k in sel:
@@ -801,7 +1006,8 @@ def build_graph(items, edges, n):
         nodes.append({"key": k, "name": it["name"], "value": it["value"], "unit": it["unit"], "dec": it["dec"], "signed": bool(it.get("signed")),
                       "chgKind": it["chgKind"], "chg": it.get(field), "horizon": it.get("horizon"), "good": it.get("good", 0),
                       "hub": bool(it.get("hub")), "zone": it.get("zone"), "tone": it.get("tone"), "rank": it["rank"],
-                      "boost": it.get("linkBoost", 0), "factor": it.get("linkFactor", 1), "rank0": it.get("rank0", it["rank"]), "cluster": cluster_of(k)})
+                      "boost": it.get("linkBoost", 0), "factor": it.get("linkFactor", 1), "rank0": it.get("rank0", it["rank"]), "cluster": cluster_of(k),
+                      "why": node_why(k, items, edges, recent), "nNews": len(recent.get(k, []))})
     es = [{"a": e["driver"], "b": e["affected"], "mode": e["mode"], "status": e["status"], "reinforce": e.get("reinforce", False),
            "note": e["note"]} for e in edges if e["driver"] in keyset and e["affected"] in keyset]
     notes = []
@@ -813,7 +1019,7 @@ def build_graph(items, edges, n):
             notes.append(e["note"])
     cutoff = int(time.time()) - 72 * 3600
     with get_db() as conn:
-        rows = [dict(r) for r in conn.execute("SELECT * FROM news WHERE ts > ? ORDER BY ts DESC LIMIT 600", (cutoff,))]
+        rows = [dict(r) for r in conn.execute("SELECT * FROM news WHERE ts > ? ORDER BY ts DESC LIMIT 600", (cutoff,))] if news_on else []
     news = []
     for r in rows:
         try:
@@ -830,13 +1036,69 @@ def build_graph(items, edges, n):
     return {"nodes": nodes, "edges": es, "news": news[:6], "notes": notes[:6], "total": len(items), "shown": len(nodes)}
 
 
+
+@app.route("/api/summary", methods=["POST"])
+@login_required
+def api_summary():
+    h = str((request.json or {}).get("h", ""))[:20]
+    try:
+        return jsonify({"success": True, **ai_summarize(h)})
+    except AiError as e:
+        return jsonify({"success": False, "error": e.code, "message": e.message}), 400
+
+
+@app.route("/api/ai", methods=["GET", "POST"])
+@login_required
+def api_ai():
+    if request.method == "POST":
+        d = request.json or {}
+        if d.get("key"):
+            set_setting("anthropic_key", str(d["key"]).strip())
+        if d.get("clearKey"):
+            set_setting("anthropic_key", "")
+        if d.get("model") in dict(AI_MODELS):
+            set_setting("ai_model", d["model"])
+        if d.get("test"):
+            try:
+                import anthropic
+                anthropic.Anthropic(api_key=ai_key(), timeout=30.0, max_retries=0).messages.create(
+                    model=ai_model(), max_tokens=200, messages=[{"role": "user", "content": "Reply with the single word OK."}], output_config={"effort": "low"})
+                return jsonify({"success": True, "message": "The key works."})
+            except ImportError:
+                return jsonify({"success": False, "message": "The Anthropic library is not installed on the server yet; it is installed within a minute of the update."})
+            except Exception as e:
+                return jsonify({"success": False, "message": ai_error(e).message if "anthropic" in sys.modules else str(e)})
+    try:
+        import anthropic  # noqa: F401
+        sdk = True
+    except ImportError:
+        sdk = False
+    return jsonify({"hasKey": bool(ai_key()), "model": ai_model(), "models": [{"id": i, "label": l} for i, l in AI_MODELS], "sdk": sdk})
+
+
+@app.route("/api/heatmap")
+@login_required
+def api_heatmap():
+    idx = request.args.get("index", "sp500")
+    if idx not in S.HEAT_INDEXES:
+        return jsonify({"error": "unknown index"}), 404
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM heat WHERE idx=?", (idx,)).fetchone()
+    if not row:
+        return jsonify({"index": idx, "title": S.HEAT_INDEXES[idx][0], "rows": [], "notes": [], "errors": [], "ts": None})
+    d = json.loads(row["data"])
+    return jsonify({"index": idx, "title": S.HEAT_INDEXES[idx][0], "ts": row["ts"], **d})
+
+
 @app.route("/api/graph")
 @login_required
 def api_graph():
     items = all_items()
     _, edges = S.adjusted_scores(items)
-    n = max(6, min(18, int(request.args.get("n", 14))))
-    return jsonify(build_graph(items, edges, n))
+    n = max(4, min(24, int(request.args.get("n", 14))))
+    clusters = [c for c in request.args.get("clusters", "").split(",") if c]
+    return jsonify(build_graph(items, edges, n, clusters or None, request.args.get("news", "1") != "0",
+                               request.args.get("linked") == "1", request.args.get("newsonly") == "1"))
 
 
 @app.route("/api/explain/<key>")

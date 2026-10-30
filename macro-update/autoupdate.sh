@@ -53,6 +53,8 @@ if [ $changed = 0 ]; then remember; update_self; exit 0; fi
   || { echo "syntax check failed for ${SHA:-$BRANCH} - nothing changed"; remember; update_self; exit 1; }
 mkdir -p "$BK"; for f in $FILES; do cp "$APP/$f" "$BK/"; done
 for f in $FILES; do cp "$TMP/$f" "$APP/$f"; chown ubuntu:ubuntu "$APP/$f" 2>/dev/null; done
+# AI summaries need the Anthropic library; install it once into the app's virtual environment
+"$PY" -c "import anthropic" 2>/dev/null || "${PIP:-/opt/macro/venv/bin/pip}" install -q anthropic >/dev/null 2>&1 || echo "note: could not install the anthropic library"
 systemctl restart macro.service
 healthy=0
 for _ in $(seq 1 "$SETTLE"); do

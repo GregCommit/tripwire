@@ -1386,3 +1386,112 @@ def parse_feed(xml_bytes, default_source=""):
         summary = first_sentence(g("description", "a:summary") or g("{http://purl.org/rss/1.0/modules/content/}encoded"), title)
         out.append({"title": title, "link": link, "summary": summary, "ts": ts, "source": source or default_source})
     return out
+
+
+# ══ Heatmap (S&P 500 / Nasdaq-100) ═════════════════════════════════════════════════════════════
+# Index lists from Wikipedia, prices / market caps / sectors from Nasdaq's public screener; if those fail,
+# Yahoo prices for a built-in list of the biggest companies. Each step reports what it used.
+HEAT_INDEXES = {"sp500": ("S&P 500", "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"),
+                "nasdaq100": ("Nasdaq-100", "https://en.wikipedia.org/wiki/Nasdaq-100")}
+_BROWSER = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36"
+# ticker|company|sector|approx. market cap in $bn|S&P 500|Nasdaq-100   (fallback only — sizes are approximate)
+_HEAT_STATIC = """AAPL|Apple|Information Technology|3300|1|1;MSFT|Microsoft|Information Technology|3400|1|1;NVDA|NVIDIA|Information Technology|3300|1|1;AVGO|Broadcom|Information Technology|1100|1|1;ORCL|Oracle|Information Technology|450|1|0;CRM|Salesforce|Information Technology|250|1|0;AMD|AMD|Information Technology|250|1|1;CSCO|Cisco|Information Technology|230|1|1;ADBE|Adobe|Information Technology|190|1|1;ACN|Accenture|Information Technology|220|1|0;IBM|IBM|Information Technology|220|1|0;QCOM|Qualcomm|Information Technology|180|1|1;INTU|Intuit|Information Technology|180|1|1;TXN|Texas Instruments|Information Technology|180|1|1;AMAT|Applied Materials|Information Technology|140|1|1;NOW|ServiceNow|Information Technology|200|1|0;MU|Micron|Information Technology|120|1|1;PANW|Palo Alto Networks|Information Technology|120|1|1;ADI|Analog Devices|Information Technology|110|1|1;LRCX|Lam Research|Information Technology|100|1|1;KLAC|KLA|Information Technology|90|1|1;INTC|Intel|Information Technology|90|1|1;SNPS|Synopsys|Information Technology|80|1|1;CDNS|Cadence|Information Technology|85|1|1;CRWD|CrowdStrike|Information Technology|90|1|1;ANET|Arista Networks|Information Technology|120|1|0;PLTR|Palantir|Information Technology|200|1|1;GOOGL|Alphabet A|Communication Services|2100|1|1;GOOG|Alphabet C|Communication Services|2100|1|1;META|Meta Platforms|Communication Services|1500|1|1;NFLX|Netflix|Communication Services|400|1|1;TMUS|T-Mobile US|Communication Services|250|1|1;DIS|Disney|Communication Services|200|1|0;CMCSA|Comcast|Communication Services|150|1|1;T|AT&T|Communication Services|160|1|0;VZ|Verizon|Communication Services|170|1|0;AMZN|Amazon|Consumer Discretionary|2000|1|1;TSLA|Tesla|Consumer Discretionary|1000|1|1;HD|Home Depot|Consumer Discretionary|380|1|0;MCD|McDonald's|Consumer Discretionary|210|1|0;BKNG|Booking Holdings|Consumer Discretionary|160|1|1;LOW|Lowe's|Consumer Discretionary|130|1|0;NKE|Nike|Consumer Discretionary|100|1|0;SBUX|Starbucks|Consumer Discretionary|100|1|1;TJX|TJX|Consumer Discretionary|140|1|0;ABNB|Airbnb|Consumer Discretionary|80|1|1;WMT|Walmart|Consumer Staples|700|1|0;COST|Costco|Consumer Staples|420|1|1;PG|Procter & Gamble|Consumer Staples|380|1|0;KO|Coca-Cola|Consumer Staples|300|1|0;PEP|PepsiCo|Consumer Staples|200|1|1;PM|Philip Morris|Consumer Staples|190|1|0;MDLZ|Mondelez|Consumer Staples|90|1|1;MO|Altria|Consumer Staples|100|1|0;LLY|Eli Lilly|Health Care|700|1|0;UNH|UnitedHealth|Health Care|450|1|0;JNJ|Johnson & Johnson|Health Care|380|1|0;ABBV|AbbVie|Health Care|330|1|0;MRK|Merck|Health Care|250|1|0;TMO|Thermo Fisher|Health Care|200|1|0;ABT|Abbott|Health Care|220|1|0;AMGN|Amgen|Health Care|150|1|1;ISRG|Intuitive Surgical|Health Care|190|1|1;PFE|Pfizer|Health Care|150|1|0;DHR|Danaher|Health Care|170|1|0;GILD|Gilead|Health Care|130|1|1;BRK-B|Berkshire Hathaway B|Financials|1000|1|0;JPM|JPMorgan Chase|Financials|700|1|0;V|Visa|Financials|600|1|0;MA|Mastercard|Financials|480|1|0;BAC|Bank of America|Financials|330|1|0;WFC|Wells Fargo|Financials|250|1|0;GS|Goldman Sachs|Financials|200|1|0;MS|Morgan Stanley|Financials|200|1|0;AXP|American Express|Financials|200|1|0;BLK|BlackRock|Financials|150|1|0;C|Citigroup|Financials|140|1|0;SPGI|S&P Global|Financials|150|1|0;GE|GE Aerospace|Industrials|250|1|0;CAT|Caterpillar|Industrials|190|1|0;RTX|RTX|Industrials|180|1|0;HON|Honeywell|Industrials|140|1|1;UNP|Union Pacific|Industrials|140|1|0;BA|Boeing|Industrials|130|1|0;DE|Deere|Industrials|120|1|0;LMT|Lockheed Martin|Industrials|110|1|0;UPS|UPS|Industrials|100|1|0;XOM|Exxon Mobil|Energy|480|1|0;CVX|Chevron|Energy|270|1|0;COP|ConocoPhillips|Energy|130|1|0;NEE|NextEra Energy|Utilities|150|1|0;SO|Southern Company|Utilities|90|1|0;DUK|Duke Energy|Utilities|90|1|0;PLD|Prologis|Real Estate|100|1|0;AMT|American Tower|Real Estate|100|1|0;EQIX|Equinix|Real Estate|80|1|0;LIN|Linde|Materials|220|1|1;SHW|Sherwin-Williams|Materials|90|1|0;ASML|ASML|Information Technology|300|0|1;AZN|AstraZeneca|Health Care|230|0|1"""
+
+
+def heat_static(index):
+    out = []
+    for row in _HEAT_STATIC.split(";"):
+        t, n, s, cap, sp, nd = row.split("|")
+        if not float(cap):
+            continue
+        if (index == "sp500" and sp == "1") or (index == "nasdaq100" and nd == "1"):
+            out.append({"t": t, "n": n, "s": s, "i": "", "m": float(cap) * 1e9})
+    return out
+
+
+def parse_wiki_constituents(html):
+    """Rows of the 'constituents' table on Wikipedia: [(ticker, company, sector, industry)]."""
+    i = html.find('id="constituents"')
+    if i < 0:
+        raise ValueError("constituents table not found")
+    j = html.find("</table>", i)
+    out = []
+    for row in re.findall(r"<tr[^>]*>(.*?)</tr>", html[i:j], re.S):
+        cells = [_clean_text(c) for c in re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", row, re.S)]
+        if len(cells) >= 3 and cells[0] and cells[0].lower() not in ("symbol", "ticker"):
+            out.append((norm_ticker(cells[0]), cells[1], cells[2], cells[3] if len(cells) > 3 else ""))
+    if len(out) < 50:
+        raise ValueError(f"only {len(out)} rows parsed")
+    return out
+
+
+def norm_ticker(t):
+    return re.sub(r"[./\s]", "-", (t or "").strip().upper())
+
+
+def _num(s):
+    s = re.sub(r"[^0-9.\-]", "", str(s or ""))
+    try:
+        return float(s) if s not in ("", "-", ".") else 0.0
+    except ValueError:
+        return 0.0
+
+
+def fetch_screener():
+    """All US-listed stocks with price change, market cap and sector from Nasdaq's public screener."""
+    import json as _json
+    out = {}
+    for ex in ("NASDAQ", "NYSE", "AMEX"):
+        url = f"https://api.nasdaq.com/api/screener/stocks?tableonly=true&limit=10000&offset=0&exchange={ex}&download=true"
+        req = urllib.request.Request(url, headers={"User-Agent": _BROWSER, "Accept": "application/json, text/plain, */*",
+                                                    "Origin": "https://www.nasdaq.com", "Referer": "https://www.nasdaq.com/"})
+        with urllib.request.urlopen(req, timeout=40) as r:
+            data = _json.loads(r.read().decode("utf-8", "replace"))
+        rows = ((data.get("data") or {}).get("rows")) or []
+        for r_ in rows:
+            t = norm_ticker(r_.get("symbol"))
+            if not t:
+                continue
+            pct = r_.get("pctchange")
+            out[t] = {"n": r_.get("name") or t, "p": 0.0 if str(pct).strip().upper() in ("UNCH", "", "NONE") else _num(pct),
+                      "m": _num(r_.get("marketCap")), "px": _num(r_.get("lastsale")), "s": r_.get("sector") or "", "i": r_.get("industry") or ""}
+    if len(out) < 500:
+        raise ValueError(f"screener returned only {len(out)} stocks")
+    return out
+
+
+def build_heatmap(index, wiki=None, screener=None, yahoo=None, caps=None):
+    """Combine whatever sources worked into [{t, n, s, i, c(market cap), p(% change today)}] and say which."""
+    notes = []
+    base = []
+    if wiki:
+        base = [{"t": t, "n": n, "s": s, "i": i, "m": (caps or {}).get(t, 0.0)} for t, n, s, i in wiki]
+        notes.append("index list: Wikipedia")
+    else:
+        base = heat_static(index)
+        notes.append("index list: built-in list of the largest companies (Wikipedia not reachable)")
+    rows = []
+    for b in base:
+        q = (screener or {}).get(b["t"])
+        if q:
+            rows.append({"t": b["t"], "n": q["n"] or b["n"], "s": b["s"] or q["s"] or "Other", "i": b["i"] or q["i"], "c": q["m"] or b["m"], "p": q["p"]})
+        elif yahoo and b["t"] in yahoo and b["m"]:
+            rows.append({"t": b["t"], "n": b["n"], "s": b["s"] or "Other", "i": b["i"], "c": b["m"], "p": yahoo[b["t"]]})
+    if screener:
+        notes.append("prices & market caps: Nasdaq screener")
+    elif yahoo:
+        notes.append("prices: Yahoo Finance; market caps: approximate (screener not reachable)")
+    rows = [r for r in rows if r["c"] > 0]
+    if not rows:
+        raise ValueError("no usable rows")
+    return {"rows": rows, "notes": notes}
+
+
+def yahoo_changes(tickers):
+    """% change from the previous close, for many tickers in one Yahoo download."""
+    got = fetch_yahoo(tickers, period="5d")
+    out = {}
+    for t, pts in got.items():
+        if len(pts) >= 2 and pts[-2][1]:
+            out[t] = (pts[-1][1] / pts[-2][1] - 1) * 100
+    return out
