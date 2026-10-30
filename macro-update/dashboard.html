@@ -105,8 +105,9 @@ h2.sub{font-size:14px;color:var(--mute);font-weight:500;margin:18px 0 6px}
 .tile:active,.ind:active,.stk:active,.sg.click:active,.gh:active,.strel.click:active,.btn:active,.chips button:active,.seg button:active,.mgc:active,.gnode:active{transform:scale(.97)}
 #prog{position:fixed;left:0;top:0;height:2px;width:100%;z-index:200;pointer-events:none;opacity:0;transition:opacity .2s;background:linear-gradient(90deg,transparent,var(--accent),transparent);background-size:40% 100%;background-repeat:no-repeat}
 #prog.on{opacity:1;animation:prog 1s linear infinite}@keyframes prog{from{background-position:-40% 0}to{background-position:140% 0}}
-.hstrip-wrap{margin:10px 0 12px}.hstrip{display:flex;gap:1px;height:46px;border:1px solid var(--line);border-radius:4px;overflow:hidden;background:#000}.hsd{flex:1;min-width:2px;cursor:pointer;transition:filter .12s}.hsd:hover{filter:brightness(1.5)}.hsd.sel{outline:2px solid #fff;outline-offset:-2px}.hsd.live{flex:0 0 14px;margin-left:3px}
-.hsmarks{position:relative;height:16px;font-size:10.5px;color:var(--dim)}.hsmarks span{position:absolute;top:2px}.hsctl{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;margin-top:4px}.hslide{flex:1 1 320px;accent-color:var(--accent);padding:0;background:transparent;border:none}
+.hstrip-wrap{margin:10px 0 12px}.hstrip{display:flex;gap:3px;height:46px;border:1px solid var(--line);border-radius:4px;overflow:hidden;background:#000}.hscells{flex:1;display:flex;gap:1px}.hsd{flex:1;min-width:2px;cursor:pointer;transition:filter .12s,box-shadow .12s}.hsd:hover{filter:brightness(1.5)}.hsd.in{box-shadow:inset 0 3px 0 #fff,inset 0 -3px 0 #fff}.hsd.sel{outline:2px solid #fff;outline-offset:-2px}.hsd.live{flex:0 0 14px}
+.dual{position:relative;height:50px;margin:2px 17px 6px 0}.dtrack{position:absolute;left:0;right:0;top:34px;height:4px;border-radius:2px;background:var(--line2)}.dfill{position:absolute;top:34px;height:4px;border-radius:2px;background:var(--accent)}.dlab{position:absolute;top:4px;transform:translateX(-50%);font-size:11.5px;color:var(--txt);background:var(--card2);border:1px solid var(--line2);border-radius:3px;padding:1px 6px;white-space:nowrap;pointer-events:none}.dr{position:absolute;left:0;top:27px;width:100%;height:18px;margin:0;background:none;border:none;padding:0;pointer-events:none;-webkit-appearance:none;appearance:none}.dr::-webkit-slider-runnable-track{background:transparent;height:18px}.dr::-moz-range-track{background:transparent}.dr::-webkit-slider-thumb{-webkit-appearance:none;pointer-events:auto;width:16px;height:18px;border-radius:4px;background:#fff;border:2px solid var(--accent);cursor:ew-resize}.dr::-moz-range-thumb{pointer-events:auto;width:12px;height:16px;border-radius:4px;background:#fff;border:2px solid var(--accent);cursor:ew-resize}
+.hsmarks{position:relative;height:16px;margin-right:17px;font-size:10.5px;color:var(--dim)}.hsmarks span{position:absolute;top:2px}.hsctl{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;margin-top:4px}.hslide{flex:1 1 320px;accent-color:var(--accent);padding:0;background:transparent;border:none}
 .movers{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;margin:14px 2px 6px;font-size:13.5px}.mv{font-variant-numeric:tabular-nums}
 @media (max-width:700px){.gh{grid-template-columns:1fr;gap:6px}.ghl{flex-direction:row;align-items:center}}
 .geohead{margin-top:12px}.geoblurb{font-size:15px;line-height:1.6}
@@ -144,8 +145,10 @@ h2.sub{font-size:14px;color:var(--mute);font-weight:500;margin:18px 0 6px}
 .tmr-m{margin-top:12px}.mc{display:flex;flex-wrap:wrap;gap:6px 10px;margin-top:6px}.mc .mgc{text-decoration:none;font-size:17px;font-weight:700;font-variant-numeric:tabular-nums;border:1px solid var(--line2);border-radius:4px;padding:4px 10px}.mc i{font-style:normal;font-size:12px;font-weight:500;color:var(--mute);margin-right:4px}.mc .mgc{font-weight:700;font-variant-numeric:tabular-nums;border:1px solid var(--line2);border-radius:4px;padding:4px 10px}.mc .up{color:var(--up)}.mc .down{color:var(--down);border-color:rgba(255,77,79,.5)}.mc .mgc:hover{background:rgba(255,255,255,.05)}.mc .mgc small{font-size:10.5px;font-weight:500;color:var(--dim);margin-left:6px}
 .tmr-s{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-top:12px}
 .sg{border:1px solid var(--line2);border-radius:4px;padding:7px 10px}.sg.hit{border-color:var(--alert);background:rgba(255,59,59,.07)}
-.sg.click{cursor:pointer}.sg.click:hover{background:rgba(255,255,255,.04)}.sg .r{font-size:11px;line-height:1.35;color:var(--dim);margin-top:3px}.sg .n{font-size:11.5px;color:var(--mute)}.sg .v{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:2px}.sg.hit .v{color:var(--alert)}
+.sg.warn{border-color:var(--watch);background:rgba(245,197,24,.06)}.sg.warn .v{color:var(--watch)}.sg.click{cursor:pointer}.sg.click:hover{background:rgba(255,255,255,.04)}.sg .r{font-size:11px;line-height:1.35;color:var(--dim);margin-top:3px}.sg .n{font-size:11.5px;color:var(--mute)}.sg .v{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:2px}.sg.hit .v{color:var(--alert)}
 .tmr-w{margin-top:12px;font-size:13px;color:var(--mute);display:flex;flex-wrap:wrap;gap:4px 16px}.tmr-w b{color:var(--txt);font-weight:600}.tmr-w .up,.tmr-w b.up{color:var(--up)}.tmr-w .down,.tmr-w b.down{color:var(--down)}
+.tile.rotile{position:relative;padding-bottom:52px}.rotfoot{position:absolute;left:18px;right:18px;bottom:12px;display:flex;align-items:center;gap:10px;font-size:12px;color:var(--dim)}.rotfoot button{background:none;border:1px solid var(--line2);color:var(--mute);border-radius:4px;width:26px;height:24px;line-height:1;cursor:pointer;font-size:15px;padding:0}.rotfoot button:hover{color:var(--txt);border-color:var(--mute)}
+.rotbar{flex:1;height:3px;background:var(--line2);border-radius:2px;overflow:hidden}.rotbar i{display:block;height:100%;width:100%;background:var(--accent);transform-origin:left;animation:rotbar 9s linear forwards}.rotile:hover .rotbar i{animation-play-state:paused}@keyframes rotbar{from{transform:scaleX(0)}to{transform:scaleX(1)}}
 .tiles-head{margin:2px 0 10px}.tlabel{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
 .tflag{font-size:12px;font-weight:500;color:var(--alert);margin-top:8px;letter-spacing:.02em}
 .relmissing .ind.mini{opacity:.7}
@@ -596,13 +599,35 @@ function driversHTML(c){
   const d = c.drivers; if (!d || !d.signal) return '';          // a note only when something in this group really moves
   return `<div class="drv"><ul>${d.bullets.slice(0, 2).map(b => `<li>${esc(shortText(b, 190))}</li>`).join('')}</ul></div>`;
 }
-function moverTile(m){
+function moverTile(m, rot){
   const arrow = m.chg > 0 ? '▲' : m.chg < 0 ? '▼' : '', cls = m.extreme ? 'down' : chgClass({good: m.good}, m.chg);
   const big = `${arrow} ${fmtChg({chgKind: m.chgKind, unit: m.unit, dec: m.dec}, m.chg)}`;
-  return `<div class="tile" onclick="explain('${m.key}', this)"><div class="tl">${esc(m.clusterTitle)}</div><div class="tn">${esc(m.name)}</div>
+  const foot = rot ? `<div class="rotfoot" onclick="event.stopPropagation()"><button type="button" aria-label="Previous" onclick="rotStep(-1)">‹</button><div class="rotbar"><i onanimationend="rotStep(1)"></i></div><span>${rot.i + 1}/${rot.n}</span><button type="button" aria-label="Next" onclick="rotStep(1)">›</button></div>` : '';
+  return `<div class="tile${rot ? ' rotile' : ''}"${rot ? ' id="rotile"' : ''} onclick="explain('${m.key}', this)"><div class="tl">${esc(m.clusterTitle)}</div><div class="tn">${esc(m.name)}</div>
     ${m.extreme ? '<div class="tflag">At an extreme</div>' : `<div class="tv ${cls}">${big}<span class="tw">${esc(m.horizon)}</span></div>`}
     <div class="tnow">Now ${esc(fmtVal({unit: m.unit, dec: m.dec, signed: m.signed}, m.value))}</div>
-    ${m.news ? `<a class="tnews" href="${esc(m.news.link)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">${esc(m.news.title)}<span>${esc(m.news.source)} · ${esc(ago(m.news.ts))}</span></a>` : ''}</div>`;
+    ${m.news ? `<a class="tnews" href="${esc(m.news.link)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">${esc(m.news.title)}<span>${esc(m.news.source)} · ${esc(ago(m.news.ts))}</span></a>` : ''}${foot}</div>`;
+}
+// The third tile rotates through the items that compete for that place (only the really important ones), with a bar that shows how long each stays
+let ROT = {i: 0, list: []};
+function rotCandidates(movers){
+  if (movers.length <= 3) return [];
+  const r3 = movers[2].rank;
+  return movers.slice(2, 8).filter(m => m.rank >= 0.55 * r3);
+}
+function rotStep(dir){
+  const n = ROT.list.length, el = document.getElementById('rotile'); if (n < 2 || !el) return;
+  ROT.i = (ROT.i + dir + n) % n;
+  const tmp = document.createElement('div'); tmp.innerHTML = moverTile(ROT.list[ROT.i], {i: ROT.i, n}); const nu = tmp.firstElementChild;
+  el.replaceWith(nu);
+  if (!REDUCED) nu.animate([{opacity: 0, transform: `translateX(${dir * 36}px)`}, {opacity: 1, transform: 'none'}], {duration: D(700), easing: 'cubic-bezier(.2,.8,.25,1)'});
+}
+function tilesHTML(movers){
+  const fixed = movers.slice(0, 2), cand = rotCandidates(movers);
+  ROT.list = cand.length >= 2 ? cand : [];
+  if (!ROT.list.length) return fixed.concat(movers.slice(2, 3)).map(m => moverTile(m)).join('');
+  if (ROT.i >= ROT.list.length) ROT.i = 0;
+  return fixed.map(m => moverTile(m)).join('') + moverTile(ROT.list[ROT.i], {i: ROT.i, n: ROT.list.length});
 }
 function earnHTML(E){
   if (!E || !E.rows || !E.rows.length) return '';
@@ -617,14 +642,14 @@ function tomorrowHTML(t){
     + `<div class="tmr-w"><span>Giants vs the average stock</span><span><b class="${t.heat.cap >= 0 ? 'up' : 'down'}">${t.heat.cap > 0 ? '+' : ''}${t.heat.cap.toFixed(1)}%</b> by size</span><span><b class="${t.heat.eq >= 0 ? 'up' : 'down'}">${t.heat.eq > 0 ? '+' : ''}${t.heat.eq.toFixed(1)}%</b> equal weight</span></div>` : '';
   const mg = t.heat && t.heat.mega && t.heat.mega.length ? `<div class="tmr-m"><span class="tmr-t">Mega caps over $1 trillion · ${t.heat.megaShare.toFixed(0)}% of the S&amp;P 500 · latest price incl. pre-market and after hours</span><div class="mc">${t.heat.mega.map(x => `<a class="mgc ${x.pct >= 0 ? 'up' : 'down'}" href="https://finance.yahoo.com/quote/${encodeURIComponent(x.t)}" target="_blank" rel="noopener noreferrer" data-tk="${esc(x.t)}" data-tn="${esc(x.n || '')}" data-tp="${x.pct}"><i>${esc(x.t)}</i> ${x.pct > 0 ? '+' : ''}${x.pct.toFixed(1)}%${x.sess && x.sess !== 'regular' ? `<small>${x.sess === 'after hours' ? 'after hours' : 'pre-market'}</small>` : ''}</a>`).join('')}</div></div>` : '';
   return `<div class="tmr"><div class="tmr-h"><span class="tmr-t">Pressure on the market</span><span class="tmr-l ${t.level}">${t.level}</span><span class="small">${t.hits} of ${t.total} warning signs</span></div>
-    ${mg}<div class="tmr-s">${t.signs.map(s => `<div class="sg ${s.hit ? 'hit' : ''}${s.key || s.sym || s.go ? ' click' : ''}"${s.key ? ` onclick="explain('${s.key}', this)"` : s.sym ? ` onclick="window.open('https://finance.yahoo.com/quote/${encodeURIComponent(s.sym)}', '_blank', 'noopener')"` : s.go === 'heat' ? ` onclick="goHeat()"` : s.go === 'earn' ? ` onclick="goCluster('internals')"` : ''} title="${esc(s.rule || '')}"><div class="n">${esc(s.name)}</div><div class="v">${esc(s.value)}</div>${s.note ? `<div class="r">${esc(s.note)}</div>` : ''}</div>`).join('')}</div>${w}</div>`;
+    ${mg}<div class="tmr-s">${t.signs.map(s => `<div class="sg ${s.hit ? 'hit' : s.warn ? 'warn' : ''}${s.key || s.sym || s.go ? ' click' : ''}"${s.key ? ` onclick="explain('${s.key}', this)"` : s.sym ? ` onclick="window.open('https://finance.yahoo.com/quote/${encodeURIComponent(s.sym)}', '_blank', 'noopener')"` : s.go === 'heat' ? ` onclick="goHeat()"` : s.go === 'earn' ? ` onclick="goCluster('internals')"` : ''} title="${esc(s.rule || '')}"><div class="n">${esc(s.name)}</div><div class="v">${esc(s.value)}</div>${s.note ? `<div class="r">${esc(s.note)}</div>` : ''}</div>`).join('')}</div>${w}</div>`;
 }
 function renderToday(){
   if (!OV) return;
   if (EXPL){ renderExplain(); return; }
   const S = OV.summary, bad = OV.sources.filter(x => x.stale || x.error);
   let h = tomorrowHTML(OV.tomorrow);
-  h += S.movers.length ? `<div class="tiles">${S.movers.map(moverTile).join('')}</div>` : `<div class="calmrow">Quiet — nothing is moving unusually.</div>`;
+  h += S.movers.length ? `<div class="tiles">${tilesHTML(S.movers)}</div>` : `<div class="calmrow">Quiet — nothing is moving unusually.</div>`;
   if (S.levels.length) h += `<div class="levels"><b>Your levels crossed</b>${S.levels.map(l => `<div>${esc(l.text)} ${l.cluster ? `<button class="link" onclick="goCluster('${l.cluster}')">Show ›</button>` : ''}</div>`).join('')}</div>`;
   if (bad.length) h += `<div class="small" style="margin:10px 0 4px">⚠ ${bad.map(b => esc(b.name) + (b.ok_ts ? ' last updated ' + ago(b.ok_ts) : ' not reached yet')).join(' · ')} — showing the last good numbers.</div>`;
   for (const c of OV.clusters || []){
@@ -1259,39 +1284,59 @@ async function loadHeat(){
   loadHeatStrip(); try { HEAT = await api('/api/heatmap?index=' + HEAT_IDX); (HEAT.rows || []).forEach(r => { if (r.pe !== undefined && r.pe !== null){ r.reg = r.p; r.p = r.pe; } }); if (TAB === 'heatmap') renderHeat(); }
   catch (e){ if (e.message !== 'signed out') $('heatmap').innerHTML = '<div class="card muted">Could not load the heatmap: ' + esc(e.message) + '</div>'; }
 }
-let HSEL = {end: null, k: 1}, HSTRIP = null, HHIST = null, HSTRIP_IDX = null, HSLIDE_T = null;
-const HK = [[1, '1 day', 3], [5, '1 week', 6], [21, '1 month', 12], [63, '3 months', 25]];
-function setHeatIdx(i){ HEAT_IDX = i; HEAT = null; HSTRIP = null; HHIST = null; renderHeat(); loadHeat(); }
+let HSEL = {s: null, e: null}, HSTRIP = null, HHIST = null, HSTRIP_IDX = null, HSLIDE_T = null;
+const HK = [[1, '1 day'], [5, '1 week'], [21, '1 month'], [63, '3 months'], [126, '6 months'], [250, '1 year']];
+const heatScale = k => k <= 1 ? 3 : k <= 5 ? 6 : k <= 21 ? 12 : k <= 63 ? 25 : k <= 126 ? 35 : 60;
+function setHeatIdx(i){ HEAT_IDX = i; HEAT = null; HSTRIP = null; HHIST = null; HSEL = {s: null, e: null}; renderHeat(); loadHeat(); }
 async function loadHeatStrip(){
   if (HSTRIP_IDX === HEAT_IDX && HSTRIP && HSTRIP.ready && Date.now() - (HSTRIP.at || 0) < 300000) return;
-  try { HSTRIP = await api('/api/heatstrip?index=' + HEAT_IDX); HSTRIP.at = Date.now(); HSTRIP_IDX = HEAT_IDX; if (TAB === 'heatmap') renderHeat(); } catch (e) {}
+  try { HSTRIP = await api('/api/heatstrip?index=' + HEAT_IDX); HSTRIP.at = Date.now(); HSTRIP_IDX = HEAT_IDX; if (TAB === 'heatmap') renderHeatStrip(); } catch (e) {}
 }
 async function loadHeatHist(){
-  if (!HSEL.end){ HHIST = null; renderHeat(); return; }
-  try { HHIST = await api(`/api/heathist?index=${HEAT_IDX}&end=${HSEL.end}&k=${HSEL.k}`); if (HHIST.error) HHIST = null; } catch (e) { HHIST = null; }
+  if (!HSEL.e){ HHIST = null; renderHeat(); return; }
+  try { HHIST = await api(`/api/heathist?index=${HEAT_IDX}&start=${HSEL.s}&end=${HSEL.e}`); if (HHIST.error) HHIST = null; } catch (e) { HHIST = null; }
   if (TAB === 'heatmap') renderHeat();
 }
-function heatPick(dateStr){ HSEL.end = dateStr; renderHeat(); loadHeatHist(); }
-function heatLive(){ HSEL.end = null; HSEL.k = 1; HHIST = null; renderHeat(); }
-function heatPeriod(k){ if (!HSEL.end && HSTRIP && HSTRIP.days.length) HSEL.end = HSTRIP.days[HSTRIP.days.length - 1].d; HSEL.k = k; renderHeat(); loadHeatHist(); }
-function heatSlide(v){
-  const days = HSTRIP.days; v = +v;
-  HSEL.end = v >= days.length ? null : days[v].d;
-  if (!HSEL.end){ HHIST = null; HSEL.k = 1; renderHeat(); return; }
-  clearTimeout(HSLIDE_T); HSLIDE_T = setTimeout(loadHeatHist, 120);
-  const cap = $('hsCap'); if (cap) cap.textContent = fdate(HSEL.end);
+function heatPeriod(k){
+  const D_ = HSTRIP && HSTRIP.dates; if (!D_) return; const L = D_.length - 1;
+  HSEL = {s: D_[Math.max(0, L - k)], e: D_[L]}; renderHeatStrip(); loadHeatHist();
 }
+function heatLive(){ HSEL = {s: null, e: null}; HHIST = null; renderHeatStrip(); renderHeat(); }
+function heatDay(dt){ const D_ = HSTRIP.dates, i = D_.indexOf(dt); if (i < 1) return; HSEL = {s: D_[i - 1], e: dt}; renderHeatStrip(); loadHeatHist(); }
+function dualPos(){
+  const D_ = HSTRIP.dates, L = D_.length - 1;
+  return [HSEL.s ? Math.max(0, D_.indexOf(HSEL.s)) : L - 1, HSEL.e ? Math.max(1, D_.indexOf(HSEL.e)) : L];
+}
+function dualUpdateUI(si, ei){
+  const D_ = HSTRIP.dates, L = D_.length - 1, pc = i => (i / L * 100).toFixed(2) + '%';
+  const f = $('dualFill'); if (f){ f.style.left = pc(si); f.style.width = ((ei - si) / L * 100).toFixed(2) + '%'; }
+  const a = $('dlabS'), b = $('dlabE'); if (a){ a.style.left = pc(si); a.textContent = fdate(D_[si]); } if (b){ b.style.left = pc(ei); b.textContent = HSEL.e || !$('hsLive') ? fdate(D_[ei]) : fdate(D_[ei]); }
+  const cap = $('hsCap'); if (cap) cap.innerHTML = `<b>${esc(fdate(D_[si]))}</b> → <b>${esc(fdate(D_[ei]))}</b> · ${ei - si} trading day${ei - si > 1 ? 's' : ''}`;
+  document.querySelectorAll('#hsbox .hsd[data-d]').forEach(c => { const i = D_.indexOf(c.dataset.d); c.classList.toggle('in', i > si && i <= ei); });
+}
+function heatDual(which, v){
+  const D_ = HSTRIP.dates; let [si, ei] = dualPos(); v = +v;
+  if (which === 's') si = Math.min(v, ei - 1); else ei = Math.max(v, si + 1);
+  document.getElementById('drS').value = si; document.getElementById('drE').value = ei;
+  HSEL = {s: D_[si], e: D_[ei]}; dualUpdateUI(si, ei);
+  clearTimeout(HSLIDE_T); HSLIDE_T = setTimeout(loadHeatHist, 140);
+}
+function renderHeatStrip(){ const box = $('hsbox'); if (box) box.innerHTML = heatStripHTML(); }
 function heatStripHTML(){
   const S = HSTRIP;
   if (!S || !S.days.length) return `<div class="small" style="margin:8px 2px">${S && !S.ready ? 'The history for the time strip is being prepared; it appears a few minutes after the app has started.' : 'Loading the time strip…'}</div>`;
-  const N = S.days.length, days = S.days, selI = HSEL.end ? days.findIndex(x => x.d === HSEL.end) : N;
+  const D_ = S.dates, L = D_.length - 1, days = S.days, [si, ei] = dualPos(), live = !HSEL.e;
   let lastM = '', marks = '';
-  days.forEach((x, i) => { const m = x.d.slice(0, 7); if (m !== lastM){ lastM = m; marks += `<span style="left:${(i / N * 100).toFixed(2)}%">${MONTHS[+x.d.slice(5, 7) - 1]}</span>`; } });
-  const cells = days.map((x, i) => `<i class="hsd${i === selI ? ' sel' : ''}" style="background:${heatColor(x.p, 2)}" title="${esc(fdate(x.d))}: ${x.p > 0 ? '+' : ''}${x.p.toFixed(2)}%" onclick="heatPick('${x.d}')"></i>`).join('');
-  const ks = HK.map(([k, l]) => `<button class="${HSEL.end && HSEL.k === k ? 'on' : ''}" onclick="heatPeriod(${k})">${l}</button>`).join('');
-  return `<div class="hstrip-wrap"><div class="hstrip">${cells}<i class="hsd live${!HSEL.end ? ' sel' : ''}" title="Live" onclick="heatLive()" style="background:${heatColor(HEAT ? HEAT.rows.reduce((a, r) => a + r.p * r.c, 0) / (HEAT.rows.reduce((a, r) => a + r.c, 0) || 1) : 0, 2)}"></i></div><div class="hsmarks">${marks}</div>
-    <div class="hsctl"><input class="hslide" type="range" min="0" max="${N}" value="${selI < 0 ? N : selI}" oninput="heatSlide(this.value)" aria-label="Go back in time">
-    <div class="seg"><button class="${!HSEL.end ? 'on' : ''}" onclick="heatLive()">Live</button>${ks}</div><span class="small">Showing <b id="hsCap">${HSEL.end ? esc(fdate(HSEL.end)) : 'now'}</b>${HSEL.end ? '' : ' · drag back in time or click a day'}</span></div></div>`;
+  days.forEach((x, i) => { const m = x.d.slice(0, 7); if (m !== lastM){ lastM = m; marks += `<span style="left:${(i / days.length * 100).toFixed(2)}%">${MONTHS[+x.d.slice(5, 7) - 1]}</span>`; } });
+  const cells = days.map(x => { const i = D_.indexOf(x.d); return `<i class="hsd${!live && i > si && i <= ei ? ' in' : ''}" data-d="${x.d}" style="background:${heatColor(x.p, 2)}" title="${esc(fdate(x.d))}: ${x.p > 0 ? '+' : ''}${x.p.toFixed(2)}%" onclick="heatDay('${x.d}')"></i>`; }).join('');
+  const pc = i => (i / L * 100).toFixed(2) + '%';
+  const ks = HK.map(([k, l]) => `<button class="${!live && ei - si === Math.min(k, L) && ei === L ? 'on' : ''}" onclick="heatPeriod(${k})">${l}</button>`).join('');
+  const liveCol = heatColor(HEAT ? HEAT.rows.reduce((a, r) => a + r.p * r.c, 0) / (HEAT.rows.reduce((a, r) => a + r.c, 0) || 1) : 0, 2);
+  return `<div class="hstrip-wrap"><div class="hstrip"><div class="hscells">${cells}</div><i class="hsd live${live ? ' sel' : ''}" id="hsLive" title="Live" onclick="heatLive()" style="background:${liveCol}"></i></div><div class="hsmarks">${marks}</div>
+    <div class="dual"><div class="dtrack"></div><div class="dfill" id="dualFill" style="left:${pc(si)};width:${((ei - si) / L * 100).toFixed(2)}%"></div>
+      <span class="dlab" id="dlabS" style="left:${pc(si)}">${esc(fdate(D_[si]))}</span><span class="dlab" id="dlabE" style="left:${pc(ei)}">${esc(fdate(D_[ei]))}</span>
+      <input class="dr" id="drS" type="range" min="0" max="${L}" value="${si}" oninput="heatDual('s', this.value)" aria-label="Start of the period"><input class="dr" id="drE" type="range" min="0" max="${L}" value="${ei}" oninput="heatDual('e', this.value)" aria-label="End of the period"></div>
+    <div class="hsctl"><div class="seg"><button class="${live ? 'on' : ''}" onclick="heatLive()">Live</button>${ks}</div><span class="small" id="hsCap">${live ? 'Live · drag the two handles, click a day, or pick a period' : `<b>${esc(fdate(D_[si]))}</b> → <b>${esc(fdate(D_[ei]))}</b> · ${ei - si} trading day${ei - si > 1 ? 's' : ''}`}</span></div></div>`;
 }
 function heatColor(p, sc = 3){
   const c = Math.max(-sc, Math.min(sc, p)) / sc, t = Math.abs(c), neutral = [38, 38, 43], target = c < 0 ? [205, 52, 55] : [27, 152, 84];
@@ -1317,7 +1362,7 @@ function renderHeat(){
   const tabs = `<div class="chips"><button class="${HEAT_IDX === 'sp500' ? 'on' : ''}" onclick="setHeatIdx('sp500')">S&amp;P 500</button><button class="${HEAT_IDX === 'nasdaq100' ? 'on' : ''}" onclick="setHeatIdx('nasdaq100')">Nasdaq-100</button></div>`;
   if (!HEAT){ root.innerHTML = tabs + '<div class="card muted">Loading…</div>'; return; }
   if (!HEAT.rows.length){ root.innerHTML = tabs + `<div class="card"><div class="answer">Heatmap data is not loaded yet</div><p class="muted" style="margin-top:6px">The app fetches it a few minutes after starting and then every 15 minutes.</p></div>`; return; }
-  const HK_ = HK.find(x => x[0] === HSEL.k) || HK[0], SC = HSEL.end ? HK_[2] : 3, hist = HSEL.end && HHIST && HHIST.end ? HHIST : null;
+  const hist = HSEL.e && HHIST && HHIST.end ? HHIST : null, SC = hist ? heatScale(hist.k) : 3;
   const rows = hist ? HEAT.rows.filter(r => hist.changes[r.t] !== undefined).map(r => ({...r, p: hist.changes[r.t], sess: null, reg: undefined})) : HEAT.rows;
   const W = Math.max(320, root.clientWidth || innerWidth - 32), mobile = W < 700, H = mobile ? Math.round(W * 1.55) : Math.min(820, Math.max(440, Math.round(W * 0.58)));
   const bySec = {}; rows.forEach(r => (bySec[r.s || 'Other'] = bySec[r.s || 'Other'] || []).push(r));
@@ -1337,7 +1382,8 @@ function renderHeat(){
   const stripHTML = `<div class="hmstats"><b>${stat.filter(x => x.pct > 0).length} of ${stat.length}</b> sectors up · <b>${rows.filter(r => r.p > 0).length} of ${rows.length}</b> stocks up${exact ? ` · the 10 biggest companies are <b>${(top10 / total * 100).toFixed(0)}%</b> of the index` : ''}
     <div class="hmsecs">${stat.sort((a, b) => b.pct - a.pct).map(x => `<span class="hmchip" style="background:${heatColor(x.pct * 1.6, SC)}">${esc(x.name)} ${x.pct > 0 ? '+' : ''}${x.pct.toFixed(1)}%</span>`).join('')}</div></div>`;
   const st = HEAT.ts ? `Updated ${ago(HEAT.ts)}. ` : '', notes = (HEAT.notes || []).join(' · ');
-  root.innerHTML = `${tabs}${heatStripHTML()}${stripHTML}<div class="hmbar"><span class="small">${hist ? `Size = today's market value, colour = change over ${hist.k} trading day${hist.k > 1 ? 's' : ''} until ${esc(fdate(hist.end))}. ` : 'Size = market value, colour = change today (the 60 biggest companies with the latest price, incl. pre-market and after hours). '}${esc(st)}${esc(notes)}</span>
+  if (!$('hmain') || root.dataset.idx !== HEAT_IDX){ root.innerHTML = tabs + '<div id="hsbox"></div><div id="hmain"></div>'; root.dataset.idx = HEAT_IDX; renderHeatStrip(); }
+  $('hmain').innerHTML = `${stripHTML}<div class="hmbar"><span class="small">${hist ? `Size = today's market value, colour = change from ${esc(fdate(hist.start))} to ${esc(fdate(hist.end))} (${hist.k} trading day${hist.k > 1 ? 's' : ''}). ` : 'Size = market value, colour = change today (the 60 biggest companies with the latest price, incl. pre-market and after hours). '}${esc(st)}${esc(notes)}</span>
     <span class="hmleg"><i style="background:${heatColor(-SC, SC)}"></i>−${SC}%<i style="background:${heatColor(0, SC)}"></i>0<i style="background:${heatColor(SC, SC)}"></i>+${SC}%</span></div>
     <div class="hmwrap" style="height:${H}px">${html}</div><div id="hmtip" class="hmtip"></div>
     ${(HEAT.errors || []).length ? `<details class="gwhy"><summary>Data source notes</summary><ul>${HEAT.errors.map(e => `<li>${esc(e)}</li>`).join('')}</ul></details>` : ''}`;

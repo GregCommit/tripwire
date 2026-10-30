@@ -1574,7 +1574,7 @@ def build_summary(clusters, levels, recent):
                        "signed": bool(x.get("signed")), "chgKind": x["chgKind"], "chg": x.get(field), "good": x.get("good", 0),
                        "extreme": bool(x.get("hub") and x["zone"].startswith("extreme")), "news": news, "context": x.get("context", "") if x.get("contextKind") == "diverge" else ""})
     movers.sort(key=lambda m: -m["rank"])
-    return {"movers": movers[:3], "calm": not movers and not levels, "levels": levels}
+    return {"movers": movers[:8], "calm": not movers and not levels, "levels": levels}
 
 
 def apply_link_ranking(items):
@@ -1880,21 +1880,23 @@ def api_heatstrip():
                 den += c
         if den:
             days.append({"d": dates[i], "p": round(num / den, 2)})
-    return jsonify({"days": days[-130:], "ready": True, "ts": _hh_cache["ts"]})
+    return jsonify({"days": days[-250:], "dates": dates, "ready": True, "ts": _hh_cache["ts"]})
 
 
 @app.route("/api/heathist")
 @login_required
 def api_heathist():
     """Change of every stock over `k` trading days ending on `end` (a date)."""
-    idx, end = request.args.get("index", "sp500"), request.args.get("end", "")
-    k = max(1, min(120, int(request.args.get("k", 1) or 1)))
+    idx, end, start = request.args.get("index", "sp500"), request.args.get("end", ""), request.args.get("start", "")
+    k = max(1, min(260, int(request.args.get("k", 1) or 1)))
     H = load_heat_hist()
     if not H:
         return jsonify({"error": "not ready"}), 503
     dates = H["dates"]
     e = max([i for i, dd in enumerate(dates) if dd <= end] or [len(dates) - 1])
-    s = max(0, e - k)
+    s = max([i for i, dd in enumerate(dates) if dd <= start] or [0]) if start else max(0, e - k)
+    if s >= e:
+        s = max(0, e - 1)
     ch = {}
     for r in heat_idx_rows(idx):
         ser = H["closes"].get(r["t"])
