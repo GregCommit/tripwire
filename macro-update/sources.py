@@ -197,8 +197,8 @@ BY_KEY = {i["key"]: i for i in INDICATORS}
 
 
 # ── Fetching ────────────────────────────────────────────────────────────────
-def http_get(url, timeout=40, ua=UA):
-    req = urllib.request.Request(url, headers={"User-Agent": ua})
+def http_get(url, timeout=40, ua=UA, headers=None):
+    req = urllib.request.Request(url, headers={"User-Agent": ua, **(headers or {})})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return r.read()
 
@@ -2175,43 +2175,6 @@ INDICATORS += [dict(key=k, name=n, group=None, source="yahoo", sym=sym, unit="",
 BY_KEY.update({i["key"]: i for i in INDICATORS})
 
 
-def extended_moves(tickers):
-    """Latest price INCLUDING pre-market and after-hours against the previous regular close, for US-listed tickers.
-    {ticker: {"p": % since the last close before the latest bar's day, "ext": % since the last regular bar (None in the regular session),
-    "sess": "regular" | "pre-market" | "after hours", "px": price}}"""
-    import yfinance as yf
-    from datetime import time as dtime
-    from zoneinfo import ZoneInfo
-    ny = ZoneInfo("America/New_York")
-    if not tickers:
-        return {}
-    df = yf.download(tickers, period="5d", interval="5m", prepost=True, auto_adjust=False, progress=False, group_by="ticker", threads=False)
-    out = {}
-    for t in tickers:
-        try:
-            try:
-                s = df[t]["Close"]
-            except KeyError:
-                s = df["Close"][t] if hasattr(df["Close"], "columns") else df["Close"]
-            s = s.dropna().copy()
-            s.index = s.index.tz_convert(ny) if s.index.tz is not None else s.index.tz_localize("UTC").tz_convert(ny)
-            last_t, last = s.index[-1], float(s.iloc[-1])
-            reg = s[(s.index.time >= dtime(9, 30)) & (s.index.time < dtime(16, 0))]
-            before = reg[reg.index.date < last_t.date()]
-            if not len(before):
-                continue
-            ref = float(before.iloc[-1])
-            tm = last_t.time()
-            sess = "pre-market" if tm < dtime(9, 30) else "after hours" if tm >= dtime(16, 0) else "regular"
-            ext = None
-            if sess != "regular" and len(reg):
-                ext = (last / float(reg.iloc[-1]) - 1) * 100
-            out[t] = {"p": (last / ref - 1) * 100, "ext": ext, "sess": sess, "px": last}
-        except Exception as e:
-            log.warning("Extended move %s: %s", t, e)
-    return out
-
-
 MEGA_CAP = 1e12      # $1 trillion
 
 
@@ -2770,3 +2733,74 @@ RELATIONS.extend([
     ("US1Y", "BOND_SHY", "inverse", "Short Treasury bonds follow the 1-year yield, but they move only slightly."),
     ("HYSPREAD", "BOND_HYG", "inverse", "When the extra interest on junk bonds widens, their prices fall: wider spread, lower price."),
 ])
+
+
+# ══ Fast prices straight from Yahoo's chart service (one small request per symbol, many in parallel) ═══════
+def chart_series(sym, rng="5d", interval="5m", prepost=True, timeout=12):
+    """{"pts": [(unix time, close)], "meta": {...}} from Yahoo's chart service; includes pre-market and after hours when asked."""
+    from urllib.parse import quote
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{quote(sym)}?range={rng}&interval={interval}&includePrePost={'true' if prepost else 'false'}"
+    data = json.loads(http_get(url, timeout=timeout, ua=_BROWSER))
+    err = (data.get("chart") or {}).get("error")
+    if err:
+        raise ValueError(str(err.get("description") or err)[:100])
+    res = data["chart"]["result"][0]
+    ts, cl = res.get("timestamp") or [], (res.get("indicators", {}).get("quote") or [{}])[0].get("close") or []
+    pts = [(t, float(c)) for t, c in zip(ts, cl) if c is not None]
+    return {"pts": pts, "meta": res.get("meta", {})}
+
+
+def chart_many(symbols, workers=8, **kw):
+    """{symbol: chart_series result} for many symbols at once; failures are left out and returned as {symbol: error text} in the second value."""
+    from concurrent.futures import ThreadPoolExecutor
+    out, errs = {}, {}
+    def one(s):
+        try:
+            return s, chart_series(s, **kw), None
+        except Exception as e:
+            return s, None, f"{type(e).__name__}: {e}"[:100]
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        for s, r, e in ex.map(one, symbols):
+            if r and r["pts"]:
+                out[s] = r
+            elif e:
+                errs[s] = e
+    return out, errs
+
+
+def latest_quote(res):
+    """(price, 'YYYY-MM-DD' in the exchange's time) of the last regular-session price in a chart result."""
+    m = res["meta"]
+    px, t = m.get("regularMarketPrice"), m.get("regularMarketTime")
+    if px is None or not t:
+        px, t = res["pts"][-1][1], res["pts"][-1][0]
+    day = datetime.utcfromtimestamp(t + (m.get("gmtoffset") or 0)).strftime("%Y-%m-%d")
+    return float(px), day
+
+
+def extended_moves(tickers):
+    """Latest price INCLUDING pre-market and after hours against the previous regular close, for US-listed tickers.
+    {ticker: {"p": % since the last close before the latest bar's day, "ext": % since the last regular bar (None in the regular session),
+    "sess": "regular" | "pre-market" | "after hours", "px": price}}"""
+    from datetime import time as dtime
+    from zoneinfo import ZoneInfo
+    ny = ZoneInfo("America/New_York")
+    got, errs = chart_many(list(tickers), rng="5d", interval="5m", prepost=True)
+    for t, e in list(errs.items())[:3]:
+        log.warning("Extended move %s: %s", t, e)
+    out = {}
+    for t, res in got.items():
+        try:
+            pts = [(datetime.fromtimestamp(ts, ny), c) for ts, c in res["pts"]]
+            last_t, last = pts[-1]
+            reg = [(x, c) for x, c in pts if dtime(9, 30) <= x.time() < dtime(16, 0)]
+            before = [c for x, c in reg if x.date() < last_t.date()]
+            if not before:
+                continue
+            ref, tm = before[-1], last_t.time()
+            sess = "pre-market" if tm < dtime(9, 30) else "after hours" if tm >= dtime(16, 0) else "regular"
+            ext = (last / reg[-1][1] - 1) * 100 if sess != "regular" and reg else None
+            out[t] = {"p": (last / ref - 1) * 100, "ext": ext, "sess": sess, "px": last}
+        except Exception as e:
+            log.warning("Extended move %s: %s", t, e)
+    return out

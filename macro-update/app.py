@@ -62,8 +62,8 @@ app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
                   SESSION_COOKIE_SECURE=PUBLIC_URL.startswith("https://"))
 
 # How often each source is fetched (seconds); a failed fetch is retried after 10 minutes
-EVERY = {"yahoo": 60, "fred": 10 * 60, "bis": 6 * 3600, "boj": 6 * 3600, "hub": 3600, "geo": 60, "earn": 5 * 60}
-SOURCE_NAMES = {"yahoo": "Yahoo Finance", "fred": "FRED (St. Louis Fed)", "bis": "BIS (Japan CPI)",
+EVERY = {"yahoo": 5 * 60, "fred": 10 * 60, "bis": 6 * 3600, "boj": 6 * 3600, "hub": 3600, "geo": 5 * 60, "earn": 5 * 60}
+SOURCE_NAMES = {"fast": "Live prices (Yahoo)", "yahoo": "Yahoo Finance", "fred": "FRED (St. Louis Fed)", "bis": "BIS (Japan CPI)",
                 "boj": "Bank of Japan forecasts", "hub": "Extremes (long histories)", "geo": "Geopolitics markets", "earn": "Earnings reactions"}
 
 DEFAULT_RULES = [
@@ -460,6 +460,69 @@ def source_loop(src, first_delay):
         time.sleep(max(15, (EVERY[src] if ok else min(EVERY[src], 120)) - (time.time() - t0)))
 
 
+FAST_EVERY = 20
+_fast = {"ts": 0, "ok": 0, "total": 0, "errors": {}, "took": 0, "n": 0}
+
+
+def apply_quotes(pairs, got):
+    """Puts the latest price into today's point of each stored daily series (adds the point when a new day has begun)."""
+    changed = 0
+    for key, sym in pairs:
+        r = got.get(sym)
+        if not r:
+            continue
+        try:
+            px, day = S.latest_quote(r)
+        except Exception:
+            continue
+        ser = load_series(key)
+        if not ser or day < ser[-1][0]:
+            continue
+        if ser[-1][0] == day:
+            if abs(ser[-1][1] - px) < 1e-12:
+                continue
+            ser[-1][1] = px
+        else:
+            ser.append([day, px])
+        save_series(key, ser)
+        changed += 1
+    return changed
+
+
+def fast_loop():
+    """The newest price of every market indicator straight from Yahoo's chart service, every 20 seconds (geopolitics markets every minute).
+    The big history downloads are slow and run on their own clock; this one keeps the numbers you look at current."""
+    time.sleep(8)
+    n = 0
+    while True:
+        t0 = time.time()
+        try:
+            pairs = [(i["key"], i["sym"]) for i in S.INDICATORS if i["source"] == "yahoo" and i.get("group")]
+            if n % 3 == 0:
+                pairs += [(i["key"], i["sym"]) for i in S.INDICATORS if i["source"] == "yahoo" and not i.get("group")]
+                pairs += [(k, v["sym"]) for k, v in S.GEO_ITEMS.items() if v.get("sym")]
+            syms = list(dict.fromkeys(s for _, s in pairs))
+            got, errs = S.chart_many(syms, workers=10, rng="1d", interval="5m", prepost=False)
+            changed = apply_quotes(pairs, got)
+            if changed:
+                with _derived_lock:
+                    for fn in (compute_mood, compute_internals) + ((check_alerts,) if n % 3 == 0 else ()):
+                        try:
+                            fn()
+                        except Exception as e:
+                            log.warning("%s after fast prices failed: %s", fn.__name__, e)
+            _fast.update(ts=int(time.time()), ok=len(got), total=len(syms), errors=dict(list(errs.items())[:5]), took=round(time.time() - t0, 1), n=changed)
+            if got:
+                mark_fetch("fast", True)
+            else:
+                mark_fetch("fast", False, "no prices from Yahoo's chart service: " + "; ".join(list(errs.values())[:2]))
+        except Exception as e:
+            log.exception("Fast price loop failed: %s", e)
+            mark_fetch("fast", False, e)
+        n += 1
+        time.sleep(max(5, FAST_EVERY - (time.time() - t0)))
+
+
 def cnn_loop():
     time.sleep(15)
     while True:
@@ -467,7 +530,7 @@ def cnn_loop():
             refresh_cnn_fng()
         except Exception as e:
             log.warning("CNN Fear & Greed not reached: %s", e)
-        time.sleep(120)
+        time.sleep(60)
 
 
 def background_loop():
@@ -586,10 +649,17 @@ def refresh_geo_map():
 
 def refresh_cnn_fng():
     """CNN's own Fear & Greed Index (the number everyone quotes)."""
-    raw = S.http_get("https://production.dataviz.cnn.io/index/fearandgreed/graphdata", timeout=30, ua=BROWSER_UA)
-    fg = json.loads(raw)["fear_and_greed"]
-    set_setting("cnn_fng", json.dumps({"score": round(float(fg["score"])), "rating": str(fg.get("rating", "")), "prev": fg.get("previous_close"),
-                                       "week": fg.get("previous_1_week"), "ts": int(time.time())}))
+    try:
+        raw = S.http_get("https://production.dataviz.cnn.io/index/fearandgreed/graphdata", timeout=30, ua=BROWSER_UA,
+                         headers={"Accept": "application/json, text/plain, */*", "Origin": "https://edition.cnn.com", "Referer": "https://edition.cnn.com/",
+                                  "Accept-Language": "en-US,en;q=0.9"})
+        fg = json.loads(raw)["fear_and_greed"]
+        set_setting("cnn_fng", json.dumps({"score": round(float(fg["score"])), "rating": str(fg.get("rating", "")), "prev": fg.get("previous_close"),
+                                           "week": fg.get("previous_1_week"), "ts": int(time.time())}))
+        set_setting("cnn_status", json.dumps({"ok": True, "ts": int(time.time()), "msg": f"score {round(float(fg['score']))}"}))
+    except Exception as e:
+        set_setting("cnn_status", json.dumps({"ok": False, "ts": int(time.time()), "msg": f"{type(e).__name__}: {e}"[:160]}))
+        raise
 
 
 # ── Live ships (AIS) from aisstream.io: needs the owner's free key ──────────────
@@ -1261,6 +1331,7 @@ def start_background():
         _started = True
         background_loop()
         threading.Thread(target=cnn_loop, daemon=True, name="cnn").start()
+        threading.Thread(target=fast_loop, daemon=True, name="fast").start()
         threading.Thread(target=news_loop, daemon=True, name="news").start()
         threading.Thread(target=heat_loop, daemon=True, name="heat").start()
         threading.Thread(target=heat_hist_loop, daemon=True, name="heathist").start()
@@ -1680,7 +1751,7 @@ def api_overview():
     sources = []
     for src, name in SOURCE_NAMES.items():
         x = st.get(src, {})
-        stale = not x.get("ok_ts") or time.time() - x["ok_ts"] > EVERY[src] * 3 + 600
+        stale = not x.get("ok_ts") or time.time() - x["ok_ts"] > EVERY.get(src, 20) * 3 + 120
         sources.append({"id": src, "name": name, "ok_ts": x.get("ok_ts"), "error": x.get("error") or "",
                         "stale": stale})
     groups = [{"id": g, "title": t, "intro": intro,
@@ -1697,6 +1768,8 @@ def api_overview():
                                        for k, v in json.loads(get_setting("sector_parts", "{}") or "{}").items()), key=lambda x: -x["pct"]),
                     "earnings": json.loads(get_setting("earn_rows", "null") or "null"),
                     "tomorrow": tomorrow_panel(sm),
+                    "freshness": {"fast": _fast["ts"], "news": (json.loads(get_setting("news_status", "null") or "null") or {}).get("ts"),
+                                  "cnn": (json.loads(get_setting("cnn_status", "null") or "null") or {}).get("ts")},
                     "parts": composite_parts(),
                     "summary": build_summary(clusters, crossed_levels(sm, get_rules()), recent),
                     "newsIdx": {k: [n["h"] for n in v] for k, v in recent.items()},
@@ -2085,6 +2158,48 @@ def fx_rate(fx, c, date=None, avg=False):
     return pts[-1][1], pts[-1][0]
 
 
+@app.route("/api/status")
+@login_required
+def api_status():
+    """What is fresh and what is not, for every part of the page: when it last worked, how often it should, and what went wrong."""
+    now = int(time.time())
+    rows = []
+    def add(group, name, ts, every, detail="", ok=True):
+        age = None if not ts else now - ts
+        level = "bad" if not ok or age is None else "ok" if age <= max(30, every * 2.5) else "warn" if age <= every * 8 else "bad"
+        rows.append({"group": group, "name": name, "ts": ts, "age": age, "every": every, "detail": detail, "level": level})
+    add("Prices", "Live prices (Yahoo chart service)", _fast["ts"], FAST_EVERY, f"{_fast['ok']} of {_fast['total']} symbols in {_fast['took']} s" + (f" · {'; '.join(_fast['errors'].values())}" if _fast["errors"] else ""), _fast["ok"] > 0)
+    with get_db() as conn:
+        upd = {r["key"]: r["updated"] for r in conn.execute("SELECT key, updated FROM series WHERE key IN ('VIX','SPX','IXIC','DXY','US10Y','MOOD','GOLD','WTI')")}
+    for k, label, every in (("VIX", "VIX", 20), ("SPX", "S&P 500", 20), ("IXIC", "Nasdaq", 20), ("DXY", "US dollar index", 20), ("GOLD", "Gold", 20), ("US10Y", "10-year yield (FRED, once a day)", 3600), ("MOOD", "Fear & Greed estimate", 20)):
+        pts = load_series(k)
+        add("Prices", label, upd.get(k), every, f"latest value {pts[-1][1]:,.2f} dated {pts[-1][0]}" if pts else "no data yet", bool(pts))
+    cs = json.loads(get_setting("cnn_status", "null") or "null")
+    add("Prices", "Fear & Greed (CNN)", (cs or {}).get("ts"), 60, (cs or {}).get("msg", "not tried yet"), bool(cs and cs.get("ok")))
+    st = fetch_status()
+    for src, name in SOURCE_NAMES.items():
+        x = st.get(src, {})
+        add("Data sources", name, x.get("ok_ts"), EVERY.get(src, FAST_EVERY), (x.get("error") or "")[:200], not x.get("error") or bool(x.get("ok_ts") and now - x["ok_ts"] < EVERY.get(src, 60) * 3))
+    sd = json.loads(get_setting("stocks_data", "{}") or "{}")
+    add("Stocks and heatmap", "Your stocks", sd.get("ts"), STOCKS_EVERY, f"{len(sd.get('rows', {}))} stocks")
+    with get_db() as conn:
+        hrows = {r["idx"]: r["ts"] for r in conn.execute("SELECT idx, ts FROM heat")}
+        hh = conn.execute("SELECT ts FROM heat_hist WHERE k='all'").fetchone()
+    for idx, ts in hrows.items():
+        add("Stocks and heatmap", "Heatmap " + S.HEAT_INDEXES[idx][0], ts, HEAT_EVERY)
+    add("Stocks and heatmap", "Heatmap history (for the time slider)", hh["ts"] if hh else None, 12 * 3600)
+    ns, gs = json.loads(get_setting("news_status", "null") or "null"), json.loads(get_setting("geo_news_status", "null") or "null")
+    add("News", "Headlines", (ns or {}).get("ts"), NEWS_EVERY, f"{(ns or {}).get('ok', 0)} of {(ns or {}).get('total', 0)} feeds reachable, {(ns or {}).get('added', 0)} new in the last run")
+    add("News", "Geopolitics headlines", (gs or {}).get("ts"), 120, f"{(gs or {}).get('ok', 0)} of {(gs or {}).get('total', 0)} feeds reachable")
+    gm = json.loads(get_setting("geomap_ua", "null") or "null")
+    add("News", "War map data", (gm or {}).get("ts"), GEOMAP_EVERY, "; ".join(f"{k}: {v}" for k, v in ((gm or {}).get("errors") or {}).items())[:200])
+    ais = json.loads(get_setting("ais_status", "null") or "null")
+    if get_setting("ais_key", ""):
+        add("News", "Live ships (AIS)", (ais or {}).get("ts"), 120, (ais or {}).get("msg", ""), bool(ais and ais.get("ok")))
+    alive = sorted(t.name for t in threading.enumerate() if t.daemon and not t.name.startswith(("Thread-", "ThreadPool", "waitress")))
+    return jsonify({"now": now, "rows": rows, "threads": alive})
+
+
 @app.route("/api/stocks", methods=["GET", "POST"])
 @login_required
 def api_stocks():
@@ -2185,16 +2300,13 @@ def api_intraday():
     """Today's price course in 5-minute steps (for the hover charts)."""
     t = re.sub(r"[^A-Za-z0-9.\-=^]", "", request.args.get("t", "")).upper()[:12]
     c = _intraday_cache.get(t)
-    if c and time.time() - c[0] < 120:
+    if c and time.time() - c[0] < 30:
         return jsonify(c[1])
     try:
-        import yfinance as yf
-        df = yf.download(t, period="5d", interval="5m", prepost=True, progress=False, auto_adjust=False, threads=False)
-        col = df["Close"]
-        col = col[t] if hasattr(col, "columns") else col
         from zoneinfo import ZoneInfo
         ny = ZoneInfo("America/New_York")
-        pts = [(i.tz_convert(ny) if i.tzinfo else i, float(v)) for i, v in col.items() if v == v]
+        res = S.chart_series(t, "5d", "5m", True)
+        pts = [(datetime.fromtimestamp(ts, ny), v) for ts, v in res["pts"]]
         last_day = pts[-1][0].date()
         today = [[int(i.timestamp()), v] for i, v in pts if i.date() == last_day]
         prev = [v for i, v in pts if i.date() < last_day and 9 * 60 + 30 <= i.hour * 60 + i.minute < 16 * 60] or [v for i, v in pts if i.date() < last_day]

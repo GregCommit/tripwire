@@ -108,6 +108,7 @@ h2.sub{font-size:14px;color:var(--mute);font-weight:500;margin:18px 0 6px}
 .hstrip-wrap{margin:10px 0 12px}.hstrip{display:flex;gap:3px;height:46px;border:1px solid var(--line);border-radius:4px;overflow:hidden;background:#000}.hscells{flex:1;display:flex;gap:1px}.hsd{flex:1;min-width:2px;cursor:pointer;transition:filter .12s,box-shadow .12s}.hsd:hover{filter:brightness(1.5)}.hsd.in{box-shadow:inset 0 3px 0 #fff,inset 0 -3px 0 #fff}.hsd.sel{outline:2px solid #fff;outline-offset:-2px}.hsd.live{flex:0 0 14px}
 .dual{position:relative;height:50px;margin:2px 17px 6px 0}.dtrack{position:absolute;left:0;right:0;top:34px;height:4px;border-radius:2px;background:var(--line2)}.dfill{position:absolute;top:34px;height:4px;border-radius:2px;background:var(--accent)}.dlab{position:absolute;top:4px;transform:translateX(-50%);font-size:11.5px;color:var(--txt);background:var(--card2);border:1px solid var(--line2);border-radius:3px;padding:1px 6px;white-space:nowrap;pointer-events:none}.dr{position:absolute;left:0;top:27px;width:100%;height:18px;margin:0;background:none;border:none;padding:0;pointer-events:none;-webkit-appearance:none;appearance:none}.dr::-webkit-slider-runnable-track{background:transparent;height:18px}.dr::-moz-range-track{background:transparent}.dr::-webkit-slider-thumb{-webkit-appearance:none;pointer-events:auto;width:16px;height:18px;border-radius:4px;background:#fff;border:2px solid var(--accent);cursor:ew-resize}.dr::-moz-range-thumb{pointer-events:auto;width:12px;height:16px;border-radius:4px;background:#fff;border:2px solid var(--accent);cursor:ew-resize}
 .hsmarks{position:relative;height:16px;margin-right:17px;font-size:10.5px;color:var(--dim)}.hsmarks span{position:absolute;top:2px}.hsctl{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;margin-top:4px}.hslide{flex:1 1 320px;accent-color:var(--accent);padding:0;background:transparent;border:none}
+.strow{display:grid;grid-template-columns:14px 280px 90px 1fr;gap:8px;align-items:baseline;padding:3px 0;border-top:1px solid var(--line);font-size:13.5px}.strow .dot{width:9px;height:9px;border-radius:50%;display:inline-block;background:var(--dim)}.dot.ok{background:var(--up)}.dot.warn{background:var(--watch)}.dot.bad{background:var(--alert)}.strow .sa{color:var(--mute);font-variant-numeric:tabular-nums}.strow .sd{overflow-wrap:anywhere}
 .movers{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;margin:14px 2px 6px;font-size:13.5px}.mv{font-variant-numeric:tabular-nums}
 @media (max-width:700px){.gh{grid-template-columns:1fr;gap:6px}.ghl{flex-direction:row;align-items:center}}
 .geohead{margin-top:12px}.geoblurb{font-size:15px;line-height:1.6}
@@ -318,7 +319,8 @@ details.quiet{margin-top:18px}details.quiet>summary{cursor:pointer;color:var(--m
 <li>BIS (Bank for International Settlements) — Japan's official consumer price inflation.</li>
 <li>Bank of Japan — the Policy Board's inflation forecasts from each quarterly Outlook Report.</li></ul>
 <p>If a source can't be reached, the app keeps the last good numbers and says so under the summary on the Today tab.</p>
-<p class="small" id="verLine" style="margin:14px 0"></p></div></section>
+<p class="small" id="verLine" style="margin:14px 0"></p></div>
+<div class="card" style="margin-top:14px"><h2 style="margin-top:0">Data status</h2><div class="small" style="margin-bottom:8px">When each part of the page last worked and how often it should. Green = on time, yellow = late, red = stuck or failing.</div><div id="statusBox">Loading…</div></div></section>
 </main>
 <script>
 // ── helpers ───────────────────────────────────────────────────────────────
@@ -631,7 +633,7 @@ function enhanceCards(){
       if (x.free >= x.h - 2){ x.yr.before(ch); } else { x.yr.replaceWith(ch); }
     };
     const c = INTRA.get(sym);
-    if (c && Date.now() - c.ts < 120000) apply(c.d);
+    if (c && Date.now() - c.ts < INTRA_TTL) apply(c.d);
     else api('/api/intraday?t=' + encodeURIComponent(sym)).then(d => { INTRA.set(sym, {ts: Date.now(), d}); apply(d); }).catch(() => {});
   }
 }
@@ -1042,8 +1044,25 @@ async function loadGeo(){
   catch (e){ if (e.message !== 'signed out') $('geo').innerHTML = '<div class="card muted">Could not load the geopolitics page: ' + esc(e.message) + '</div>'; }
 }
 function setGeo(c){ GEO_SEL = c; GEO = null; renderGeo(); loadGeo(); }
+// ── Data status (Guide) ───────────────────────────────────────────────────
+let STATUS_T = null;
+async function loadStatus(){
+  clearTimeout(STATUS_T);
+  try {
+    const s = await api('/api/status'), box = $('statusBox'); if (!box) return;
+    let g = '', h = '';
+    for (const r of s.rows){
+      if (r.group !== g){ g = r.group; h += `<div class="tlabel" style="margin:12px 0 4px">${esc(g)}</div>`; }
+      h += `<div class="strow"><i class="dot ${r.level}"></i><span class="sn">${esc(r.name)}</span><span class="sa">${r.ts ? (r.age < 90 ? r.age + ' s ago' : ago(r.ts)) : 'never'}</span><span class="small sd">${esc(r.detail || '')}${r.every ? ' · every ' + (r.every >= 3600 ? Math.round(r.every / 3600) + ' h' : r.every >= 90 ? Math.round(r.every / 60) + ' min' : r.every + ' s') : ''}</span></div>`;
+    }
+    h += `<div class="small" style="margin-top:12px">Running background jobs: ${esc(s.threads.join(', '))}</div>`;
+    box.innerHTML = h;
+  } catch (e) {}
+  if (TAB === 'guide') STATUS_T = setTimeout(loadStatus, 5000);
+}
 // ── Today's price chart on hover (mega caps, heatmap) ─────────────────────
 const INTRA = new Map();
+const INTRA_TTL = 30000;
 function intraSVG(D, t){
   if (!D || !D.pts || D.pts.length < 3) return `<div class="small">No chart for today yet${D && D.error ? ' (' + esc(D.error) + ')' : ''}.</div>`;
   const W = 230, H = 74, vs = D.pts.map(p => p[1]), lo = Math.min(...vs, D.prev ?? Infinity), hi = Math.max(...vs, D.prev ?? -Infinity), sp = hi - lo || 1, Y = v => 4 + (hi - v) / sp * (H - 14);
@@ -1055,7 +1074,7 @@ function intraSVG(D, t){
 }
 async function fillIntra(box, t){
   const c = INTRA.get(t);
-  if (c && Date.now() - c.ts < 120000){ if (box.dataset.t === t) box.innerHTML = intraSVG(c.d, t); return; }
+  if (c && Date.now() - c.ts < INTRA_TTL){ if (box.dataset.t === t) box.innerHTML = intraSVG(c.d, t); return; }
   box.innerHTML = '<div class="small">Loading today\'s chart…</div>';
   try { const d = await api('/api/intraday?t=' + encodeURIComponent(t)); INTRA.set(t, {ts: Date.now(), d}); if (box.dataset.t === t) box.innerHTML = intraSVG(d, t); } catch (e) { if (box.dataset.t === t) box.innerHTML = ''; }
 }
@@ -1659,6 +1678,7 @@ function doShowTab(t){
   if (t === 'heatmap'){ renderHeat(); loadHeat(); }
   if (t === 'geo'){ renderGeo(); loadGeo(); }
   if (t === 'alerts') loadAlerts();
+  if (t === 'guide') loadStatus();
   if (t === 'stocks'){ STK_OPEN = null; $('stForm').style.display = 'block'; loadStocks(); }
   if (t === 'headlines') loadHeadlines();
   window.scrollTo(0, 0);
@@ -1689,7 +1709,9 @@ async function load(){
     if (OV && OV.serverTime && newest > Math.max(0, ...OV.sources.map(s => s.ok_ts || 0))) SERIES = {};
     d.rules = OV?.rules || ALERTS?.rules; OV = d; ROLE = d.role;
     if (!OV.rules){ ALERTS = await api('/api/alerts'); OV.rules = ALERTS.rules; }
-    $('upd').textContent = newest ? 'Updated ' + ago(newest) : 'Fetching data…';
+    const fr = d.freshness || {}, upd = $('upd');
+    if (fr.fast){ const age = Date.now() / 1000 - fr.fast; upd.textContent = 'Prices ' + (age < 90 ? Math.max(1, Math.round(age)) + ' s ago' : ago(fr.fast)) + (fr.news ? ' · news ' + ago(fr.news) : ''); upd.style.color = age > 180 ? 'var(--alert)' : age > 60 ? 'var(--watch)' : ''; upd.title = 'Open the Guide for the status of every data source'; }
+    else upd.textContent = newest ? 'Updated ' + ago(newest) : 'Fetching data…';
     if (TAB === 'today' && EXPL){ try { EXPL = await api('/api/explain/' + EXPL.key); } catch (e) {} }
     if (TAB === 'today') renderToday();
     if (TAB === 'extremes') loadExtremes();
