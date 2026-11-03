@@ -1053,7 +1053,7 @@ async function loadStatus(){
     let g = '', h = '';
     for (const r of s.rows){
       if (r.group !== g){ g = r.group; h += `<div class="tlabel" style="margin:12px 0 4px">${esc(g)}</div>`; }
-      h += `<div class="strow"><i class="dot ${r.level}"></i><span class="sn">${esc(r.name)}</span><span class="sa">${r.ts ? (r.age < 90 ? r.age + ' s ago' : ago(r.ts)) : 'never'}</span><span class="small sd">${esc(r.detail || '')}${r.every ? ' · every ' + (r.every >= 3600 ? Math.round(r.every / 3600) + ' h' : r.every >= 90 ? Math.round(r.every / 60) + ' min' : r.every + ' s') : ''}</span></div>`;
+      h += `<div class="strow"><i class="dot ${r.level}"></i><span class="sn">${esc(r.name)}</span><span class="sa">${r.group === 'Server' && r.every === 0 && r.name !== 'App running since' ? 'now' : r.ts ? (r.age < 90 ? r.age + ' s ago' : ago(r.ts)) : 'never'}</span><span class="small sd">${esc(r.detail || '')}${r.every ? ' · every ' + (r.every >= 3600 ? Math.round(r.every / 3600) + ' h' : r.every >= 90 ? Math.round(r.every / 60) + ' min' : r.every + ' s') : ''}</span></div>`;
     }
     h += `<div class="small" style="margin-top:12px">Running background jobs: ${esc(s.threads.join(', '))}</div>`;
     box.innerHTML = h;

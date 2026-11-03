@@ -1840,6 +1840,7 @@ def _code_version():
 
 
 VERSION = _code_version()
+APP_STARTED = time.time()
 
 
 STARTED = int(time.time())
@@ -2253,6 +2254,20 @@ def api_status():
     ais = json.loads(get_setting("ais_status", "null") or "null")
     if get_setting("ais_key", ""):
         add("News", "Live ships (AIS)", (ais or {}).get("ts"), 120, (ais or {}).get("msg", ""), bool(ais and ais.get("ok")))
+    try:        # the machine itself: a stuck or restarting app is often a full memory or an overloaded processor
+        mem = {l.split(":")[0]: int(l.split()[1]) for l in open("/proc/meminfo") if l.split(":")[0] in ("MemTotal", "MemAvailable", "SwapTotal", "SwapFree")}
+        rss = next((int(l.split()[1]) for l in open("/proc/self/status") if l.startswith("VmRSS")), 0)
+        load = os.getloadavg()
+        cpus = os.cpu_count() or 1
+        low = mem["MemAvailable"] < 0.1 * mem["MemTotal"]
+        rows.append({"group": "Server", "name": "Memory", "ts": now, "age": 0, "every": 0, "level": "bad" if low else "ok",
+                     "detail": f"{mem['MemAvailable'] // 1024} MB free of {mem['MemTotal'] // 1024} MB · this app uses {rss // 1024} MB" + (" · LOW: the server may kill the app" if low else "")})
+        rows.append({"group": "Server", "name": "Processor load", "ts": now, "age": 0, "every": 0, "level": "bad" if load[0] > 2 * cpus else "warn" if load[0] > cpus else "ok",
+                     "detail": f"{load[0]:.2f} (1 min) · {load[1]:.2f} (5 min) on {cpus} core{'s' if cpus > 1 else ''}"})
+    except Exception:
+        pass
+    rows.append({"group": "Server", "name": "App running since", "ts": int(APP_STARTED), "age": int(now - APP_STARTED), "every": 0,
+                 "level": "warn" if now - APP_STARTED < 300 else "ok", "detail": "version " + VERSION + (" · restarted recently: look at the server log if this keeps happening" if now - APP_STARTED < 300 else "")})
     alive = sorted(t.name for t in threading.enumerate() if t.daemon and not t.name.startswith(("Thread-", "ThreadPool", "waitress")))
     return jsonify({"now": now, "rows": rows, "threads": alive})
 
