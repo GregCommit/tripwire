@@ -531,18 +531,25 @@ def fast_loop():
 
 
 def ext_loop():
-    """Pre-market and after-hours prices for the 60 biggest companies and for your own stocks: a few requests every 90 seconds."""
-    time.sleep(40)
+    """Pre-market, regular-session and after-hours prices: the 20 biggest companies every 30 seconds, the other big ones and your own stocks
+    every 90 seconds. A few batched requests each time."""
+    time.sleep(30)
+    n = 0
     while True:
         t0 = time.time()
         try:
-            syms = []
+            big, rest = [], []
             with get_db() as conn:
                 for r in conn.execute("SELECT data FROM heat"):
-                    syms += [x["t"] for x in sorted(json.loads(r["data"])["rows"], key=lambda x: -x["c"])[:60]]
-                syms += [(r["sym"] or r["ticker"]) for r in conn.execute("SELECT ticker, sym, src FROM stocks WHERE src IS NULL OR src='yahoo'")]
-            syms = [s for s in dict.fromkeys(syms) if re.fullmatch(r"[A-Z]{1,5}(-[A-Z])?", s)]
-            got, errs = S.spark_many(syms, rng="5d", interval="5m", prepost=True)
+                    srt = sorted(json.loads(r["data"])["rows"], key=lambda x: -x["c"])
+                    big += [x["t"] for x in srt[:20]]
+                    rest += [x["t"] for x in srt[20:60]]
+                rest += [(r["sym"] or r["ticker"]) for r in conn.execute("SELECT ticker, sym, src FROM stocks WHERE src IS NULL OR src='yahoo'")]
+            ok_sym = lambda s: re.fullmatch(r"[A-Z]{1,5}(-[A-Z])?", s)
+            big = [s for s in dict.fromkeys(big) if ok_sym(s)]
+            rest = [s for s in dict.fromkeys(rest) if ok_sym(s) and s not in big]
+            syms = big + (rest if n % 3 == 0 else [])
+            got, errs = S.spark_many(syms, rng="5d", interval="5m", prepost=True, single_limit=20)
             new = S.extended_from(got)
             EXT.update({k: {**v, "ts": time.time()} for k, v in new.items()})
             for s_, r_ in got.items():
@@ -551,7 +558,8 @@ def ext_loop():
         except Exception as e:
             log.warning("Extended-hours pass failed: %s", e)
             set_setting("ext_status", json.dumps({"ts": int(time.time()), "ok": 0, "total": 0, "errors": [f"{type(e).__name__}: {e}"[:120]], "took": 0}))
-        time.sleep(max(20, 90 - (time.time() - t0)))
+        n += 1
+        time.sleep(max(10, 30 - (time.time() - t0)))
 
 
 def cnn_loop():
@@ -994,6 +1002,21 @@ def ai_summarize(h):
 HEAT_EVERY = 60
 
 
+def apply_ext(rows, max_age=600):
+    """The newest price (incl. pre-market and after hours) goes onto the biggest companies, whenever the heatmap is built or served;
+    a company whose live price is older than ten minutes falls back to the regular-session figure."""
+    now = time.time()
+    for r in rows:
+        v = EXT.get(r["t"])
+        if v and now - v["ts"] < max_age:
+            r["pe"], r["sess"] = round(v["p"], 2), v["sess"]
+            r["ext"] = None if v["ext"] is None else round(v["ext"], 2)
+        else:
+            for k in ("pe", "sess", "ext"):
+                r.pop(k, None)
+    return rows
+
+
 def refresh_heat():
     screener, errors = None, []
     try:
@@ -1028,18 +1051,15 @@ def refresh_heat():
             built = S.build_heatmap(idx, wiki, screener, yahoo, caps)
         except Exception as e:
             log.warning("Heatmap %s failed: %s", idx, e)
+            set_setting("heat_status_" + idx, json.dumps({"ts": int(time.time()), "ok": False, "msg": f"{type(e).__name__}: {e}"[:160], "errors": errs[:3]}))
             continue
         built["errors"] = errs
+        set_setting("heat_status_" + idx, json.dumps({"ts": int(time.time()), "ok": True, "msg": "; ".join(built["notes"])[:160], "errors": errs[:3]}))
         with get_db() as conn:
             conn.execute("INSERT OR REPLACE INTO heat (idx, ts, data) VALUES (?,?,?)", (idx, int(time.time()), json.dumps(built)))
         log.info("Heatmap %s: %d stocks (%s)", idx, len(built["rows"]), "; ".join(built["notes"]))
         try:        # the biggest companies move before and after the regular session too: use the latest price, not the last close
-            top = sorted(built["rows"], key=lambda r: -r["c"])[:60]
-            for r in top:
-                v = EXT.get(r["t"])
-                if v and time.time() - v["ts"] < 900:
-                    r["pe"], r["sess"] = round(v["p"], 2), v["sess"]
-                    r["ext"] = None if v["ext"] is None else round(v["ext"], 2)
+            apply_ext(built["rows"])
             with get_db() as conn:
                 conn.execute("INSERT OR REPLACE INTO heat (idx, ts, data) VALUES (?,?,?)", (idx, int(time.time()), json.dumps(built)))
         except Exception as e:
@@ -1752,6 +1772,14 @@ def tomorrow_panel(sm):
     vix = (vix["value"], vix["d1"]) if vix and vix.get("d1") is not None else None
     ts, up = load_series("VIXTS"), load_series("SECT_UP")
     heat = json.loads(get_setting("heat_stats", "null") or "null")
+    if heat and heat.get("mega"):          # the mega caps always carry their newest price, even when the heatmap build is behind
+        now = time.time()
+        for m in heat["mega"]:
+            v = EXT.get(m["t"])
+            if v and now - v["ts"] < 600:
+                m["pct"], m["sess"] = round(v["p"], 2), v["sess"]
+        tot = sum(m["cap"] for m in heat["mega"]) or 1
+        heat["megaAvg"] = round(sum(m["pct"] * m["cap"] for m in heat["mega"]) / tot, 2)
     earn = json.loads(get_setting("earn_rows", "null") or "null")
     if not (chg or vix or heat):
         return None
@@ -2039,6 +2067,7 @@ def api_heatmap():
     if not row:
         return jsonify({"index": idx, "title": S.HEAT_INDEXES[idx][0], "rows": [], "notes": [], "errors": [], "ts": None})
     d = json.loads(row["data"])
+    apply_ext(d["rows"])
     return jsonify({"index": idx, "title": S.HEAT_INDEXES[idx][0], "ts": row["ts"], **d})
 
 
@@ -2199,6 +2228,8 @@ def api_status():
     ys, es = S.yahoo_state(), json.loads(get_setting("ext_status", "null") or "null")
     add("Prices", "Yahoo request limit", int(time.time()) if not ys["paused"] else None, 60, f"{ys['calls']} requests since start, {ys['n429']} times told to slow down" + (f", PAUSED for {ys['paused']} s" if ys["paused"] else "") + f" · batch service {'works' if ys['spark'] else 'not available' if ys['spark'] is False else 'not tried yet'}", not ys["paused"])
     add("Prices", "Pre-market / after-hours prices", (es or {}).get("ts"), 90, f"{(es or {}).get('ok', 0)} of {(es or {}).get('total', 0)} stocks · {'; '.join((es or {}).get('errors') or [])}"[:200], bool(es and es.get("ok")))
+    mega_ts = [v["ts"] for t_, v in EXT.items() if t_ in ("NVDA", "MSFT", "AAPL", "GOOGL", "AMZN", "META", "AVGO", "TSLA")]
+    add("Prices", "Mega-cap prices (NVDA, MSFT, AAPL …)", int(max(mega_ts)) if mega_ts else None, 30, f"{len(mega_ts)} of 8 checked, the oldest {int(now - min(mega_ts))} s old" if mega_ts else "no live price yet", bool(mega_ts))
     cs = json.loads(get_setting("cnn_status", "null") or "null")
     add("Prices", "Fear & Greed (CNN)", (cs or {}).get("ts"), 60, (cs or {}).get("msg", "not tried yet"), bool(cs and cs.get("ok")))
     st = fetch_status()
@@ -2211,7 +2242,8 @@ def api_status():
         hrows = {r["idx"]: r["ts"] for r in conn.execute("SELECT idx, ts FROM heat")}
         hh = conn.execute("SELECT ts FROM heat_hist WHERE k='all'").fetchone()
     for idx, ts in hrows.items():
-        add("Stocks and heatmap", "Heatmap " + S.HEAT_INDEXES[idx][0], ts, HEAT_EVERY)
+        hs = json.loads(get_setting("heat_status_" + idx, "null") or "null")
+        add("Stocks and heatmap", "Heatmap " + S.HEAT_INDEXES[idx][0], ts, HEAT_EVERY, ((hs or {}).get("msg", "") + " " + "; ".join((hs or {}).get("errors") or []))[:240], not hs or hs.get("ok", True))
     add("Stocks and heatmap", "Heatmap history (for the time slider)", hh["ts"] if hh else None, 12 * 3600)
     ns, gs = json.loads(get_setting("news_status", "null") or "null"), json.loads(get_setting("geo_news_status", "null") or "null")
     add("News", "Headlines", (ns or {}).get("ts"), NEWS_EVERY, f"{(ns or {}).get('ok', 0)} of {(ns or {}).get('total', 0)} feeds reachable, {(ns or {}).get('added', 0)} new in the last run")
