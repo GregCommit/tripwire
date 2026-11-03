@@ -2736,11 +2736,51 @@ RELATIONS.extend([
 
 
 # ══ Fast prices straight from Yahoo's chart service (one small request per symbol, many in parallel) ═══════
+import threading
+import urllib.error
+
+# Yahoo answers "429 Too Many Requests" when asked too often. Every request to its chart services goes through this gate:
+# one at a time with a minimum gap, and after a 429 everything pauses (30 s, doubling up to 10 minutes) instead of hammering on.
+_YH = {"lock": threading.Lock(), "last": 0.0, "block_until": 0.0, "backoff": 30.0, "n429": 0, "spark": None, "calls": 0}
+YH_GAP = 0.45
+
+
+def yahoo_get(url, timeout=12):
+    now = time.time()
+    if now < _YH["block_until"]:
+        raise RuntimeError(f"Yahoo asked us to slow down (429): paused for {int(_YH['block_until'] - now)} more seconds")
+    with _YH["lock"]:
+        wait = YH_GAP - (time.time() - _YH["last"])
+        if wait > 0:
+            time.sleep(wait)
+        _YH["last"] = time.time()
+        _YH["calls"] += 1
+    try:
+        raw = http_get(url, timeout=timeout, ua=_BROWSER, headers={"Accept": "application/json,text/plain,*/*", "Accept-Language": "en-US,en;q=0.9"})
+        _YH["backoff"] = max(30.0, _YH["backoff"] / 2)
+        return raw
+    except urllib.error.HTTPError as e:
+        if e.code == 429:
+            try:
+                ra = float(e.headers.get("Retry-After") or 0)
+            except ValueError:
+                ra = 0
+            _YH["n429"] += 1
+            _YH["block_until"] = time.time() + max(ra, _YH["backoff"])
+            _YH["backoff"] = min(600.0, _YH["backoff"] * 2)
+        raise
+
+
+def yahoo_state():
+    now = time.time()
+    return {"paused": max(0, int(_YH["block_until"] - now)), "n429": _YH["n429"], "backoff": int(_YH["backoff"]), "calls": _YH["calls"], "spark": _YH["spark"]}
+
+
 def chart_series(sym, rng="5d", interval="5m", prepost=True, timeout=12):
-    """{"pts": [(unix time, close)], "meta": {...}} from Yahoo's chart service; includes pre-market and after hours when asked."""
+    """{"pts": [(unix time, close)], "meta": {...}} for ONE symbol from Yahoo's chart service; includes pre-market and after hours when asked."""
     from urllib.parse import quote
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{quote(sym)}?range={rng}&interval={interval}&includePrePost={'true' if prepost else 'false'}"
-    data = json.loads(http_get(url, timeout=timeout, ua=_BROWSER))
+    data = json.loads(yahoo_get(url, timeout=timeout))
     err = (data.get("chart") or {}).get("error")
     if err:
         raise ValueError(str(err.get("description") or err)[:100])
@@ -2750,21 +2790,72 @@ def chart_series(sym, rng="5d", interval="5m", prepost=True, timeout=12):
     return {"pts": pts, "meta": res.get("meta", {})}
 
 
-def chart_many(symbols, workers=8, **kw):
-    """{symbol: chart_series result} for many symbols at once; failures are left out and returned as {symbol: error text} in the second value."""
-    from concurrent.futures import ThreadPoolExecutor
+def _spark_parse(data):
+    """Both shapes Yahoo's spark service has had -> {symbol: chart-like result}."""
+    out = {}
+    res = ((data.get("spark") or {}).get("result")) if isinstance(data, dict) else None
+    if res:
+        for r in res:
+            try:
+                resp = r["response"][0]
+                ts, cl = resp.get("timestamp") or [], resp["indicators"]["quote"][0].get("close") or []
+                pts = [(t, float(c)) for t, c in zip(ts, cl) if c is not None]
+                if pts:
+                    out[r["symbol"]] = {"pts": pts, "meta": resp.get("meta", {})}
+            except (KeyError, IndexError, TypeError):
+                continue
+        return out
+    for sym, r in (data or {}).items():
+        if isinstance(r, dict) and "close" in r:
+            pts = [(t, float(c)) for t, c in zip(r.get("timestamp") or [], r.get("close") or []) if c is not None]
+            if pts:
+                out[sym] = {"pts": pts, "meta": {"chartPreviousClose": r.get("chartPreviousClose") or r.get("previousClose"), "regularMarketPrice": pts[-1][1], "regularMarketTime": pts[-1][0], "gmtoffset": 0}}
+    return out
+
+
+def spark_many(symbols, rng="1d", interval="5m", prepost=False, chunk=20, single_limit=12):
+    """Many symbols in a handful of requests (Yahoo's spark service takes a list). Falls back to one chart request per symbol, slowly,
+    when spark does not work. Returns (results, errors)."""
+    from urllib.parse import quote
     out, errs = {}, {}
-    def one(s):
+    syms = list(dict.fromkeys(symbols))
+    if _YH["spark"] is not False:
+        for i in range(0, len(syms), chunk):
+            part = syms[i:i + chunk]
+            url = ("https://query1.finance.yahoo.com/v8/finance/spark?symbols=" + ",".join(quote(s) for s in part)
+                   + f"&range={rng}&interval={interval}&includePrePost={'true' if prepost else 'false'}")
+            try:
+                got = _spark_parse(json.loads(yahoo_get(url, timeout=20)))
+                if got:
+                    _YH["spark"] = True
+                out.update(got)
+                for s in part:
+                    if s not in got:
+                        errs[s] = "no data"
+            except urllib.error.HTTPError as e:
+                if e.code != 429:
+                    errs.update({s: f"spark HTTP {e.code}" for s in part})
+                    if _YH["spark"] is None and e.code in (400, 404):
+                        _YH["spark"] = False
+                else:
+                    errs.update({s: "429 too many requests" for s in part})
+                    break
+            except Exception as e:
+                errs.update({s: f"{type(e).__name__}: {e}"[:80] for s in part})
+                if "paused" in str(e):
+                    break
+        missing = [s for s in syms if s not in out]
+        if _YH["spark"] is not False or not missing:
+            return out, errs
+    for s in [x for x in syms if x not in out][:single_limit]:          # fallback: single requests (the first few only), at the gate's pace, until it asks us to stop
         try:
-            return s, chart_series(s, **kw), None
-        except Exception as e:
-            return s, None, f"{type(e).__name__}: {e}"[:100]
-    with ThreadPoolExecutor(max_workers=workers) as ex:
-        for s, r, e in ex.map(one, symbols):
-            if r and r["pts"]:
+            r = chart_series(s, rng=rng, interval=interval, prepost=prepost)
+            if r["pts"]:
                 out[s] = r
-            elif e:
-                errs[s] = e
+        except Exception as e:
+            errs[s] = f"{type(e).__name__}: {e}"[:80]
+            if "429" in str(e) or "paused" in str(e):
+                break
     return out, errs
 
 
@@ -2778,18 +2869,15 @@ def latest_quote(res):
     return float(px), day
 
 
-def extended_moves(tickers):
-    """Latest price INCLUDING pre-market and after hours against the previous regular close, for US-listed tickers.
+def extended_from(results):
+    """Latest price INCLUDING pre-market and after hours against the previous regular close, from 5-day 5-minute chart data.
     {ticker: {"p": % since the last close before the latest bar's day, "ext": % since the last regular bar (None in the regular session),
     "sess": "regular" | "pre-market" | "after hours", "px": price}}"""
     from datetime import time as dtime
     from zoneinfo import ZoneInfo
     ny = ZoneInfo("America/New_York")
-    got, errs = chart_many(list(tickers), rng="5d", interval="5m", prepost=True)
-    for t, e in list(errs.items())[:3]:
-        log.warning("Extended move %s: %s", t, e)
     out = {}
-    for t, res in got.items():
+    for t, res in results.items():
         try:
             pts = [(datetime.fromtimestamp(ts, ny), c) for ts, c in res["pts"]]
             last_t, last = pts[-1]

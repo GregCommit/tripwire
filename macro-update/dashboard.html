@@ -1064,7 +1064,7 @@ async function loadStatus(){
 const INTRA = new Map();
 const INTRA_TTL = 30000;
 function intraSVG(D, t){
-  if (!D || !D.pts || D.pts.length < 3) return `<div class="small">No chart for today yet${D && D.error ? ' (' + esc(D.error) + ')' : ''}.</div>`;
+  if (!D || !D.pts || D.pts.length < 3) return `<div class="small">No chart for today yet${D && D.error ? (/429|slow down/.test(D.error) ? ' — Yahoo is limiting requests for a moment, it returns shortly' : ' (' + esc(D.error) + ')') : ''}.</div>`;
   const W = 230, H = 74, vs = D.pts.map(p => p[1]), lo = Math.min(...vs, D.prev ?? Infinity), hi = Math.max(...vs, D.prev ?? -Infinity), sp = hi - lo || 1, Y = v => 4 + (hi - v) / sp * (H - 14);
   const last = vs[vs.length - 1], col = D.prev ? (last >= D.prev ? '#22C55E' : '#FF4D4F') : '#e4e4e7', t0 = D.pts[0][0], t1 = D.pts[D.pts.length - 1][0];
   const pts = D.pts.map(p => `${((p[0] - t0) / ((t1 - t0) || 1) * (W - 2) + 1).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(' ');
