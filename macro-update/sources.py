@@ -2735,160 +2735,69 @@ RELATIONS.extend([
 ])
 
 
-# ══ Fast prices straight from Yahoo's chart service (one small request per symbol, many in parallel) ═══════
+# ══ Live prices: one request per symbol to Yahoo's chart service, at a gentle pace ═════════════════════════
 import threading
 import urllib.error
 
-# Yahoo answers "429 Too Many Requests" when asked too often. Every request to its chart services goes through this gate:
-# one at a time with a minimum gap, and after a 429 everything pauses (30 s, doubling up to 10 minutes) instead of hammering on.
-_YH = {"lock": threading.Lock(), "last": 0.0, "block_until": 0.0, "backoff": 30.0, "n429": 0, "spark": None, "calls": 0}
-YH_GAP = 0.45
+LIVE = {}          # symbol -> {"pts": [(unix time, close)], "meta": {...}, "ts": when fetched}
+_YH = {"lock": threading.Lock(), "last": 0.0, "until": 0.0, "wait": 30.0, "n429": 0, "calls": 0}
 
 
 def yahoo_get(url, timeout=12):
-    now = time.time()
-    if now < _YH["block_until"]:
-        raise RuntimeError(f"Yahoo asked us to slow down (429): paused for {int(_YH['block_until'] - now)} more seconds")
+    """One request at a time, 0.5 s apart. After a 429 ("too many requests") everything pauses: 30 s, doubling up to 10 minutes."""
+    if time.time() < _YH["until"]:
+        raise RuntimeError(f"Yahoo asked us to slow down: paused for {int(_YH['until'] - time.time())} more seconds")
     with _YH["lock"]:
-        wait = YH_GAP - (time.time() - _YH["last"])
-        if wait > 0:
-            time.sleep(wait)
-        _YH["last"] = time.time()
-        _YH["calls"] += 1
+        time.sleep(max(0.0, 0.5 - (time.time() - _YH["last"])))
+        _YH["last"], _YH["calls"] = time.time(), _YH["calls"] + 1
     try:
-        raw = http_get(url, timeout=timeout, ua=_BROWSER, headers={"Accept": "application/json,text/plain,*/*", "Accept-Language": "en-US,en;q=0.9"})
-        _YH["backoff"] = max(30.0, _YH["backoff"] / 2)
+        raw = http_get(url, timeout=timeout, ua=_BROWSER, headers={"Accept": "application/json,*/*", "Accept-Language": "en-US,en;q=0.9"})
+        _YH["wait"] = max(30.0, _YH["wait"] / 2)
         return raw
     except urllib.error.HTTPError as e:
         if e.code == 429:
-            try:
-                ra = float(e.headers.get("Retry-After") or 0)
-            except ValueError:
-                ra = 0
-            _YH["n429"] += 1
-            _YH["block_until"] = time.time() + max(ra, _YH["backoff"])
-            _YH["backoff"] = min(600.0, _YH["backoff"] * 2)
+            _YH.update(until=time.time() + _YH["wait"], wait=min(600.0, _YH["wait"] * 2), n429=_YH["n429"] + 1)
         raise
 
 
-def yahoo_state():
-    now = time.time()
-    return {"paused": max(0, int(_YH["block_until"] - now)), "n429": _YH["n429"], "backoff": int(_YH["backoff"]), "calls": _YH["calls"], "spark": _YH["spark"]}
-
-
-def chart_series(sym, rng="5d", interval="5m", prepost=True, timeout=12):
-    """{"pts": [(unix time, close)], "meta": {...}} for ONE symbol from Yahoo's chart service; includes pre-market and after hours when asked."""
+def live_quote(sym):
+    """Five days of 5-minute prices incl. pre-market and after hours for one symbol: gives the latest price, the move and today's chart."""
     from urllib.parse import quote
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{quote(sym)}?range={rng}&interval={interval}&includePrePost={'true' if prepost else 'false'}"
-    data = json.loads(yahoo_get(url, timeout=timeout))
-    err = (data.get("chart") or {}).get("error")
-    if err:
-        raise ValueError(str(err.get("description") or err)[:100])
+    data = json.loads(yahoo_get(f"https://query1.finance.yahoo.com/v8/finance/chart/{quote(sym)}?range=5d&interval=5m&includePrePost=true"))
+    if (data.get("chart") or {}).get("error"):
+        raise ValueError(str(data["chart"]["error"])[:100])
     res = data["chart"]["result"][0]
-    ts, cl = res.get("timestamp") or [], (res.get("indicators", {}).get("quote") or [{}])[0].get("close") or []
-    pts = [(t, float(c)) for t, c in zip(ts, cl) if c is not None]
-    return {"pts": pts, "meta": res.get("meta", {})}
+    pts = [(t, float(c)) for t, c in zip(res.get("timestamp") or [], res["indicators"]["quote"][0]["close"]) if c is not None]
+    if not pts:
+        raise ValueError("no prices")
+    LIVE[sym] = {"pts": pts, "meta": res.get("meta", {}), "ts": time.time()}
+    return LIVE[sym]
 
 
-def _spark_parse(data):
-    """Both shapes Yahoo's spark service has had -> {symbol: chart-like result}."""
-    out = {}
-    res = ((data.get("spark") or {}).get("result")) if isinstance(data, dict) else None
-    if res:
-        for r in res:
-            try:
-                resp = r["response"][0]
-                ts, cl = resp.get("timestamp") or [], resp["indicators"]["quote"][0].get("close") or []
-                pts = [(t, float(c)) for t, c in zip(ts, cl) if c is not None]
-                if pts:
-                    out[r["symbol"]] = {"pts": pts, "meta": resp.get("meta", {})}
-            except (KeyError, IndexError, TypeError):
-                continue
-        return out
-    for sym, r in (data or {}).items():
-        if isinstance(r, dict) and "close" in r:
-            pts = [(t, float(c)) for t, c in zip(r.get("timestamp") or [], r.get("close") or []) if c is not None]
-            if pts:
-                out[sym] = {"pts": pts, "meta": {"chartPreviousClose": r.get("chartPreviousClose") or r.get("previousClose"), "regularMarketPrice": pts[-1][1], "regularMarketTime": pts[-1][0], "gmtoffset": 0}}
-    return out
-
-
-def spark_many(symbols, rng="1d", interval="5m", prepost=False, chunk=20, single_limit=12):
-    """Many symbols in a handful of requests (Yahoo's spark service takes a list). Falls back to one chart request per symbol, slowly,
-    when spark does not work. Returns (results, errors)."""
-    from urllib.parse import quote
-    out, errs = {}, {}
-    syms = list(dict.fromkeys(symbols))
-    if _YH["spark"] is not False:
-        for i in range(0, len(syms), chunk):
-            part = syms[i:i + chunk]
-            url = ("https://query1.finance.yahoo.com/v8/finance/spark?symbols=" + ",".join(quote(s) for s in part)
-                   + f"&range={rng}&interval={interval}&includePrePost={'true' if prepost else 'false'}")
-            try:
-                got = _spark_parse(json.loads(yahoo_get(url, timeout=20)))
-                if got:
-                    _YH["spark"] = True
-                out.update(got)
-                for s in part:
-                    if s not in got:
-                        errs[s] = "no data"
-            except urllib.error.HTTPError as e:
-                if e.code != 429:
-                    errs.update({s: f"spark HTTP {e.code}" for s in part})
-                    if _YH["spark"] is None and e.code in (400, 404):
-                        _YH["spark"] = False
-                else:
-                    errs.update({s: "429 too many requests" for s in part})
-                    break
-            except Exception as e:
-                errs.update({s: f"{type(e).__name__}: {e}"[:80] for s in part})
-                if "paused" in str(e):
-                    break
-        missing = [s for s in syms if s not in out]
-        if _YH["spark"] is not False or not missing:
-            return out, errs
-    for s in [x for x in syms if x not in out][:single_limit]:          # fallback: single requests (the first few only), at the gate's pace, until it asks us to stop
-        try:
-            r = chart_series(s, rng=rng, interval=interval, prepost=prepost)
-            if r["pts"]:
-                out[s] = r
-        except Exception as e:
-            errs[s] = f"{type(e).__name__}: {e}"[:80]
-            if "429" in str(e) or "paused" in str(e):
-                break
-    return out, errs
-
-
-def latest_quote(res):
-    """(price, 'YYYY-MM-DD' in the exchange's time) of the last regular-session price in a chart result."""
-    m = res["meta"]
-    px, t = m.get("regularMarketPrice"), m.get("regularMarketTime")
-    if px is None or not t:
-        px, t = res["pts"][-1][1], res["pts"][-1][0]
-    day = datetime.utcfromtimestamp(t + (m.get("gmtoffset") or 0)).strftime("%Y-%m-%d")
-    return float(px), day
-
-
-def extended_from(results):
-    """Latest price INCLUDING pre-market and after hours against the previous regular close, from 5-day 5-minute chart data.
-    {ticker: {"p": % since the last close before the latest bar's day, "ext": % since the last regular bar (None in the regular session),
-    "sess": "regular" | "pre-market" | "after hours", "px": price}}"""
+def live_view(sym, max_age=900):
+    """What the page shows for a symbol: {"px", "p" (% since the previous regular close), "ext" (% since the regular session, outside it),
+    "sess", "prev", "today" ([[time, price]]), "day" (date of the exchange), "ts"}; None when there is no recent price.
+    US shares are measured against the previous 16:00 close; other things (indices, futures) against the last price of the previous day."""
     from datetime import time as dtime
     from zoneinfo import ZoneInfo
-    ny = ZoneInfo("America/New_York")
-    out = {}
-    for t, res in results.items():
-        try:
-            pts = [(datetime.fromtimestamp(ts, ny), c) for ts, c in res["pts"]]
-            last_t, last = pts[-1]
-            reg = [(x, c) for x, c in pts if dtime(9, 30) <= x.time() < dtime(16, 0)]
-            before = [c for x, c in reg if x.date() < last_t.date()]
-            if not before:
-                continue
-            ref, tm = before[-1], last_t.time()
-            sess = "pre-market" if tm < dtime(9, 30) else "after hours" if tm >= dtime(16, 0) else "regular"
-            ext = (last / reg[-1][1] - 1) * 100 if sess != "regular" and reg else None
-            out[t] = {"p": (last / ref - 1) * 100, "ext": ext, "sess": sess, "px": last}
-        except Exception as e:
-            log.warning("Extended move %s: %s", t, e)
-    return out
+    r = LIVE.get(sym)
+    if not r or time.time() - r["ts"] > max_age:
+        return None
+    m, pts = r["meta"], r["pts"]
+    us = m.get("exchangeTimezoneName") == "America/New_York" and m.get("instrumentType") in ("EQUITY", "ETF")
+    tz = ZoneInfo("America/New_York") if us else None
+    loc = (lambda t: datetime.fromtimestamp(t, tz)) if us else (lambda t: datetime.utcfromtimestamp(t + (m.get("gmtoffset") or 0)))
+    rows = [(loc(t), t, c) for t, c in pts]
+    last_d, px = rows[-1][0].date(), rows[-1][2]
+    reg = lambda x: dtime(9, 30) <= x.time() < dtime(16, 0)
+    base = [c for x, t, c in rows if x.date() < last_d and (reg(x) or not us)]
+    if not base:
+        return None
+    sess = "regular"
+    if us:
+        tm = rows[-1][0].time()
+        sess = "pre-market" if tm < dtime(9, 30) else "after hours" if tm >= dtime(16, 0) else "regular"
+    regs = [c for x, t, c in rows if reg(x)]
+    return {"px": px, "p": (px / base[-1] - 1) * 100, "prev": base[-1], "sess": sess, "ts": r["ts"], "day": last_d.isoformat(),
+            "ext": (px / regs[-1] - 1) * 100 if us and sess != "regular" and regs else None,
+            "today": [[t, c] for x, t, c in rows if x.date() == last_d]}

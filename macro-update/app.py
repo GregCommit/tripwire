@@ -460,106 +460,77 @@ def source_loop(src, first_delay):
         time.sleep(max(15, (EVERY[src] if ok else min(EVERY[src], 120)) - (time.time() - t0)))
 
 
-FAST_EVERY = 30
-INTRA_LIVE = {}      # symbol -> today's 5-minute course, kept from the fast price pass so the charts need no extra requests
-EXT = {}             # ticker -> latest price incl. pre-market / after hours (filled by ext_loop)
-EXT_PTS = {}
-_fast = {"ts": 0, "ok": 0, "total": 0, "errors": {}, "took": 0, "n": 0}
+US_TICKER = re.compile(r"[A-Z]{1,5}(-[A-Z])?")
+PRIORITY = ["^VIX", "^GSPC", "^IXIC", "^DJI", "^RUT", "DX-Y.NYB", "GC=F", "CL=F", "ES=F", "NQ=F"]
+_live = {"ts": 0, "ok": 0, "err": "", "derived": 0}
 
 
-def apply_quotes(pairs, got):
-    """Puts the latest price into today's point of each stored daily series (adds the point when a new day has begun)."""
-    changed = 0
-    for key, sym in pairs:
-        r = got.get(sym)
-        if not r:
-            continue
-        try:
-            px, day = S.latest_quote(r)
-        except Exception:
-            continue
+def apply_live(sym):
+    """Puts the newest price into today's point of every stored daily series that follows this symbol; returns True when something changed."""
+    r, changed = S.LIVE[sym], False
+    m = r["meta"]
+    px, t = m.get("regularMarketPrice") or r["pts"][-1][1], m.get("regularMarketTime") or r["pts"][-1][0]
+    day = datetime.utcfromtimestamp(t + (m.get("gmtoffset") or 0)).strftime("%Y-%m-%d")
+    for key in [i["key"] for i in S.INDICATORS if i.get("sym") == sym and i["source"] == "yahoo"] + [k for k, v in S.GEO_ITEMS.items() if v.get("sym") == sym]:
         ser = load_series(key)
-        if not ser or day < ser[-1][0]:
+        if not ser or day < ser[-1][0] or (ser[-1][0] == day and abs(ser[-1][1] - px) < 1e-12):
             continue
         if ser[-1][0] == day:
-            if abs(ser[-1][1] - px) < 1e-12:
-                continue
             ser[-1][1] = px
         else:
             ser.append([day, px])
         save_series(key, ser)
-        changed += 1
+        changed = True
     return changed
 
 
-def fast_loop():
-    """The newest price of every market indicator straight from Yahoo's chart service, every 20 seconds (geopolitics markets every minute).
-    The big history downloads are slow and run on their own clock; this one keeps the numbers you look at current."""
-    time.sleep(8)
-    n = 0
+def live_plan():
+    """{symbol: seconds between refreshes}: the main indices, VIX, the 12 biggest companies and your stocks every 90 s; the other market
+    figures and big companies every 7 min; the rest (sectors, geopolitics markets) every 20 min. About 0.6 requests a second in all."""
+    plan = {}
+    with get_db() as conn:
+        big = [x["t"] for r in conn.execute("SELECT data FROM heat") for x in sorted(json.loads(r["data"])["rows"], key=lambda x: -x["c"])[:60]]
+        mine = [(r["sym"] or r["ticker"]) for r in conn.execute("SELECT ticker, sym, src FROM stocks WHERE src IS NULL OR src='yahoo'")]
+    for s in [i["sym"] for i in S.INDICATORS if i["source"] == "yahoo" and not i.get("group")] + [v["sym"] for v in S.GEO_ITEMS.values() if v.get("sym")]:
+        plan[s] = 1200
+    for s in [i["sym"] for i in S.INDICATORS if i["source"] == "yahoo" and i.get("group")] + big:
+        plan[s] = 420
+    for s in PRIORITY + big[:12] + mine:
+        plan[s] = 90
+    return {s: iv for s, iv in plan.items() if s and (US_TICKER.fullmatch(s) or not s.isalpha())}
+
+
+def live_loop():
+    """One symbol after the other, the one waiting longest first. A symbol that fails is tried again after a minute."""
+    time.sleep(10)
+    nxt, plan, planned = {}, {}, 0
     while True:
-        t0 = time.time()
         try:
-            pairs = [(i["key"], i["sym"]) for i in S.INDICATORS if i["source"] == "yahoo" and i.get("group")]
-            if n % 4 == 0:
-                pairs += [(i["key"], i["sym"]) for i in S.INDICATORS if i["source"] == "yahoo" and not i.get("group")]
-                pairs += [(k, v["sym"]) for k, v in S.GEO_ITEMS.items() if v.get("sym")]
-            prio = ["^VIX", "^GSPC", "^IXIC", "^DJI", "^RUT", "DX-Y.NYB", "GC=F", "CL=F", "ES=F", "NQ=F"]
-            syms = list(dict.fromkeys(prio + [s for _, s in pairs]))
-            syms = [s for s in syms if s in {x for _, x in pairs}]
-            got, errs = S.spark_many(syms, rng="1d", interval="5m", prepost=False, single_limit=10)
-            for s_, r_ in got.items():
-                INTRA_LIVE[s_] = {"pts": r_["pts"], "prev": (r_["meta"] or {}).get("chartPreviousClose"), "ts": time.time()}
-            changed = apply_quotes(pairs, got)
-            if changed:
-                with _derived_lock:
-                    for fn in (compute_mood, compute_internals) + ((check_alerts,) if n % 2 == 0 else ()):
-                        try:
-                            fn()
-                        except Exception as e:
-                            log.warning("%s after fast prices failed: %s", fn.__name__, e)
-            _fast.update(ts=int(time.time()), ok=len(got), total=len(syms), errors=dict(list(errs.items())[:5]), took=round(time.time() - t0, 1), n=changed)
-            if got:
+            if time.time() - planned > 120:
+                plan, planned = live_plan(), time.time()
+            due = sorted((nxt.get(s, 0), iv, s) for s, iv in plan.items())
+            if not due or due[0][0] > time.time():
+                time.sleep(3)
+                continue
+            s = due[0][2]
+            try:
+                S.live_quote(s)
+                nxt[s] = time.time() + plan[s]
+                _live.update(ts=int(time.time()), ok=_live["ok"] + 1, err="")
+                if apply_live(s) and time.time() - _live["derived"] > 30:
+                    _live["derived"] = time.time()
+                    run_derived()
                 mark_fetch("fast", True)
-            else:
-                mark_fetch("fast", False, "no prices from Yahoo's chart service: " + "; ".join(list(errs.values())[:2]))
+            except Exception as e:
+                nxt[s] = time.time() + 60
+                _live["err"] = f"{s}: {type(e).__name__}: {e}"[:160]
+                if "slow down" in str(e):
+                    time.sleep(10)
+                else:
+                    mark_fetch("fast", False, _live["err"])
         except Exception as e:
-            log.exception("Fast price loop failed: %s", e)
-            mark_fetch("fast", False, e)
-        n += 1
-        time.sleep(max(5, FAST_EVERY - (time.time() - t0)))
-
-
-def ext_loop():
-    """Pre-market, regular-session and after-hours prices: the 20 biggest companies every 30 seconds, the other big ones and your own stocks
-    every 90 seconds. A few batched requests each time."""
-    time.sleep(30)
-    n = 0
-    while True:
-        t0 = time.time()
-        try:
-            big, rest = [], []
-            with get_db() as conn:
-                for r in conn.execute("SELECT data FROM heat"):
-                    srt = sorted(json.loads(r["data"])["rows"], key=lambda x: -x["c"])
-                    big += [x["t"] for x in srt[:20]]
-                    rest += [x["t"] for x in srt[20:60]]
-                rest += [(r["sym"] or r["ticker"]) for r in conn.execute("SELECT ticker, sym, src FROM stocks WHERE src IS NULL OR src='yahoo'")]
-            ok_sym = lambda s: re.fullmatch(r"[A-Z]{1,5}(-[A-Z])?", s)
-            big = [s for s in dict.fromkeys(big) if ok_sym(s)]
-            rest = [s for s in dict.fromkeys(rest) if ok_sym(s) and s not in big]
-            syms = big + (rest if n % 3 == 0 else [])
-            got, errs = S.spark_many(syms, rng="5d", interval="5m", prepost=True, single_limit=20)
-            new = S.extended_from(got)
-            EXT.update({k: {**v, "ts": time.time()} for k, v in new.items()})
-            for s_, r_ in got.items():
-                EXT_PTS[s_] = {"pts": r_["pts"], "ts": time.time()}
-            set_setting("ext_status", json.dumps({"ts": int(time.time()), "ok": len(new), "total": len(syms), "errors": list(errs.values())[:2], "took": round(time.time() - t0, 1)}))
-        except Exception as e:
-            log.warning("Extended-hours pass failed: %s", e)
-            set_setting("ext_status", json.dumps({"ts": int(time.time()), "ok": 0, "total": 0, "errors": [f"{type(e).__name__}: {e}"[:120]], "took": 0}))
-        n += 1
-        time.sleep(max(10, 30 - (time.time() - t0)))
+            log.exception("Live price loop: %s", e)
+            time.sleep(5)
 
 
 def cnn_loop():
@@ -1003,14 +974,12 @@ HEAT_EVERY = 60
 
 
 def apply_ext(rows, max_age=600):
-    """The newest price (incl. pre-market and after hours) goes onto the biggest companies, whenever the heatmap is built or served;
-    a company whose live price is older than ten minutes falls back to the regular-session figure."""
-    now = time.time()
+    """The newest price (incl. pre-market and after hours) goes onto the biggest companies when the heatmap is built or served;
+    a company without a live price from the last ten minutes keeps the regular-session figure."""
     for r in rows:
-        v = EXT.get(r["t"])
-        if v and now - v["ts"] < max_age:
-            r["pe"], r["sess"] = round(v["p"], 2), v["sess"]
-            r["ext"] = None if v["ext"] is None else round(v["ext"], 2)
+        v = S.live_view(r["t"], max_age) if US_TICKER.fullmatch(r["t"]) else None
+        if v:
+            r["pe"], r["sess"], r["ext"] = round(v["p"], 2), v["sess"], None if v["ext"] is None else round(v["ext"], 2)
         else:
             for k in ("pe", "sess", "ext"):
                 r.pop(k, None)
@@ -1199,7 +1168,7 @@ def refresh_stocks():
                 for t in need_full:
                     if symof[t] in raw:
                         STOCK_FULL[t] = {**raw[symof[t]], "ts": now}
-            quick = [t for t in yah if t in STOCK_FULL and t not in need_full and now - STOCK_FULL[t].get("q", 0) > (600 if symof[t] in EXT else 120)]
+            quick = [t for t in yah if t in STOCK_FULL and t not in need_full and now - STOCK_FULL[t].get("q", 0) > (600 if S.live_view(symof[t]) is not None else 120)]
             if quick:
                 raw = S.fetch_yahoo_vol(list(dict.fromkeys(symof[t] for t in quick)), "5d")
                 for t in quick:
@@ -1220,7 +1189,7 @@ def refresh_stocks():
         STOCK_PTS.update({t: g["pts"] for t, g in got.items()})
         names, earn = _stock_names(), json.loads(get_setting("stock_earn", "{}") or "{}")
         news_all = json.loads(get_setting("stock_news", "{}") or "{}")
-        extm = {s: v for s, v in EXT.items() if now - v["ts"] < 900}
+        extm = {s: v for s in symof.values() if US_TICKER.fullmatch(s) and (v := S.live_view(s))}
         out = {}
         for t in tickers:
             g = got.get(t)
@@ -1372,8 +1341,7 @@ def start_background():
         _started = True
         background_loop()
         threading.Thread(target=cnn_loop, daemon=True, name="cnn").start()
-        threading.Thread(target=fast_loop, daemon=True, name="fast").start()
-        threading.Thread(target=ext_loop, daemon=True, name="ext").start()
+        threading.Thread(target=live_loop, daemon=True, name="live").start()
         threading.Thread(target=news_loop, daemon=True, name="news").start()
         threading.Thread(target=heat_loop, daemon=True, name="heat").start()
         threading.Thread(target=heat_hist_loop, daemon=True, name="heathist").start()
@@ -1775,8 +1743,8 @@ def tomorrow_panel(sm):
     if heat and heat.get("mega"):          # the mega caps always carry their newest price, even when the heatmap build is behind
         now = time.time()
         for m in heat["mega"]:
-            v = EXT.get(m["t"])
-            if v and now - v["ts"] < 600:
+            v = S.live_view(m["t"], 600)
+            if v:
                 m["pct"], m["sess"] = round(v["p"], 2), v["sess"]
         tot = sum(m["cap"] for m in heat["mega"]) or 1
         heat["megaAvg"] = round(sum(m["pct"] * m["cap"] for m in heat["mega"]) / tot, 2)
@@ -1818,7 +1786,7 @@ def api_overview():
                                        for k, v in json.loads(get_setting("sector_parts", "{}") or "{}").items()), key=lambda x: -x["pct"]),
                     "earnings": json.loads(get_setting("earn_rows", "null") or "null"),
                     "tomorrow": tomorrow_panel(sm),
-                    "freshness": {"fast": _fast["ts"], "news": (json.loads(get_setting("news_status", "null") or "null") or {}).get("ts"),
+                    "freshness": {"fast": _live["ts"], "news": (json.loads(get_setting("news_status", "null") or "null") or {}).get("ts"),
                                   "cnn": (json.loads(get_setting("cnn_status", "null") or "null") or {}).get("ts")},
                     "parts": composite_parts(),
                     "summary": build_summary(clusters, crossed_levels(sm, get_rules()), recent),
@@ -2220,23 +2188,22 @@ def api_status():
         age = None if not ts else now - ts
         level = "bad" if not ok or age is None else "ok" if age <= max(30, every * 2.5) else "warn" if age <= every * 8 else "bad"
         rows.append({"group": group, "name": name, "ts": ts, "age": age, "every": every, "detail": detail, "level": level})
-    add("Prices", "Live prices (Yahoo chart service)", _fast["ts"], FAST_EVERY, f"{_fast['ok']} of {_fast['total']} symbols in {_fast['took']} s" + (f" · {'; '.join(_fast['errors'].values())}" if _fast["errors"] else ""), _fast["ok"] > 0)
+    ys = S._YH
+    add("Prices", "Live prices (Yahoo, one symbol after the other)", _live["ts"], 90, f"{_live['ok']} fetched since start, {len(S.LIVE)} symbols known" + (f" · last error: {_live['err']}" if _live["err"] else "")
+        + (f" · PAUSED {int(ys['until'] - time.time())} s after a 429" if ys["until"] > time.time() else "") + f" · {ys['n429']}× told to slow down", bool(_live["ts"]))
     with get_db() as conn:
         upd = {r["key"]: r["updated"] for r in conn.execute("SELECT key, updated FROM series WHERE key IN ('VIX','SPX','IXIC','DXY','US10Y','MOOD','GOLD','WTI')")}
-    for k, label, every in (("VIX", "VIX", 20), ("SPX", "S&P 500", 20), ("IXIC", "Nasdaq", 20), ("DXY", "US dollar index", 20), ("GOLD", "Gold", 20), ("US10Y", "10-year yield (FRED, once a day)", 3600), ("MOOD", "Fear & Greed estimate", 20)):
+    for k, label, every in (("VIX", "VIX", 90), ("SPX", "S&P 500", 90), ("IXIC", "Nasdaq", 300), ("DXY", "US dollar index", 300), ("GOLD", "Gold", 300), ("US10Y", "10-year yield (FRED, once a day)", 3600), ("MOOD", "Fear & Greed estimate", 90)):
         pts = load_series(k)
         add("Prices", label, upd.get(k), every, f"latest value {pts[-1][1]:,.2f} dated {pts[-1][0]}" if pts else "no data yet", bool(pts))
-    ys, es = S.yahoo_state(), json.loads(get_setting("ext_status", "null") or "null")
-    add("Prices", "Yahoo request limit", int(time.time()) if not ys["paused"] else None, 60, f"{ys['calls']} requests since start, {ys['n429']} times told to slow down" + (f", PAUSED for {ys['paused']} s" if ys["paused"] else "") + f" · batch service {'works' if ys['spark'] else 'not available' if ys['spark'] is False else 'not tried yet'}", not ys["paused"])
-    add("Prices", "Pre-market / after-hours prices", (es or {}).get("ts"), 90, f"{(es or {}).get('ok', 0)} of {(es or {}).get('total', 0)} stocks · {'; '.join((es or {}).get('errors') or [])}"[:200], bool(es and es.get("ok")))
-    mega_ts = [v["ts"] for t_, v in EXT.items() if t_ in ("NVDA", "MSFT", "AAPL", "GOOGL", "AMZN", "META", "AVGO", "TSLA")]
-    add("Prices", "Mega-cap prices (NVDA, MSFT, AAPL …)", int(max(mega_ts)) if mega_ts else None, 30, f"{len(mega_ts)} of 8 checked, the oldest {int(now - min(mega_ts))} s old" if mega_ts else "no live price yet", bool(mega_ts))
+    mega = [v for t_ in ("NVDA", "MSFT", "AAPL", "GOOGL", "AMZN", "META", "AVGO", "TSLA") if (v := S.live_view(t_, 10 ** 9))]
+    add("Prices", "Mega-cap prices (NVDA, MSFT, AAPL …)", int(max(v["ts"] for v in mega)) if mega else None, 90, f"{len(mega)} of 8 known, the oldest {int(now - min(v['ts'] for v in mega))} s old" if mega else "no live price yet", bool(mega))
     cs = json.loads(get_setting("cnn_status", "null") or "null")
     add("Prices", "Fear & Greed (CNN)", (cs or {}).get("ts"), 60, (cs or {}).get("msg", "not tried yet"), bool(cs and cs.get("ok")))
     st = fetch_status()
     for src, name in SOURCE_NAMES.items():
         x = st.get(src, {})
-        add("Data sources", name, x.get("ok_ts"), EVERY.get(src, FAST_EVERY), (x.get("error") or "")[:200], not x.get("error") or bool(x.get("ok_ts") and now - x["ok_ts"] < EVERY.get(src, 60) * 3))
+        add("Data sources", name, x.get("ok_ts"), EVERY.get(src, 90), (x.get("error") or "")[:200], not x.get("error") or bool(x.get("ok_ts") and now - x["ok_ts"] < EVERY.get(src, 60) * 3))
     sd = json.loads(get_setting("stocks_data", "{}") or "{}")
     add("Stocks and heatmap", "Your stocks", sd.get("ts"), STOCKS_EVERY, f"{len(sd.get('rows', {}))} stocks")
     with get_db() as conn:
@@ -2369,39 +2336,19 @@ def api_stocks():
 @app.route("/api/intraday")
 @login_required
 def api_intraday():
-    """Today's price course in 5-minute steps (for the hover charts)."""
+    """Today's price course in 5-minute steps (for the hover charts); comes from the live prices, fetched on the spot when it is not there yet."""
     t = re.sub(r"[^A-Za-z0-9.\-=^]", "", request.args.get("t", "")).upper()[:12]
-    c = _intraday_cache.get(t)
-    if c and time.time() - c[0] < 60:
-        return jsonify(c[1])
-    from zoneinfo import ZoneInfo
-    ny = ZoneInfo("America/New_York")
-    out = None
-    ext = EXT_PTS.get(t)                        # the extended-hours pass already has 5 days of 5-minute prices: no request needed
-    live = INTRA_LIVE.get(t)
     try:
-        if ext and time.time() - ext["ts"] < 600:
-            pts = [(datetime.fromtimestamp(ts, ny), v) for ts, v in ext["pts"]]
-            last_day = pts[-1][0].date()
-            today = [[int(i.timestamp()), v] for i, v in pts if i.date() == last_day]
-            prev = [v for i, v in pts if i.date() < last_day and 9 * 60 + 30 <= i.hour * 60 + i.minute < 16 * 60] or [v for i, v in pts if i.date() < last_day]
-            out = {"t": t, "pts": today, "prev": prev[-1] if prev else None}
-        elif live and time.time() - live["ts"] < 600:
-            out = {"t": t, "pts": [[a_, b_] for a_, b_ in live["pts"]], "prev": live.get("prev")}
-        else:
-            res = S.chart_series(t, "5d", "5m", True)
-            pts = [(datetime.fromtimestamp(ts, ny), v) for ts, v in res["pts"]]
-            last_day = pts[-1][0].date()
-            today = [[int(i.timestamp()), v] for i, v in pts if i.date() == last_day]
-            prev = [v for i, v in pts if i.date() < last_day and 9 * 60 + 30 <= i.hour * 60 + i.minute < 16 * 60] or [v for i, v in pts if i.date() < last_day]
-            out = {"t": t, "pts": today, "prev": prev[-1] if prev else None}
+        v = S.live_view(t, 600)
+        if not v:
+            S.live_quote(t)
+            v = S.live_view(t, 600)
+        out = {"t": t, "pts": v["today"], "prev": v["prev"]} if v else {"t": t, "pts": [], "prev": None}
     except Exception as e:
         out = {"t": t, "pts": [], "prev": None, "error": f"{type(e).__name__}: {e}"[:120]}
-    _intraday_cache[t] = (time.time(), out)
     return jsonify(out)
 
 
-_intraday_cache = {}
 
 
 @app.route("/api/ais", methods=["POST"])
