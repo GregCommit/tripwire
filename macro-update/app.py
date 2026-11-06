@@ -1362,6 +1362,7 @@ def start_background():
         background_loop()
         threading.Thread(target=cnn_loop, daemon=True, name="cnn").start()
         threading.Thread(target=live_loop, daemon=True, name="live").start()
+        threading.Thread(target=watchdog_loop, daemon=True, name="watchdog").start()
         threading.Thread(target=news_loop, daemon=True, name="news").start()
         threading.Thread(target=heat_loop, daemon=True, name="heat").start()
         threading.Thread(target=heat_hist_loop, daemon=True, name="heathist").start()
@@ -2378,19 +2379,20 @@ def api_finnhub():
     return jsonify({"success": True})
 
 
-@app.route("/api/selftest", methods=["POST"])
-@login_required
-def api_selftest():
+def run_selftest():
     """Asks every outside source one question and says what came back: the quickest way to see which one is blocked."""
     key = get_setting("finnhub_key", "")
     def yahoo(sym):
         r = S.live_quote(sym)
         return f"{len(r['pts'])} prices, newest {datetime.fromtimestamp(r['pts'][-1][0]).strftime('%d %b %H:%M')}"
+    def need_key():
+        raise ValueError("no key saved")
+    feed = S.news_feeds()[0]
     tests = [("Yahoo chart AAPL", lambda: yahoo("AAPL")), ("Yahoo chart ^VIX", lambda: yahoo("^VIX")),
              ("Nasdaq quote NVDA", lambda: str(S.quote_nasdaq("NVDA"))[:110]), ("Stooq ^spx", lambda: str(S.quote_stooq("^GSPC"))[:110]),
-             ("Finnhub NVDA", lambda: str(S.quote_finnhub("NVDA", key))[:110] if key else (_ for _ in ()).throw(ValueError("no key saved"))),
+             ("Finnhub NVDA", lambda: str(S.quote_finnhub("NVDA", key))[:110] if key else need_key()),
              ("CNN Fear & Greed", lambda: "score " + str(json.loads(S.http_get("https://production.dataviz.cnn.io/index/fearandgreed/graphdata", timeout=15, ua=BROWSER_UA, headers={"Origin": "https://edition.cnn.com", "Referer": "https://edition.cnn.com/"}))["fear_and_greed"]["score"])),
-             ("FRED 10-year yield", lambda: str(S.fetch_fred("DGS10", "2026-01-01")[-1])), ("News feed", lambda: f"{len(S.parse_feed(S.http_get(S.news_feeds()[0][1], timeout=15, ua=BROWSER_UA), 'x'))} items from {S.news_feeds()[0][0]}")]
+             ("FRED 10-year yield", lambda: str(S.fetch_fred("DGS10", "2026-01-01")[-1])), ("News feed", lambda: f"{len(S.parse_feed(S.http_get(feed[1], timeout=15, ua=BROWSER_UA), 'x'))} items from {feed[0]}")]
     out = []
     for name, fn in tests:
         t0 = time.time()
@@ -2398,7 +2400,54 @@ def api_selftest():
             out.append({"name": name, "ok": True, "ms": int((time.time() - t0) * 1000), "detail": str(fn())[:160]})
         except Exception as e:
             out.append({"name": name, "ok": False, "ms": int((time.time() - t0) * 1000), "detail": f"{type(e).__name__}: {e}"[:160]})
-    return jsonify({"results": out, "yahooPaused": max(0, int(S._YH["until"] - time.time()))})
+    return out
+
+
+def status_report():
+    """The connection test and the status of every part as plain text (for the e-mail)."""
+    lines = ["CONNECTION TEST"] + [f"{'OK  ' if t['ok'] else 'FAIL'} {t['name']} ({t['ms']} ms): {t['detail']}" for t in run_selftest()]
+    st = api_status().get_json()
+    lines += ["", "STATUS"] + [f"{r['level'].upper():4} {r['name']}: {'never' if not r['ts'] else str(r['age']) + ' s ago'} {r['detail']}" for r in st["rows"]]
+    lines += ["", f"Version {VERSION}, running {int(time.time() - APP_STARTED)} s, live prices served by {_live['by']}, last error: {_live['err'] or '-'}"]
+    return "\n".join(lines)
+
+
+_last_report = [0.0]
+
+
+def send_report(force=False):
+    if not force and time.time() - _last_report[0] < 6 * 3600:
+        return False, "sent recently"
+    _last_report[0] = time.time()
+    with app.test_request_context():
+        session["authed"], session["role"] = True, "owner"
+        body = status_report()
+    return send_email(f"{APP_NAME}: status report", body, force=force)
+
+
+def watchdog_loop():
+    """When the live prices have been silent for 10 minutes, e-mail the report (at most every 6 hours): you can read it later and forward it."""
+    time.sleep(300)
+    while True:
+        try:
+            if time.time() - APP_STARTED > 600 and time.time() - max(_live["ts"], APP_STARTED) > 600 and get_setting("email_enabled", "0") == "1":
+                send_report()
+        except Exception as e:
+            log.warning("Watchdog failed: %s", e)
+        time.sleep(120)
+
+
+@app.route("/api/selftest", methods=["POST"])
+@login_required
+def api_selftest():
+    return jsonify({"results": run_selftest(), "yahooPaused": max(0, int(S._YH["until"] - time.time()))})
+
+
+@app.route("/api/statusmail", methods=["POST"])
+@login_required
+def api_statusmail():
+    ok, msg = send_report(force=True)
+    return jsonify({"success": ok, "message": msg})
 
 
 @app.route("/api/ais", methods=["POST"])
