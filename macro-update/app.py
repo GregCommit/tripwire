@@ -462,15 +462,18 @@ def source_loop(src, first_delay):
 
 US_TICKER = re.compile(r"[A-Z]{1,5}(-[A-Z])?")
 PRIORITY = ["^VIX", "^GSPC", "^IXIC", "^DJI", "^RUT", "DX-Y.NYB", "GC=F", "CL=F", "ES=F", "NQ=F"]
-_live = {"ts": 0, "ok": 0, "err": "", "derived": 0}
+_live = {"ts": 0, "ok": 0, "err": "", "derived": 0, "by": {}}
 
 
 def apply_live(sym):
     """Puts the newest price into today's point of every stored daily series that follows this symbol; returns True when something changed."""
-    r, changed = S.LIVE[sym], False
-    m = r["meta"]
-    px, t = m.get("regularMarketPrice") or r["pts"][-1][1], m.get("regularMarketTime") or r["pts"][-1][0]
-    day = datetime.utcfromtimestamp(t + (m.get("gmtoffset") or 0)).strftime("%Y-%m-%d")
+    changed, r, q = False, S.LIVE.get(sym), S.QUOTE.get(sym)
+    if q and (not r or r["ts"] < q["ts"]):
+        px, day = q["px"], datetime.now().strftime("%Y-%m-%d")
+    else:
+        m = r["meta"]
+        px, t = m.get("regularMarketPrice") or r["pts"][-1][1], m.get("regularMarketTime") or r["pts"][-1][0]
+        day = datetime.utcfromtimestamp(t + (m.get("gmtoffset") or 0)).strftime("%Y-%m-%d")
     for key in [i["key"] for i in S.INDICATORS if i.get("sym") == sym and i["source"] == "yahoo"] + [k for k, v in S.GEO_ITEMS.items() if v.get("sym") == sym]:
         ser = load_series(key)
         if not ser or day < ser[-1][0] or (ser[-1][0] == day and abs(ser[-1][1] - px) < 1e-12):
@@ -482,6 +485,23 @@ def apply_live(sym):
         save_series(key, ser)
         changed = True
     return changed
+
+
+def fetch_live(sym):
+    """The price of one symbol from the first source that answers: Finnhub (when you saved a key, US shares), Yahoo, Nasdaq (US shares),
+    Stooq (indices, futures). Records which one worked."""
+    key, errs = get_setting("finnhub_key", ""), []
+    us = bool(US_TICKER.fullmatch(sym))
+    chain = ([("Finnhub", lambda: S.QUOTE.__setitem__(sym, S.quote_finnhub(sym, key)))] if key and us else []) + [("Yahoo", lambda: S.live_quote(sym))] \
+        + ([("Nasdaq", lambda: S.QUOTE.__setitem__(sym, S.quote_nasdaq(sym)))] if us else []) + ([("Stooq", lambda: S.QUOTE.__setitem__(sym, S.quote_stooq(sym)))] if sym in S.STOOQ else [])
+    for name, fn in chain:
+        try:
+            fn()
+            _live["by"][name] = _live["by"].get(name, 0) + 1
+            return name
+        except Exception as e:
+            errs.append(f"{name}: {str(e)[:60]}")
+    raise RuntimeError("; ".join(errs))
 
 
 def live_plan():
@@ -514,7 +534,7 @@ def live_loop():
                 continue
             s = due[0][2]
             try:
-                S.live_quote(s)
+                fetch_live(s)
                 nxt[s] = time.time() + plan[s]
                 _live.update(ts=int(time.time()), ok=_live["ok"] + 1, err="")
                 if apply_live(s) and time.time() - _live["derived"] > 30:
@@ -2190,7 +2210,7 @@ def api_status():
         rows.append({"group": group, "name": name, "ts": ts, "age": age, "every": every, "detail": detail, "level": level})
     ys = S._YH
     add("Prices", "Live prices (Yahoo, one symbol after the other)", _live["ts"], 90, f"{_live['ok']} fetched since start, {len(S.LIVE)} symbols known" + (f" · last error: {_live['err']}" if _live["err"] else "")
-        + (f" · PAUSED {int(ys['until'] - time.time())} s after a 429" if ys["until"] > time.time() else "") + f" · {ys['n429']}× told to slow down", bool(_live["ts"]))
+        + (f" · PAUSED {int(ys['until'] - time.time())} s after a 429" if ys["until"] > time.time() else "") + f" · {ys['n429']}× told to slow down · served by {', '.join(f'{k} {v}' for k, v in _live['by'].items()) or 'nobody yet'}", bool(_live["ts"]))
     with get_db() as conn:
         upd = {r["key"]: r["updated"] for r in conn.execute("SELECT key, updated FROM series WHERE key IN ('VIX','SPX','IXIC','DXY','US10Y','MOOD','GOLD','WTI')")}
     for k, label, every in (("VIX", "VIX", 90), ("SPX", "S&P 500", 90), ("IXIC", "Nasdaq", 300), ("DXY", "US dollar index", 300), ("GOLD", "Gold", 300), ("US10Y", "10-year yield (FRED, once a day)", 3600), ("MOOD", "Fear & Greed estimate", 90)):
@@ -2349,6 +2369,36 @@ def api_intraday():
     return jsonify(out)
 
 
+
+
+@app.route("/api/finnhub", methods=["POST"])
+@login_required
+def api_finnhub():
+    set_setting("finnhub_key", re.sub(r"[^A-Za-z0-9]", "", str((request.json or {}).get("key", "")))[:60])
+    return jsonify({"success": True})
+
+
+@app.route("/api/selftest", methods=["POST"])
+@login_required
+def api_selftest():
+    """Asks every outside source one question and says what came back: the quickest way to see which one is blocked."""
+    key = get_setting("finnhub_key", "")
+    def yahoo(sym):
+        r = S.live_quote(sym)
+        return f"{len(r['pts'])} prices, newest {datetime.fromtimestamp(r['pts'][-1][0]).strftime('%d %b %H:%M')}"
+    tests = [("Yahoo chart AAPL", lambda: yahoo("AAPL")), ("Yahoo chart ^VIX", lambda: yahoo("^VIX")),
+             ("Nasdaq quote NVDA", lambda: str(S.quote_nasdaq("NVDA"))[:110]), ("Stooq ^spx", lambda: str(S.quote_stooq("^GSPC"))[:110]),
+             ("Finnhub NVDA", lambda: str(S.quote_finnhub("NVDA", key))[:110] if key else (_ for _ in ()).throw(ValueError("no key saved"))),
+             ("CNN Fear & Greed", lambda: "score " + str(json.loads(S.http_get("https://production.dataviz.cnn.io/index/fearandgreed/graphdata", timeout=15, ua=BROWSER_UA, headers={"Origin": "https://edition.cnn.com", "Referer": "https://edition.cnn.com/"}))["fear_and_greed"]["score"])),
+             ("FRED 10-year yield", lambda: str(S.fetch_fred("DGS10", "2026-01-01")[-1])), ("News feed", lambda: f"{len(S.parse_feed(S.http_get(S.news_feeds()[0][1], timeout=15, ua=BROWSER_UA), 'x'))} items from {S.news_feeds()[0][0]}")]
+    out = []
+    for name, fn in tests:
+        t0 = time.time()
+        try:
+            out.append({"name": name, "ok": True, "ms": int((time.time() - t0) * 1000), "detail": str(fn())[:160]})
+        except Exception as e:
+            out.append({"name": name, "ok": False, "ms": int((time.time() - t0) * 1000), "detail": f"{type(e).__name__}: {e}"[:160]})
+    return jsonify({"results": out, "yahooPaused": max(0, int(S._YH["until"] - time.time()))})
 
 
 @app.route("/api/ais", methods=["POST"])

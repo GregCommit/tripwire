@@ -320,7 +320,11 @@ details.quiet{margin-top:18px}details.quiet>summary{cursor:pointer;color:var(--m
 <li>Bank of Japan — the Policy Board's inflation forecasts from each quarterly Outlook Report.</li></ul>
 <p>If a source can't be reached, the app keeps the last good numbers and says so under the summary on the Today tab.</p>
 <p class="small" id="verLine" style="margin:14px 0"></p></div>
-<div class="card" style="margin-top:14px"><h2 style="margin-top:0">Data status</h2><div class="small" style="margin-bottom:8px">When each part of the page last worked and how often it should. Green = on time, yellow = late, red = stuck or failing.</div><div id="statusBox">Loading…</div></div></section>
+<div class="card" style="margin-top:14px"><h2 style="margin-top:0">Data status</h2><div class="small" style="margin-bottom:8px">When each part of the page last worked and how often it should. Green = on time, yellow = late, red = stuck or failing.</div><div id="statusBox">Loading…</div>
+<div style="margin-top:16px;border-top:1px solid var(--line);padding-top:12px"><b>Connection test</b> <span class="small">asks every outside source one question and shows what came back</span>
+<div style="margin:8px 0"><button class="btn" id="testBtn" onclick="runSelftest()">Run the test</button></div><div id="testOut"></div>
+<div style="margin-top:14px"><b>Optional: Finnhub key</b> <span class="small">a free key from <a href="https://finnhub.io" target="_blank" rel="noopener noreferrer" style="color:var(--accent)">finnhub.io</a> (1 minute) gives real-time US share prices incl. pre-market without Yahoo</span>
+<div style="margin-top:6px"><input id="fhKey" placeholder="Finnhub API key" style="width:300px"> <button class="btn" onclick="saveFinnhub()">Save</button> <span class="small" id="fhMsg"></span></div></div></div></div></section>
 </main>
 <script>
 // ── helpers ───────────────────────────────────────────────────────────────
@@ -1044,6 +1048,18 @@ async function loadGeo(){
   catch (e){ if (e.message !== 'signed out') $('geo').innerHTML = '<div class="card muted">Could not load the geopolitics page: ' + esc(e.message) + '</div>'; }
 }
 function setGeo(c){ GEO_SEL = c; GEO = null; renderGeo(); loadGeo(); }
+async function runSelftest(){
+  const b = $('testBtn'), o = $('testOut'); b.disabled = true; o.innerHTML = '<div class="small">Asking… this takes up to a minute.</div>';
+  try {
+    const r = await fetch('/api/selftest', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'}).then(x => x.json());
+    o.innerHTML = r.results.map(t => `<div class="strow"><i class="dot ${t.ok ? 'ok' : 'bad'}"></i><span class="sn">${esc(t.name)}</span><span class="sa">${t.ms} ms</span><span class="small sd">${esc(t.detail)}</span></div>`).join('');
+  } catch (e) { o.textContent = 'The test could not run: ' + e.message; }
+  b.disabled = false;
+}
+async function saveFinnhub(){
+  const k = $('fhKey').value.trim(); if (!k) return;
+  await fetch('/api/finnhub', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({key: k})}); $('fhMsg').textContent = 'Saved. US share prices now come from Finnhub first.'; $('fhKey').value = '';
+}
 // ── Data status (Guide) ───────────────────────────────────────────────────
 let STATUS_T = null;
 async function loadStatus(){

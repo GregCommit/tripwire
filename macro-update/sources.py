@@ -2740,6 +2740,7 @@ import threading
 import urllib.error
 
 LIVE = {}          # symbol -> {"pts": [(unix time, close)], "meta": {...}, "ts": when fetched}
+QUOTE = {}         # symbol -> {"px", "p", "prev", "sess", "ts", "src"} from the other price sources
 _YH = {"lock": threading.Lock(), "last": 0.0, "until": 0.0, "wait": 30.0, "n429": 0, "calls": 0}
 
 
@@ -2780,7 +2781,9 @@ def live_view(sym, max_age=900):
     US shares are measured against the previous 16:00 close; other things (indices, futures) against the last price of the previous day."""
     from datetime import time as dtime
     from zoneinfo import ZoneInfo
-    r = LIVE.get(sym)
+    r, q = LIVE.get(sym), QUOTE.get(sym)
+    if q and (not r or r["ts"] < q["ts"]) and time.time() - q["ts"] <= max_age:         # the chart service is silent: the newest quote from another source
+        return {"px": q["px"], "p": q["p"], "prev": q["prev"], "sess": q["sess"], "ext": None, "today": [], "day": datetime.now().strftime("%Y-%m-%d"), "ts": q["ts"]}
     if not r or time.time() - r["ts"] > max_age:
         return None
     m, pts = r["meta"], r["pts"]
@@ -2801,3 +2804,36 @@ def live_view(sym, max_age=900):
     return {"px": px, "p": (px / base[-1] - 1) * 100, "prev": base[-1], "sess": sess, "ts": r["ts"], "day": last_d.isoformat(),
             "ext": (px / regs[-1] - 1) * 100 if us and sess != "regular" and regs else None,
             "today": [[t, c] for x, t, c in rows if x.date() == last_d]}
+
+
+# ══ Other price sources, used when Yahoo does not answer (each gives one number set per request) ═══════════
+STOOQ = {"^VIX": "^vix", "^GSPC": "^spx", "^IXIC": "^ndq", "^DJI": "^dji", "^RUT": "^rut", "GC=F": "gc.f", "CL=F": "cl.f", "ES=F": "es.f", "NQ=F": "nq.f", "DX-Y.NYB": "dx.f"}
+
+
+def _get(url, headers=None, timeout=15):
+    return http_get(url, timeout=timeout, ua=_BROWSER, headers=headers)
+
+
+def quote_finnhub(sym, key):
+    """Finnhub (free key): real-time US share prices incl. pre-market and after hours, 60 requests a minute."""
+    j = json.loads(_get(f"https://finnhub.io/api/v1/quote?symbol={sym}&token={key}"))
+    if not j.get("c"):
+        raise ValueError("no price")
+    return {"px": j["c"], "p": j.get("dp") or 0.0, "prev": j.get("pc"), "sess": "live", "ts": time.time(), "src": "Finnhub"}
+
+
+def quote_nasdaq(sym):
+    """Nasdaq's own quote page data: no key. Shows the pre-market / after-hours price while those sessions run."""
+    d = json.loads(_get(f"https://api.nasdaq.com/api/quote/{sym}/info?assetclass=stocks", {"Accept": "application/json, text/plain, */*", "Origin": "https://www.nasdaq.com", "Referer": "https://www.nasdaq.com/"}))["data"]
+    pr = d["primaryData"]
+    sign = -1 if str(pr.get("deltaIndicator")).lower() == "down" else 1
+    px, pct = _num(pr["lastSalePrice"]), abs(_num(pr.get("percentageChange"))) * sign
+    status = str(d.get("marketStatus") or "").lower()
+    return {"px": px, "p": pct, "prev": px / (1 + pct / 100) if pct > -100 else None, "sess": "pre-market" if "pre" in status else "after hours" if "after" in status else "regular", "ts": time.time(), "src": "Nasdaq"}
+
+
+def quote_stooq(sym):
+    """Stooq: no key, about 15 minutes late, covers the main indices, futures and the dollar."""
+    rows = list(csv.reader(io.StringIO(_get(f"https://stooq.com/q/l/?s={STOOQ[sym]}&f=sd2t2c&h&e=csv").decode("utf-8", "replace"))))
+    px = float(rows[1][3])
+    return {"px": px, "p": None, "prev": None, "sess": "regular", "ts": time.time(), "src": "Stooq"}
