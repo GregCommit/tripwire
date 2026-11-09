@@ -469,14 +469,17 @@ def apply_live(sym):
     """Puts the newest price into today's point of every stored daily series that follows this symbol; returns True when something changed."""
     changed, r, q = False, S.LIVE.get(sym), S.QUOTE.get(sym)
     if q and (not r or r["ts"] < q["ts"]):
-        px, day = q["px"], datetime.now().strftime("%Y-%m-%d")
+        px, day = q["px"], q.get("day") or datetime.now().strftime("%Y-%m-%d")
     else:
         m = r["meta"]
         px, t = m.get("regularMarketPrice") or r["pts"][-1][1], m.get("regularMarketTime") or r["pts"][-1][0]
         day = datetime.utcfromtimestamp(t + (m.get("gmtoffset") or 0)).strftime("%Y-%m-%d")
     for key in [i["key"] for i in S.INDICATORS if i.get("sym") == sym and i["source"] == "yahoo"] + [k for k, v in S.GEO_ITEMS.items() if v.get("sym") == sym]:
         ser = load_series(key)
-        if not ser or day < ser[-1][0] or (ser[-1][0] == day and abs(ser[-1][1] - px) < 1e-12):
+        if q and q.get("proxy") and ser:         # a fund's move applied to the last close before that day
+            base = [p_[1] for p_ in ser if p_[0] < day]
+            px = base[-1] * (1 + q["p"] / 100) if base else None
+        if not ser or px is None or day < ser[-1][0] or (ser[-1][0] == day and abs(ser[-1][1] - px) < 1e-12):
             continue
         if ser[-1][0] == day:
             ser[-1][1] = px
@@ -488,12 +491,14 @@ def apply_live(sym):
 
 
 def fetch_live(sym):
-    """The price of one symbol from the first source that answers: Finnhub (when you saved a key, US shares), Yahoo, Nasdaq (US shares),
-    Stooq (indices, futures). Records which one worked."""
-    key, errs = get_setting("finnhub_key", ""), []
-    us = bool(US_TICKER.fullmatch(sym))
-    chain = ([("Finnhub", lambda: S.QUOTE.__setitem__(sym, S.quote_finnhub(sym, key)))] if key and us else []) + [("Yahoo", lambda: S.live_quote(sym))] \
-        + ([("Nasdaq", lambda: S.QUOTE.__setitem__(sym, S.quote_nasdaq(sym)))] if us else []) + ([("Stooq", lambda: S.QUOTE.__setitem__(sym, S.quote_stooq(sym)))] if sym in S.STOOQ else [])
+    """The price of one symbol from the first source that answers. US shares and funds: Finnhub (with a key), Nasdaq, Yahoo. Indices: Cboe, Nasdaq,
+    Yahoo. Futures, gold, dollar: Yahoo, Stooq, then the move of a fund that follows them. Records which one worked."""
+    key, errs, us = get_setting("finnhub_key", ""), [], bool(US_TICKER.fullmatch(sym))
+    put = lambda fn: (lambda: S.QUOTE.__setitem__(sym, fn(sym)))
+    chain = ([("Finnhub", lambda: S.QUOTE.__setitem__(sym, S.quote_finnhub(sym, key)))] if key and us else []) \
+        + ([("Cboe", put(S.quote_cboe))] if sym in S.CBOE else []) + ([("Nasdaq", put(S.quote_nasdaq_index))] if sym in S.NASDAQ_INDEX else []) \
+        + ([("Nasdaq", lambda: S.live_nasdaq(sym))] if us else []) + [("Yahoo", lambda: S.live_quote(sym))] \
+        + ([("Stooq", put(S.quote_stooq))] if sym in S.STOOQ else []) + ([("Nasdaq fund", put(S.quote_proxy))] if sym in S.PROXY else [])
     for name, fn in chain:
         try:
             fn()
@@ -541,6 +546,7 @@ def live_loop():
                     _live["derived"] = time.time()
                     run_derived()
                 mark_fetch("fast", True)
+                time.sleep(0.3)
             except Exception as e:
                 nxt[s] = time.time() + 60
                 _live["err"] = f"{s}: {type(e).__name__}: {e}"[:160]
@@ -2362,7 +2368,7 @@ def api_intraday():
     try:
         v = S.live_view(t, 600)
         if not v:
-            S.live_quote(t)
+            fetch_live(t)
             v = S.live_view(t, 600)
         out = {"t": t, "pts": v["today"], "prev": v["prev"]} if v else {"t": t, "pts": [], "prev": None}
     except Exception as e:
@@ -2389,7 +2395,8 @@ def run_selftest():
         raise ValueError("no key saved")
     feed = S.news_feeds()[0]
     tests = [("Yahoo chart AAPL", lambda: yahoo("AAPL")), ("Yahoo chart ^VIX", lambda: yahoo("^VIX")),
-             ("Nasdaq quote NVDA", lambda: str(S.quote_nasdaq("NVDA"))[:110]), ("Stooq ^spx", lambda: str(S.quote_stooq("^GSPC"))[:110]),
+             ("Nasdaq chart NVDA", lambda: (lambda v: f"{v['px']:.2f} {v['p']:+.2f}% {v['sess']}, {len(v['today'])} prices today")(S.live_view(S.live_nasdaq("NVDA") and "NVDA", 10 ** 9))),
+             ("Cboe ^VIX", lambda: str(S.quote_cboe("^VIX"))[:110]), ("Stooq ^spx", lambda: str(S.quote_stooq("^GSPC"))[:110]),
              ("Finnhub NVDA", lambda: str(S.quote_finnhub("NVDA", key))[:110] if key else need_key()),
              ("CNN Fear & Greed", lambda: "score " + str(json.loads(S.http_get("https://production.dataviz.cnn.io/index/fearandgreed/graphdata", timeout=15, ua=BROWSER_UA, headers={"Origin": "https://edition.cnn.com", "Referer": "https://edition.cnn.com/"}))["fear_and_greed"]["score"])),
              ("FRED 10-year yield", lambda: str(S.fetch_fred("DGS10", "2026-01-01")[-1])), ("News feed", lambda: f"{len(S.parse_feed(S.http_get(feed[1], timeout=15, ua=BROWSER_UA), 'x'))} items from {feed[0]}")]

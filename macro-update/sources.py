@@ -2783,7 +2783,7 @@ def live_view(sym, max_age=900):
     from zoneinfo import ZoneInfo
     r, q = LIVE.get(sym), QUOTE.get(sym)
     if q and (not r or r["ts"] < q["ts"]) and time.time() - q["ts"] <= max_age:         # the chart service is silent: the newest quote from another source
-        return {"px": q["px"], "p": q["p"], "prev": q["prev"], "sess": q["sess"], "ext": None, "today": [], "day": datetime.now().strftime("%Y-%m-%d"), "ts": q["ts"]}
+        return {"px": q["px"], "p": q["p"], "prev": q["prev"], "sess": q["sess"], "ext": None, "today": [], "day": q.get("day") or datetime.now().strftime("%Y-%m-%d"), "ts": q["ts"]}
     if not r or time.time() - r["ts"] > max_age:
         return None
     m, pts = r["meta"], r["pts"]
@@ -2793,7 +2793,7 @@ def live_view(sym, max_age=900):
     rows = [(loc(t), t, c) for t, c in pts]
     last_d, px = rows[-1][0].date(), rows[-1][2]
     reg = lambda x: dtime(9, 30) <= x.time() < dtime(16, 0)
-    base = [c for x, t, c in rows if x.date() < last_d and (reg(x) or not us)]
+    base = [m["prev"]] if m.get("prev") else [c for x, t, c in rows if x.date() < last_d and (reg(x) or not us)]
     if not base:
         return None
     sess = "regular"
@@ -2822,14 +2822,56 @@ def quote_finnhub(sym, key):
     return {"px": j["c"], "p": j.get("dp") or 0.0, "prev": j.get("pc"), "sess": "live", "ts": time.time(), "src": "Finnhub"}
 
 
-def quote_nasdaq(sym):
-    """Nasdaq's own quote page data: no key. Shows the pre-market / after-hours price while those sessions run."""
-    d = json.loads(_get(f"https://api.nasdaq.com/api/quote/{sym}/info?assetclass=stocks", {"Accept": "application/json, text/plain, */*", "Origin": "https://www.nasdaq.com", "Referer": "https://www.nasdaq.com/"}))["data"]
-    pr = d["primaryData"]
-    sign = -1 if str(pr.get("deltaIndicator")).lower() == "down" else 1
-    px, pct = _num(pr["lastSalePrice"]), abs(_num(pr.get("percentageChange"))) * sign
-    status = str(d.get("marketStatus") or "").lower()
-    return {"px": px, "p": pct, "prev": px / (1 + pct / 100) if pct > -100 else None, "sess": "pre-market" if "pre" in status else "after hours" if "after" in status else "regular", "ts": time.time(), "src": "Nasdaq"}
+NDQ_HEADERS = {"Accept": "application/json, text/plain, */*", "Origin": "https://www.nasdaq.com", "Referer": "https://www.nasdaq.com/"}
+_NDQ_CLASS = {}      # symbol -> "stocks" or "etf" (which Nasdaq page knows it)
+NASDAQ_INDEX = {"^IXIC": "COMP", "^NDX": "NDX"}
+CBOE = {"^VIX": "_VIX", "^GSPC": "_SPX", "^NDX": "_NDX", "^RUT": "_RUT", "^DJI": "_DJX"}
+PROXY = {"GC=F": "GLD", "CL=F": "USO", "DX-Y.NYB": "UUP", "ES=F": "SPY", "NQ=F": "QQQ", "RTY=F": "IWM"}    # funds that trade 04:00-20:00 ET stand in for futures
+
+
+def live_nasdaq(sym):
+    """Nasdaq's chart data (no key, works from cloud servers): a price for every minute from 04:00 to 20:00 New York time, so pre-market and
+    after hours are in it, plus the previous close. Same shape as the Yahoo data."""
+    from zoneinfo import ZoneInfo
+    ny, j = ZoneInfo("America/New_York"), None
+    for cls in ([_NDQ_CLASS[sym]] if sym in _NDQ_CLASS else ["stocks", "etf"]):
+        j = (json.loads(_get(f"https://api.nasdaq.com/api/quote/{sym}/chart?assetclass={cls}", NDQ_HEADERS)).get("data") or {})
+        if j.get("chart"):
+            _NDQ_CLASS[sym] = cls
+            break
+    else:
+        raise ValueError("Nasdaq does not know " + sym)
+    pts = []
+    for p in j["chart"]:         # Nasdaq sends New York wall-clock time as if it were UTC
+        wall = datetime.utcfromtimestamp(p["x"] / 1000).replace(tzinfo=ny)
+        pts.append((int(wall.timestamp()), float(p["y"])))
+    pts.sort()
+    off = int(datetime.fromtimestamp(pts[-1][0], ny).utcoffset().total_seconds())
+    LIVE[sym] = {"pts": pts, "ts": time.time(), "meta": {"exchangeTimezoneName": "America/New_York", "instrumentType": "EQUITY", "prev": _num(j["previousClose"]),
+                                                          "regularMarketPrice": _num(j["lastSalePrice"]), "regularMarketTime": pts[-1][0], "gmtoffset": off}}
+    return LIVE[sym]
+
+
+def quote_nasdaq_index(sym):
+    """Nasdaq Composite and Nasdaq-100: level and change (no chart)."""
+    d = json.loads(_get(f"https://api.nasdaq.com/api/quote/{NASDAQ_INDEX[sym]}/info?assetclass=index", NDQ_HEADERS))["data"]["primaryData"]
+    px, sign = _num(d["lastSalePrice"]), -1 if str(d.get("deltaIndicator")).lower() == "down" else 1
+    day = datetime.strptime(d["lastTradeTimestamp"][:12].strip(", "), "%b %d, %Y").strftime("%Y-%m-%d") if d.get("lastTradeTimestamp") else None
+    return {"px": px, "p": abs(_num(d["percentageChange"])) * sign, "prev": None, "sess": "regular", "ts": time.time(), "src": "Nasdaq", "day": day}
+
+
+def quote_cboe(sym):
+    """Cboe's delayed quotes (no key): VIX, S&P 500, Nasdaq-100, Russell 2000, Dow (as DJX = Dow / 100)."""
+    d = json.loads(_get(f"https://cdn.cboe.com/api/global/delayed_quotes/quotes/{CBOE[sym]}.json"))["data"]
+    k = 100 if sym == "^DJI" else 1
+    return {"px": d["current_price"] * k, "p": d["price_change_percent"], "prev": d.get("prev_day_close"), "sess": "regular", "ts": time.time(), "src": "Cboe", "day": str(d["last_trade_time"])[:10]}
+
+
+def quote_proxy(sym):
+    """No direct source for this one: the move of a fund that follows it (gold -> GLD, oil -> USO, S&P 500 futures -> SPY ...)."""
+    live_nasdaq(PROXY[sym])
+    v = live_view(PROXY[sym], 10 ** 9)
+    return {"px": None, "p": v["p"], "prev": None, "sess": v["sess"], "ts": time.time(), "src": "fund " + PROXY[sym], "day": v["day"], "proxy": True}
 
 
 def quote_stooq(sym):
