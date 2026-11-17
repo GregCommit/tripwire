@@ -2197,50 +2197,55 @@ def heat_stats(rows):
     big = sorted((r for r in rows if r["c"] >= MEGA_CAP), key=lambda r: -r["c"])
     big = [r for r in big if not (r["t"] == "GOOG" and any(x["t"] == "GOOGL" for x in big))]      # Alphabet counts once
     mega = [{"t": r["t"], "n": r["n"], "pct": round(r.get("pe", r["p"]), 2), "cap": round(r["c"] / 1e9), "sess": r.get("sess")} for r in big]
+    ranked = sorted(rows, key=lambda r: r.get("pe", r["p"]))
+    one = lambda r: {"t": r["t"], "n": r["n"], "pct": round(r.get("pe", r["p"]), 2), "cap": round(r["c"] / 1e9)}
     return {"mega": mega, "megaShare": round(100 * sum(r["c"] for r in big) / cap, 1), "megaAvg": round(sum(m["pct"] * c for m, c in zip(mega, (r["c"] for r in big))) / (sum(r["c"] for r in big) or 1.0), 2) if big else None,
-            "n": n, "down": round(100 * sum(1 for r in rows if r["p"] < 0) / n, 1),
+            "n": n, "down": round(100 * sum(1 for r in rows if r["p"] < 0) / n, 1), "up": round(100 * sum(1 for r in rows if r["p"] > 0) / n, 1),
+            "topUp": [one(r) for r in ranked[::-1][:3]], "topDown": [one(r) for r in ranked[:3]], "up2": round(100 * sum(1 for r in rows if r["p"] >= 2) / n, 1),
             "down2": round(100 * sum(1 for r in rows if r["p"] <= -2) / n, 1), "down2n": sum(1 for r in rows if r["p"] <= -2),
             "up2n": sum(1 for r in rows if r["p"] >= 2), "cap": round(avg(rows, True), 2), "eq": round(avg(rows), 2),
-            "worst": sorted(inds, key=lambda x: x["pct"])[:5], "best": sorted(inds, key=lambda x: -x["pct"])[:3],
+            "worst": sorted(inds, key=lambda x: x["pct"])[:4], "best": sorted(inds, key=lambda x: -x["pct"])[:4],
             "sectors": sorted(({"name": k, "pct": round(avg(v, True), 2)} for k, v in sectors.items()), key=lambda x: x["pct"])}
 
 
 def build_tomorrow(chg, vix, vixts, sect_up, heat, earn, vix3=None, fng=None):
-    """Turn the short-term numbers into warning signs. A sign 'hits' past a fixed, simple threshold. Gauge, not forecast."""
+    """The short-term numbers as signs that point down (red), up (green) or warn (yellow); each negative sign has its positive twin.
+    Gauge, not forecast: the level says which side the weight lies on."""
     signs = []
-    def add(name, val, txt, hit, rule, key=None, sym=None, go=None, note=None, warn=False):
-        signs.append({"name": name, "value": txt, "hit": bool(hit), "warn": bool(warn) and not hit, "v": val, "rule": rule, "key": key, "sym": sym, "go": go, "note": note})
-    for k, name, lim in [("FUT_ES", "S&P 500 futures", -0.7), ("FUT_NQ", "Nasdaq futures", -1.0), ("FUT_RTY", "Small-cap futures", -1.0)]:
+    def add(name, val, txt, bad, rule, key=None, sym=None, go=None, note=None, warn=False, good=False):
+        signs.append({"name": name, "value": txt, "hit": bool(bad), "warn": bool(warn) and not bad, "good": bool(good) and not bad, "v": val, "rule": rule, "key": key, "sym": sym, "go": go, "note": note})
+    for k, name, lim in [("FUT_ES", "S&P 500 futures", 0.7), ("FUT_NQ", "Nasdaq futures", 1.0), ("FUT_RTY", "Small-cap futures", 1.0)]:
         v = chg.get(k)
         if v is not None:
-            add(name, v, f"{v:+.1f}%", v <= lim, f"Where traders price it now vs the last close. Red at {lim:g}% or worse.", sym={"FUT_ES": "ES=F", "FUT_NQ": "NQ=F", "FUT_RTY": "RTY=F"}[k])
+            add(name, v, f"{v:+.1f}%", v <= -lim, f"Where traders price it now vs the last close. Red at −{lim:g}% or worse, green at +{lim:g}% or better.", sym={"FUT_ES": "ES=F", "FUT_NQ": "NQ=F", "FUT_RTY": "RTY=F"}[k], good=v >= lim)
     if vix:
-        add("VIX", vix[1], f"{vix[0]:.1f} ({vix[1]:+.0f}%)", vix[1] >= 10 or vix[0] >= 25, "The fear gauge. Yellow from 20, red from 25 or when it jumps 10% in a day.", "VIX", warn=vix[0] >= 20)
+        add("VIX", vix[1], f"{vix[0]:.1f} ({vix[1]:+.0f}%)", vix[1] >= 10 or vix[0] >= 25, "The fear gauge. Yellow from 20, red from 25 or a 10% jump, green below 15 or a 10% drop.", "VIX", warn=vix[0] >= 20, good=vix[1] <= -10 or vix[0] < 15)
     if vixts is not None:
         calc = f"VIX {vix[0]:.1f} ÷ 3-month VIX {vix3:.1f} = {vixts:.2f}. " if vix and vix3 else ""
-        add("Fear now ÷ fear in 3 months", vixts, f"{vixts:.2f}", vixts >= 1.0,
-            calc + "Normally below 1: traders expect more swings later than now. Above 1.00 they pay more for protection today than for the next 3 months, which marks acute stress.", "VIXTS", note=calc.strip() or None, warn=vixts >= 0.9)
+        add("Fear now ÷ in 3 months", vixts, f"{vixts:.2f}", vixts >= 1.0, calc + "Above 1.00 traders pay more for protection today than for the next 3 months: acute stress. Below 0.80: calm.", "VIXTS", note=calc.strip() or None, warn=vixts >= 0.9, good=vixts <= 0.8)
     if fng and fng.get("score") is not None:
         sc = fng["score"]
         word = (fng.get("rating") or "").replace("_", " ") or ("fear" if sc < 45 else "greed" if sc > 55 else "neutral")
-        add("Fear & Greed" + (" (estimate)" if fng.get("estimate") else ""), sc, f"{sc:.0f} · {word}", sc <= 25,
-            "0 = extreme fear, 100 = extreme greed" + (" (CNN's index)." if not fng.get("estimate") else " (our own estimate; CNN's was not reachable).") + " Red at 25 or below.", "MOOD")
+        add("Fear & Greed" + (" (est.)" if fng.get("estimate") else ""), sc, f"{sc:.0f} · {word}", sc <= 25, "0 = extreme fear, 100 = extreme greed. Red at 25 or below, green at 75 or above.", "MOOD", good=sc >= 75)
     if sect_up is not None:
-        add("Sectors up", sect_up, f"{sect_up:.0f} of 11", sect_up <= 3, "How many of the 11 sectors rose today. Red at 3 or fewer: a broad sell-off.", "SECT_UP")
+        add("Sectors up", sect_up, f"{sect_up:.0f} of 11", sect_up <= 3, "How many of the 11 sectors rose today. Red at 3 or fewer, green at 9 or more.", "SECT_UP", good=sect_up >= 9)
     if heat and heat.get("mega"):
-        m = heat["mega"]; worst = min(m, key=lambda x: x["pct"])
-        add("Mega caps ($1 trillion+) average", heat["megaAvg"], f"{heat['megaAvg']:+.1f}%", heat["megaAvg"] <= -2,
-            f"The {len(m)} companies worth over $1 trillion are {heat['megaShare']:.0f}% of the S&P 500: when they fall, the index falls. Red at −2% or worse.", go="heat")
+        m = heat["mega"]; worst, best = min(m, key=lambda x: x["pct"]), max(m, key=lambda x: x["pct"])
+        add("Mega caps ($1 T+) average", heat["megaAvg"], f"{heat['megaAvg']:+.1f}%", heat["megaAvg"] <= -2,
+            f"The {len(m)} companies worth over $1 trillion are {heat['megaShare']:.0f}% of the S&P 500: as they go, the index goes. Red at −2% or worse, green at +2% or better.", go="heat", good=heat["megaAvg"] >= 2)
         add("Biggest mega-cap fall", worst["pct"], f"{worst['t']} {worst['pct']:+.1f}%", worst["pct"] <= -5, "The weakest company over $1 trillion today. Red at −5% or worse.", go="heat")
+        add("Biggest mega-cap gain", best["pct"], f"{best['t']} {best['pct']:+.1f}%", False, "The strongest company over $1 trillion today. Green at +5% or better.", go="heat", good=best["pct"] >= 5)
     if heat:
-        add("S&P 500 stocks falling", heat["down"], f"{heat['down']:.0f}%", heat["down"] >= 70, "Share of the 500 stocks below yesterday's close. Red at 70% or more.", go="heat")
-        add("Down more than 2%", heat["down2"], f"{heat['down2n']} stocks", heat["down2"] >= 12, "Stocks that lost over 2% today. Red when it is 12% of the index or more.", go="heat")
+        add("S&P 500 stocks rising", heat["up"], f"{heat['up']:.0f}% up", heat["down"] >= 70, "Share of the 500 stocks above yesterday's close. Red when 70% or more fall, green when 70% or more rise.", go="heat", good=heat["up"] >= 70)
+        add("Moves of 2% or more", heat["up2n"], f"{heat['up2n']} up · {heat['down2n']} down", heat["down2"] >= 12, "Stocks that moved over 2% today. Red when 12% of the index fell that much, green when 12% rose that much.", go="heat", good=heat["up2"] >= 12)
     if earn is not None:
-        ah = [r for r in earn if r.get("when") == "after hours" and r["move"] <= -4]
-        add("Big names after hours", -len(ah), f"{len(ah)} down 4%+" if ah else "none", bool(ah), "Large companies falling 4% or more after the close.", go="earn")
-    hits, total = sum(1 for s in signs if s["hit"]), len(signs)
-    level = "high" if total and hits >= max(3, total * 0.4) else "elevated" if hits >= 2 else "low"
-    return {"level": level, "hits": hits, "total": total, "signs": signs}
+        dn = [r for r in earn if r.get("when") == "after hours" and r["move"] <= -4]
+        up = [r for r in earn if r.get("when") == "after hours" and r["move"] >= 4]
+        add("Big names after hours", len(up) - len(dn), (f"{len(up)} up · {len(dn)} down" if up or dn else "no big move"), bool(dn), "Large companies moving 4% or more after the close.", go="earn", good=bool(up) and not dn)
+    bad, good, total = sum(1 for s in signs if s["hit"]), sum(1 for s in signs if s["good"]), len(signs)
+    need = max(3, total * 0.4)
+    side, level = ("down", "high") if bad >= need else ("up", "strong") if good >= need else ("down", "elevated") if bad >= 2 and bad > good else ("up", "moderate") if good >= 2 and good > bad else ("flat", "balanced")
+    return {"level": level, "side": side, "hits": bad, "goods": good, "total": total, "signs": signs}
 
 
 # ══ War maps: open data on a map ══════════════════════════════════════════════════════════════

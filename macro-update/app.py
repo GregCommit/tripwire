@@ -1784,7 +1784,7 @@ def tomorrow_panel(sm):
         fng = {"score": sm["MOOD"]["value"], "rating": "", "estimate": True}
     out = S.build_tomorrow(chg, vix, ts[-1][1] if ts else None, up[-1][1] if up else None, heat, earn["rows"] if earn else None,
                            v3[-1][1] if v3 else None, fng)
-    out["heat"] = heat and {k: heat.get(k) for k in ("worst", "best", "cap", "eq", "n", "ts", "mega", "megaShare", "megaAvg")}
+    out["heat"] = heat and {k: heat.get(k) for k in ("worst", "best", "cap", "eq", "n", "ts", "mega", "megaShare", "megaAvg", "topUp", "topDown", "sectors", "up", "down")}
     return out
 
 
