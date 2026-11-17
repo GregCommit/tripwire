@@ -1719,7 +1719,7 @@ def build_clusters(sm, hub):
     """The groups that belong together, most important first. Within a group the most special
     (and most important for stocks) comes first; 'context' members are shown alongside."""
     allm = {**sm, **{h["key"]: h for h in hub}}
-    out = []
+    out, parent_of = [], {c["id"]: c.get("parent") for c in S.CLUSTERS}
     for c in S.CLUSTERS:
         main = sorted((allm[k] for k in c["main"] if k in allm), key=lambda x: -x["rank"])
         ctx = [allm[k] for k in c["context"] if k in allm]
@@ -1728,6 +1728,9 @@ def build_clusters(sm, hub):
         out.append({"id": c["id"], "title": c["title"], "intro": c["intro"], "rank": max(x["rank"] for x in main),
                     "drivers": S.drivers(c["id"], {x["key"]: x for x in main + ctx}, set(c["main"])), "main": main, "context": []})
     out.sort(key=lambda c: -c["rank"])
+    for c in [c for c in out if parent_of.get(c["id"])][::-1]:        # a sub-group sits right under its parent (in their listed order)
+        out.remove(c)
+        out.insert(next((i + 1 for i, o in enumerate(out) if o["id"] == parent_of[c["id"]]), len(out)), c)
     return out
 
 

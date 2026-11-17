@@ -2884,3 +2884,102 @@ def quote_stooq(sym):
     rows = list(csv.reader(io.StringIO(_get(f"https://stooq.com/q/l/?s={STOOQ[sym]}&f=sd2t2c&h&e=csv").decode("utf-8", "replace"))))
     px = float(rows[1][3])
     return {"px": px, "p": None, "prev": None, "sess": "regular", "ts": time.time(), "src": "Stooq"}
+
+
+# ══ Inflation and interest rates: everything that moves the rate (US, euro area, ECB) ═══════════════════════
+def fetch_ecb(code, start="1999-01-01", step=False):
+    """A series of the European Central Bank's data service (no key): [[date, value]]. Policy rates only list their changes; with step=True
+    the last value is carried to today so the series ends today."""
+    raw = http_get(f"https://data-api.ecb.europa.eu/service/data/{code}?format=csvdata&startPeriod={start}", timeout=40).decode("utf-8", "replace")
+    pts = []
+    for r in csv.DictReader(io.StringIO(raw)):
+        t, v = r.get("TIME_PERIOD", ""), r.get("OBS_VALUE", "")
+        if t and v not in ("", "NaN"):
+            pts.append([t + "-01" if len(t) == 7 else t, float(v)])
+    pts = _clean(sorted(pts))
+    if step and pts and pts[-1][0] < date.today().isoformat():
+        pts.append([date.today().isoformat(), pts[-1][1]])
+    return pts
+
+
+HubData.ecb = lambda self, code, start="1999-01-01", step=False: self._fred.setdefault(("ecb", code, start), fetch_ecb(code, start, step))
+_build_hub_old = build_hub
+
+
+def build_hub(item, hd):                      # noqa: F811  (the ECB kind added to the existing builder)
+    return hd.ecb(item["sym"], item.get("start", "1999-01-01"), item.get("step", False)) if item["kind"] == "ecb" else _build_hub_old(item, hd)
+
+
+HUB_CATS.append(("infl", "Inflation, interest rates & central banks", "Every inflation measure and every central-bank rate that can move the interest rate: the US, the euro area and the ECB."))
+
+
+def _h(key, name, kind, sym, why, high, low, unit="%", dec=1, freq="monthly", **kw):
+    return dict(key=key, name=name, cat="infl", kind=kind, sym=sym, start=kw.pop("start", "1999-01-01"), unit=unit, dec=dec, freq=freq, why=why, high=high, low=low, **kw)
+
+
+_INFL_UP = "Inflation is high: the central bank keeps rates high for longer, which weighs on bonds and stocks and lifts the dollar."
+_INFL_DN = "Inflation is low: the central bank has room to cut rates, which helps bonds and stocks."
+HUB += [
+    # US inflation, each in its own way of counting
+    _h("PCECORE", "Core PCE inflation (the Fed's own target measure, yearly)", "fred_yoy", "PCEPILFE", "PCE prices without food and energy. This is the number the Federal Reserve officially targets (2%).", _INFL_UP, _INFL_DN, signed=True, start="1960-01-01"),
+    _h("MEDCPI", "Median CPI (the typical price rise, annualised monthly)", "fred", "MEDCPIM158SFRBCLE", "The price change of the item in the middle of the CPI basket, so a few wild prices cannot distort it (Cleveland Fed).", _INFL_UP, _INFL_DN, signed=True, start="1983-01-01"),
+    _h("STICKY", "Sticky-price inflation (CPI items that change slowly, yearly)", "fred", "STICKCPIM157SFRBATL", "Prices of things that rarely change (rent, services). When these rise, inflation is hard to bring down (Atlanta Fed).", _INFL_UP, _INFL_DN, signed=True, start="1968-01-01"),
+    _h("TRIMPCE", "Trimmed-mean PCE inflation (12 months)", "fred", "PCETRIM12M159SFRBDAL", "PCE inflation after cutting off the biggest rises and falls (Dallas Fed): the underlying trend.", _INFL_UP, _INFL_DN, signed=True, start="1978-01-01"),
+    _h("SHELTER", "Rent and housing costs in the CPI (shelter, yearly)", "fred_yoy", "CUSR0000SAH1", "The biggest single part of the CPI. Rents change slowly, so this keeps inflation high or low for a long time.", _INFL_UP, _INFL_DN, signed=True, start="1960-01-01"),
+    _h("BE5", "Inflation expected over 5 years (bond market)", "fred", "T5YIE", "Bond investors' guess for average yearly inflation over the next 5 years.", "Investors expect inflation to stay high: short and medium yields rise with it.", "Investors expect low inflation, or fear weak growth.", dec=2, freq="daily", start="2003-01-01"),
+    _h("FWD5Y5Y", "Inflation expected for years 5 to 10 (5y5y forward)", "fred", "T5YIFR", "Expected inflation in the five years that start five years from now: the number central banks watch to see whether people still trust the 2% target.", "Long-run inflation expectations are rising: central banks get nervous and long yields rise.", "Long-run expectations are low and stable: the central bank is believed.", dec=2, freq="daily", start="2003-01-01"),
+    _h("MICH", "Consumers' inflation expectation, next 12 months (Michigan)", "fred", "MICH", "What households think prices will do over the next year (University of Michigan survey).", "Households expect high inflation: they ask for higher pay, and central banks worry it becomes self-fulfilling.", "Households expect calm prices.", start="1978-01-01"),
+    # US rates the Fed and the bond market set
+    _h("US5Y", "5-year Treasury yield", "fred", "DGS5", "Interest on 5-year US government bonds: it follows what the Fed is expected to do over the next years.", "Rates are expected to stay high.", "Rates are expected to fall.", unit="%", dec=2, freq="daily", start="1962-01-01"),
+    _h("US30Y", "30-year Treasury yield", "fred", "DGS30", "Interest on 30-year US government bonds: it moves with long-run inflation and the budget deficit.", "Long-term borrowing is expensive: mortgages and company loans follow.", "Long-term borrowing is getting cheaper.", unit="%", dec=2, freq="daily", start="1977-01-01"),
+    _h("TERMPREM", "Term premium of the 10-year yield (NY Fed)", "fred", "ACMTP10", "The extra yield investors demand for holding a 10-year bond instead of rolling short ones. It rises with deficits and inflation fear.", "Investors want a lot of extra pay for long bonds: long yields rise even if the Fed does not move.", "Investors accept little extra pay: long bonds are in demand.", unit="%", dec=2, freq="daily", start="1990-01-01"),
+    _h("CURVE3M", "Yield curve: 10-year minus 3-month", "fred", "T10Y3M", "The gap between long and short rates. Negative means the market expects cuts or a slowdown; it is the Fed's own favourite recession signal.", "Long rates are well above short ones: normal, growth is expected.", "The curve is inverted: short rates are above long ones, historically a warning of recession.", unit=" pt", dec=2, freq="daily", start="1982-01-01", signed=True),
+    # Euro area inflation (ECB data) and the ECB
+    _h("EZ_HICP", "Euro area inflation (HICP, yearly)", "ecb", "ICP/M.U2.N.000000.4.ANR", "How much consumer prices in the euro area rose over 12 months. The ECB aims for 2%.", _INFL_UP, _INFL_DN, signed=True),
+    _h("EZ_CORE", "Euro area core inflation (without energy, food, alcohol, tobacco)", "ecb", "ICP/M.U2.N.XEF000.4.ANR", "Euro area inflation without the volatile parts: what the ECB's decisions rest on.", _INFL_UP, _INFL_DN, signed=True),
+    _h("EZ_SERV", "Euro area services inflation (yearly)", "ecb", "ICP/M.U2.N.SERV00.4.ANR", "Prices of services (travel, rent, restaurants): driven by wages, so it is the most stubborn part.", _INFL_UP, _INFL_DN, signed=True),
+    _h("EZ_ENRG", "Euro area energy prices (yearly change)", "ecb", "ICP/M.U2.N.NRGY00.4.ANR", "How much energy cost households over the last 12 months: gas, electricity, petrol.", "Energy is much more expensive than a year ago: it pushes headline inflation up.", "Energy is cheaper than a year ago: it pulls headline inflation down.", signed=True),
+    _h("ECB_DFR", "ECB deposit rate (the ECB's main rate)", "ecb", "FM/B.U2.EUR.4F.KR.DFR.LEV", "The rate banks get for parking money at the ECB. It is the ECB's main steering rate.", "The ECB keeps money expensive: bad for borrowers, good for the euro.", "The ECB has cut rates: cheaper money, weaker euro.", dec=2, freq="daily", step=True, start="1999-01-01"),
+    _h("ECB_MRR", "ECB main refinancing rate", "ecb", "FM/B.U2.EUR.4F.KR.MRR_FR.LEV", "The rate at which banks borrow from the ECB for a week.", "Borrowing from the ECB is expensive.", "Borrowing from the ECB is cheap.", dec=2, freq="daily", step=True, start="1999-01-01"),
+    _h("ESTR", "Euro overnight rate (€STR)", "ecb", "EST/B.EU000A2X2A25.WT", "What banks really pay for overnight money in euros: the real-time result of the ECB's steering.", "Overnight money is expensive.", "Overnight money is cheap.", dec=3, freq="daily", start="2019-10-01"),
+    _h("EZ2Y", "Euro area 2-year yield (AAA governments)", "ecb", "YC/B.U2.EUR.4F.G_N_A.SV_C_YM.SR_2Y", "What the euro area's safest governments pay for 2 years: it follows what the ECB is expected to do.", "Markets expect the ECB to keep rates high.", "Markets expect the ECB to cut.", dec=2, freq="daily", start="2004-09-01"),
+    _h("EZ10Y", "Euro area 10-year yield (AAA governments, Bund-like)", "ecb", "YC/B.U2.EUR.4F.G_N_A.SV_C_YM.SR_10Y", "The long-term interest rate of the euro area's safest governments: the euro twin of the US 10-year yield.", "European long rates are high: it also pulls US yields up.", "European long rates are low.", dec=2, freq="daily", start="2004-09-01"),
+    _h("EURUSD", "Euro in dollars (ECB reference rate)", "ecb", "EXR/D.USD.EUR.SP00.A", "How many dollars one euro costs. The euro is more than half of the dollar index.", "The euro is strong, the dollar weak.", "The euro is weak, the dollar strong.", unit="$", dec=4, freq="daily", start="1999-01-01"),
+]
+HUB_BY_KEY.update({h["key"]: h for h in HUB})
+WEIGHT.update({"PCECORE": 4.5, "MEDCPI": 3, "STICKY": 3, "TRIMPCE": 3, "SHELTER": 3, "BE5": 3, "FWD5Y5Y": 3.5, "MICH": 3, "US5Y": 3.5, "US30Y": 3.5, "TERMPREM": 3, "CURVE3M": 3.5,
+               "EZ_HICP": 4, "EZ_CORE": 4, "EZ_SERV": 3, "EZ_ENRG": 3, "ECB_DFR": 4.5, "ECB_MRR": 2.5, "ESTR": 2.5, "EZ2Y": 3.5, "EZ10Y": 4, "EURUSD": 4})
+GOOD.update({k: -1 for k in ("PCECORE", "MEDCPI", "STICKY", "TRIMPCE", "SHELTER", "BE5", "FWD5Y5Y", "MICH", "EZ_HICP", "EZ_CORE", "EZ_SERV", "EZ_ENRG")})
+# the rates cluster gets the headline inflation figures and more rates; two new clusters sit right under it
+CLUSTERS[0]["main"] = ["US10Y", "US2Y", "US1Y", "CURVE", "MORT30", "FEDFUNDS", "DXY", "REAL10", "INFEXP", "USCPI", "CORECPI", "PCEPI", "PCECORE", "US5Y", "US30Y", "TERMPREM", "ECB_DFR", "EZ_HICP", "EZ10Y", "EURUSD"]
+CLUSTERS[1:1] = [
+    dict(id="infl_us", parent="rates", title="US inflation: every way of counting it",
+         intro="The Fed raises or lowers rates because of inflation. These are the different ways to measure it, from the headline to the stubborn core, plus what bond investors and households expect.",
+         main=["USCPI", "CORECPI", "PCEPI", "PCECORE", "MEDCPI", "STICKY", "TRIMPCE", "SHELTER", "PPI", "WAGES", "INFEXP", "BE5", "FWD5Y5Y", "MICH"], context=["FEDFUNDS", "US10Y"]),
+    dict(id="euro", parent="rates", title="Euro area: inflation, the ECB and yields",
+         intro="What the ECB sees (inflation, in four ways) and what it does (three rates), and how the euro area's own bond yields and the euro answer.",
+         main=["EZ_HICP", "EZ_CORE", "EZ_SERV", "EZ_ENRG", "ECB_DFR", "ECB_MRR", "ESTR", "EZ2Y", "EZ10Y", "EURUSD"], context=["US10Y", "DXY"])]
+NEWS_TOPICS.update({"ECB_DFR": ["ecb", "european central bank", "lagarde", "ecb rate", "ecb cut", "ecb hike"], "EZ_HICP": ["eurozone inflation", "euro zone inflation", "euro area inflation", "hicp"], "EZ_CORE": ["eurozone core inflation", "euro area core"],
+                    "EZ10Y": ["bund", "bunds", "german yields", "euro zone yields", "eurozone yields", "bund yield"], "EURUSD": ["euro falls", "euro rises", "eur/usd", "euro dollar", "the euro"],
+                    "PCECORE": ["core pce"], "TERMPREM": ["term premium"], "FWD5Y5Y": ["5y5y", "long-term inflation expectations"], "MICH": ["inflation expectations", "michigan survey"]})
+_NEWS_RX.update({k: re.compile(r"(?<![a-z0-9])(?:" + "|".join(re.escape(p) for p in NEWS_TOPICS[k]) + r")(?![a-z0-9])", re.I) for k in ("ECB_DFR", "EZ_HICP", "EZ_CORE", "EZ10Y", "EURUSD", "PCECORE", "TERMPREM", "FWD5Y5Y", "MICH")})
+RELATIONS.extend([
+    # US: how each measure reaches the Fed and the yields
+    ("CORECPI", "FEDFUNDS", "same", "The Fed sets its rate by inflation: stubborn core inflation keeps it high."), ("PCECORE", "FEDFUNDS", "same", "Core PCE is the Fed's own target measure: when it stays above 2%, the Fed does not cut."),
+    ("PCECORE", "US2Y", "same", "The 2-year yield prices the Fed's next moves, and those follow core PCE."), ("CORECPI", "US2Y", "same", "Hot core inflation means the Fed stays tight, which lifts the 2-year yield."),
+    ("USCPI", "US10Y", "same", "Higher inflation makes bond investors demand more yield to protect their purchasing power."), ("PCEPI", "FEDFUNDS", "same", "PCE inflation is the Fed's target: above 2% means no easing."),
+    ("MEDCPI", "CORECPI", "same", "The median CPI is a cleaner reading of the same underlying inflation."), ("STICKY", "CORECPI", "same", "Sticky prices (rents, services) are most of core inflation."),
+    ("SHELTER", "CORECPI", "same", "Shelter is the biggest part of core CPI, so rents decide where it goes."), ("TRIMPCE", "PCECORE", "same", "The trimmed mean is a smoothed twin of core PCE."),
+    ("WAGES", "STICKY", "same", "Wages are the main cost of services, the sticky part of inflation."), ("PPI", "CORECPI", "same", "Companies' costs reach shop prices a few months later."),
+    ("BE5", "US2Y", "same", "Medium-run inflation expectations are part of the nominal yield."), ("FWD5Y5Y", "US10Y", "same", "Long-run inflation expectations feed straight into the long yield."),
+    ("MICH", "BE5", "same", "Households' and bond investors' inflation expectations usually move the same way."), ("TERMPREM", "US10Y", "same", "The term premium is the part of the 10-year yield that has nothing to do with Fed expectations."),
+    ("US5Y", "MORT30", "same", "Mortgage rates follow the 5- to 10-year yields."), ("US30Y", "MORT30", "same", "Mortgage rates follow the long yields."), ("US10Y", "US30Y", "same", "Long yields move together."),
+    ("CURVE3M", "SAHM", "inverse", "An inverted curve has preceded recessions, and rising unemployment follows them."),
+    # euro area: inflation -> ECB -> yields -> euro
+    ("EZ_CORE", "ECB_DFR", "same", "The ECB sets its rate by core inflation: stubborn core means no cuts."), ("EZ_HICP", "ECB_DFR", "same", "Headline inflation above 2% keeps the ECB cautious."),
+    ("EZ_SERV", "EZ_CORE", "same", "Services are the biggest and stickiest part of core inflation."), ("EZ_ENRG", "EZ_HICP", "same", "Energy prices swing headline inflation up and down."),
+    ("ECB_DFR", "ESTR", "same", "The overnight rate follows the ECB's deposit rate almost one to one."), ("ECB_DFR", "ECB_MRR", "same", "The ECB moves its three rates together."),
+    ("ECB_DFR", "EZ2Y", "same", "The 2-year yield prices the ECB's next moves."), ("EZ2Y", "EZ10Y", "same", "Short and long euro yields move together."), ("EZ10Y", "US10Y", "same", "Bond markets are linked worldwide: a rise in euro yields pulls US yields up and the other way round."),
+    ("ECB_DFR", "EURUSD", "same", "Higher ECB rates make the euro more attractive, which lifts it against the dollar."), ("EURUSD", "DXY", "inverse", "The euro is more than half of the dollar index: a rising euro means a falling dollar."),
+    ("EZ10Y", "EURUSD", "same", "Higher euro yields attract money into the euro."), ("WTI", "EZ_ENRG", "same", "Oil is a big part of what energy costs in Europe."), ("FEDFUNDS", "EURUSD", "inverse", "A Fed that stays higher than the ECB lifts the dollar against the euro."),
+])
