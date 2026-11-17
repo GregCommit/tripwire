@@ -153,7 +153,7 @@ h2.sub{font-size:14px;color:var(--mute);font-weight:500;margin:18px 0 6px}
 .gtag{display:inline-block;font-size:9.5px;letter-spacing:.05em;padding:0 5px;border-radius:2px;border:1px solid;margin-left:6px;vertical-align:1px}
 .gtag.up{color:var(--txt);border-color:var(--dim)}.gtag.low{color:var(--watch);border-color:var(--watch)}
 .ctxhead{margin:14px 0 6px}
-.tile.rotile{position:relative;padding-bottom:52px}.rotfoot{position:absolute;left:18px;right:18px;bottom:12px;display:flex;align-items:center;gap:10px;font-size:12px;color:var(--dim)}.rotfoot button{background:none;border:1px solid var(--line2);color:var(--mute);border-radius:4px;width:26px;height:24px;line-height:1;cursor:pointer;font-size:15px;padding:0}.rotfoot button:hover{color:var(--txt);border-color:var(--mute)}
+.tile.rotile{position:relative;padding-bottom:52px}.rotstack{display:grid}.rotitem{grid-area:1/1;visibility:hidden}.rotitem.on{visibility:visible}.rotfoot{position:absolute;left:18px;right:18px;bottom:12px;display:flex;align-items:center;gap:10px;font-size:12px;color:var(--dim)}.rotfoot button{background:none;border:1px solid var(--line2);color:var(--mute);border-radius:4px;width:26px;height:24px;line-height:1;cursor:pointer;font-size:15px;padding:0}.rotfoot button:hover{color:var(--txt);border-color:var(--mute)}
 .rotbar{flex:1;height:3px;background:var(--line2);border-radius:2px;overflow:hidden}.rotbar i{display:block;height:100%;width:100%;background:var(--accent);transform-origin:left;animation:rotbar 9s linear forwards}.rotile:hover .rotbar i{animation-play-state:paused}@keyframes rotbar{from{transform:scaleX(0)}to{transform:scaleX(1)}}
 .tiles-head{margin:2px 0 10px}.tlabel{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
 .tflag{font-size:12px;font-weight:500;color:var(--alert);margin-top:8px;letter-spacing:.02em}
@@ -647,35 +647,46 @@ function enhanceCards(){
     else api('/api/intraday?t=' + encodeURIComponent(sym)).then(d => { INTRA.set(sym, {ts: Date.now(), d}); apply(d); }).catch(() => {});
   }
 }
-function moverTile(m, rot){
+function moverInner(m){
   const arrow = m.chg > 0 ? '▲' : m.chg < 0 ? '▼' : '', cls = m.extreme ? 'down' : chgClass({good: m.good}, m.chg);
   const big = `${arrow} ${fmtChg({chgKind: m.chgKind, unit: m.unit, dec: m.dec}, m.chg)}`;
-  const foot = rot ? `<div class="rotfoot" onclick="event.stopPropagation()"><button type="button" aria-label="Previous" onclick="rotStep(-1)">‹</button><div class="rotbar"><i onanimationend="rotStep(1)"></i></div><span>${rot.i + 1}/${rot.n}</span><button type="button" aria-label="Next" onclick="rotStep(1)">›</button></div>` : '';
-  return `<div class="tile${rot ? ' rotile' : ''}"${rot ? ' id="rotile"' : ''} onclick="explain('${m.key}', this)"><div class="tl">${esc(m.clusterTitle)}</div><div class="tn">${esc(m.name)}</div>
+  return `<div class="tl">${esc(m.clusterTitle)}</div><div class="tn">${esc(m.name)}</div>
     ${m.extreme ? '<div class="tflag">At an extreme</div>' : `<div class="tv ${cls}">${big}<span class="tw">${esc(m.horizon)}</span></div>`}
     <div class="tnow">Now ${esc(fmtVal({unit: m.unit, dec: m.dec, signed: m.signed}, m.value))}</div>
-    ${m.news ? `<a class="tnews" href="${esc(m.news.link)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">${esc(m.news.title)}<span>${esc(m.news.source)} · ${esc(ago(m.news.ts))}</span></a>` : ''}${foot}</div>`;
+    ${m.news ? `<a class="tnews" href="${esc(m.news.link)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">${esc(m.news.title)}<span>${esc(m.news.source)} · ${esc(ago(m.news.ts))}</span></a>` : ''}`;
 }
-// The third tile rotates through the items that compete for that place (only the really important ones), with a bar that shows how long each stays
+function moverTile(m){
+  return `<div class="tile" onclick="explain('${m.key}', this)">${moverInner(m)}</div>`;
+}
+// The third tile rotates through the items that compete for that place (only the really important ones), with a bar that shows how long each stays.
+// All candidates sit in the same grid cell, so the tile is always as tall as the tallest one and nothing below it moves.
 let ROT = {i: 0, list: []};
 function rotCandidates(movers){
   if (movers.length <= 3) return [];
   const r3 = movers[2].rank;
   return movers.slice(2, 8).filter(m => m.rank >= 0.55 * r3);
 }
+function rotTile(list, i){
+  const n = list.length;
+  const items = list.map((m, k) => `<div class="rotitem${k === i ? ' on' : ''}">${moverInner(m)}</div>`).join('');
+  return `<div class="tile rotile" id="rotile" data-k="${esc(list[i].key)}" onclick="explain(this.dataset.k, this)"><div class="rotstack">${items}</div><div class="rotfoot" onclick="event.stopPropagation()"><button type="button" aria-label="Previous" onclick="rotStep(-1)">‹</button><div class="rotbar"><i onanimationend="rotStep(1)"></i></div><span class="rotcnt">${i + 1}/${n}</span><button type="button" aria-label="Next" onclick="rotStep(1)">›</button></div></div>`;
+}
 function rotStep(dir){
   const n = ROT.list.length, el = document.getElementById('rotile'); if (n < 2 || !el) return;
   ROT.i = (ROT.i + dir + n) % n;
-  const tmp = document.createElement('div'); tmp.innerHTML = moverTile(ROT.list[ROT.i], {i: ROT.i, n}); const nu = tmp.firstElementChild;
-  el.replaceWith(nu);
-  if (!REDUCED) nu.animate([{opacity: 0, transform: `translateX(${dir * 36}px)`}, {opacity: 1, transform: 'none'}], {duration: D(700), easing: 'cubic-bezier(.2,.8,.25,1)'});
+  const items = el.querySelectorAll('.rotitem');
+  items.forEach((it, k) => it.classList.toggle('on', k === ROT.i));
+  el.dataset.k = ROT.list[ROT.i].key;
+  el.querySelector('.rotcnt').textContent = `${ROT.i + 1}/${n}`;
+  const bar = el.querySelector('.rotbar'); bar.innerHTML = '<i onanimationend="rotStep(1)"></i>';
+  if (!REDUCED) items[ROT.i].animate([{opacity: 0, transform: `translateX(${dir * 36}px)`}, {opacity: 1, transform: 'none'}], {duration: D(700), easing: 'cubic-bezier(.2,.8,.25,1)'});
 }
 function tilesHTML(movers){
   const fixed = movers.slice(0, 2), cand = rotCandidates(movers);
   ROT.list = cand.length >= 2 ? cand : [];
   if (!ROT.list.length) return fixed.concat(movers.slice(2, 3)).map(m => moverTile(m)).join('');
   if (ROT.i >= ROT.list.length) ROT.i = 0;
-  return fixed.map(m => moverTile(m)).join('') + moverTile(ROT.list[ROT.i], {i: ROT.i, n: ROT.list.length});
+  return fixed.map(m => moverTile(m)).join('') + rotTile(ROT.list, ROT.i);
 }
 function earnHTML(E){
   if (!E || !E.rows || !E.rows.length) return '';
