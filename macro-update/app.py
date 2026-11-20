@@ -1097,7 +1097,7 @@ def refresh_heat_hist():
             ser = {a: b for a, b in weekly.get(sym, []) if a < cut}
             ser.update({a: b for a, b in daily.get(sym, [])})
             if ser:
-                closes[sym] = ser
+                closes[sym] = {d: v for d, v in S.fix_splits(sorted(ser.items()))}      # share splits are not price falls
         time.sleep(12)          # slowly: about one request per second, so Yahoo does not block the live prices
     if len(closes) < 50:
         raise RuntimeError("heat history: only %d stocks came back" % len(closes))
@@ -1212,7 +1212,7 @@ def refresh_stocks():
                         got[t] = g
                 except Exception as e:
                     log.warning("Stooq %s: %s", t, e)
-        STOCK_PTS.update({t: g["pts"] for t, g in got.items()})
+        STOCK_PTS.update({t: S.fix_splits(g["pts"]) for t, g in got.items()})
         names, earn = _stock_names(), json.loads(get_setting("stock_earn", "{}") or "{}")
         news_all = json.loads(get_setting("stock_news", "{}") or "{}")
         extm = {s: v for s in symof.values() if US_TICKER.fullmatch(s) and (v := S.live_view(s))}
@@ -2483,7 +2483,7 @@ def stock_series(t, rec):
             g = S.fetch_stooq(sym, days=1500)
             pts = g["pts"] if g else []
         else:
-            pts = (S.fetch_yahoo([sym], "5y") or {}).get(sym, [])
+            pts = S.fix_splits((S.fetch_yahoo([sym], "5y") or {}).get(sym, []))
     except Exception as e:
         log.warning("Stock series %s: %s", t, e)
         pts = []

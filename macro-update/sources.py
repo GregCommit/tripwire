@@ -216,6 +216,32 @@ def _clean(pts):
     return [[d, seen[d]] for d in sorted(seen)]
 
 
+_SPLITS = (1.5, 2, 3, 4, 5, 6, 7, 8, 10, 12, 15, 20, 25, 30, 40, 50)
+
+
+def fix_splits(pts):
+    """Stock prices without share splits: when the price drops overnight to about 1/n (or jumps to n times) with n a usual split ratio,
+    everything before that day is rescaled, so a split never looks like a crash. Works on [[date, price]], also repairs a merge of
+    adjusted and unadjusted data. Only for single stocks (an index can legitimately halve)."""
+    pts = [[d, float(v)] for d, v in pts]
+    for i in range(len(pts) - 1, 0, -1):
+        a, b = pts[i - 1][1], pts[i][1]
+        if a <= 0 or b <= 0:
+            continue
+        r = b / a
+        for inv in (False, True):
+            q = (1 / r) if not inv else r          # q > 1: forward split (price falls) / reverse split (price rises)
+            if q < 1.4:
+                continue
+            n = min(_SPLITS, key=lambda x: abs(q / x - 1))
+            if abs(q / n - 1) <= (0.03 if n < 5 else 0.12):
+                f = (1 / n) if not inv else n       # earlier prices times f
+                for j in range(i):
+                    pts[j][1] *= f
+                break
+    return pts
+
+
 def fetch_yahoo(symbols, period="5y", interval="1d"):
     """{symbol: points} — daily closes (five years unless told otherwise); today's bar is the latest price."""
     import yfinance as yf
@@ -1730,10 +1756,13 @@ def fetch_screener():
                 continue
             pct = r_.get("pctchange")
             out[t] = {"n": r_.get("name") or t, "p": 0.0 if str(pct).strip().upper() in ("UNCH", "", "NONE") else _num(pct),
-                      "m": _num(r_.get("marketCap")), "px": _num(r_.get("lastsale")), "s": r_.get("sector") or "", "i": r_.get("industry") or ""}
+                      "m": _num(r_.get("marketCap")), "px": _num(r_.get("lastsale")), "s": r_.get("sector") or "", "i": r_.get("industry") or "", "x": ex}
     if len(out) < 500:
         raise ValueError(f"screener returned only {len(out)} stocks")
     return out
+
+
+US_TICKER_RX = re.compile(r"[A-Z]{1,5}")
 
 
 def build_heatmap(index, wiki=None, screener=None, yahoo=None, caps=None):
@@ -1758,6 +1787,19 @@ def build_heatmap(index, wiki=None, screener=None, yahoo=None, caps=None):
     elif yahoo:
         notes.append("prices: Yahoo Finance; market caps: approximate (screener not reachable)")
     rows = [r for r in rows if r["c"] > 0]
+    if index == "nasdaq100" and screener and len(rows) >= 50:
+        # The Nasdaq-100 takes big new listings quickly (top 25 by value, after 15 trading days); Wikipedia can lag behind.
+        # Anything listed on Nasdaq that is worth at least as much as the 25th-largest member is shown right away — no manual list.
+        known = {r["t"] for r in rows}
+        thr = sorted((r["c"] for r in rows), reverse=True)[24]
+        bad = re.compile(r"\b(etf|fund|trust|warrant|warrants|units?|acquisition|notes?|preferred|depositary)\b", re.I)
+        added = []
+        for t, q in screener.items():
+            if q.get("x") == "NASDAQ" and t not in known and US_TICKER_RX.fullmatch(t) and q["m"] >= thr and not bad.search(q["n"] or ""):
+                rows.append({"t": t, "n": q["n"] or t, "s": q["s"] or "Other", "i": q["i"], "c": q["m"], "p": q["p"]})
+                added.append(t)
+        if added:
+            notes.append("added automatically (large Nasdaq listing, not yet on the index list): " + ", ".join(added))
     # a company with two share classes is listed twice with the company's full value: show it once (class A) with the larger value
     DUAL = {"GOOG": "GOOGL", "FOX": "FOXA", "NWS": "NWSA", "UA": "UAA", "BF-A": "BF-B", "LEN-B": "LEN", "BRK-A": "BRK-B"}
     by_t = {r["t"]: r for r in rows}
